@@ -102,7 +102,6 @@ BEGIN_FUNCTION pytorch_q8gemm_dq_sparse_1x4_ukernel_8x4__aarch32_neon
     VLD1.8 {d16[]}, [r7]
     ADD r7, r7, 4
     # Load pointer to per channel zero points array
-    # Post-index: After load increment r7 by 4
     LDR r4, [r7]
     # Add output_channel_index to the b_zero_point pointer
     ADD r4, r4, r5
