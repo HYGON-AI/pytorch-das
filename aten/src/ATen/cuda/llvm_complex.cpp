@@ -1138,23 +1138,23 @@ inline namespace literals
 {
   inline namespace complex_literals
   {
-    constexpr complex<double> operator""i(long double __im)
+    constexpr complex<double> operator"" _i(long double __im)
     {
         return { 0.0, static_cast<double>(__im) };
     }
 
-    constexpr complex<double> operator""i(unsigned long long __im)
+    constexpr complex<double> operator"" _i(unsigned long long __im)
     {
         return { 0.0, static_cast<double>(__im) };
     }
 
 
-    constexpr complex<float> operator""if(long double __im)
+    constexpr complex<float> operator"" _if(long double __im)
     {
         return { 0.0f, static_cast<float>(__im) };
     }
 
-    constexpr complex<float> operator""if(unsigned long long __im)
+    constexpr complex<float> operator"" _if(unsigned long long __im)
     {
         return { 0.0f, static_cast<float>(__im) };
     }
