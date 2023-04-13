@@ -1,6 +1,6 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/detail/DeviceThreadHandles.h>
-
+#include <iostream>
 namespace at { namespace cuda {
 namespace {
 
@@ -58,8 +58,14 @@ cublasHandle_t getCurrentCUDABlasHandle() {
   }
 #endif
 #if defined(USE_ROCM) && ROCM_VERSION >= 30800
+  static const char rocblas_config_var_name[] = "ROCBLAS_ATOMICS_MOD";
+  char* rocblas_config = std::getenv(rocblas_config_var_name);
+  int rocblas_mod_value =1;
+  if (rocblas_config != nullptr){
+    rocblas_mod_value = c10::stoi(rocblas_config);
+  }
   rocblas_atomics_mode rocblas_mode;
-  if (at::globalContext().deterministicAlgorithms()) {
+  if (at::globalContext().deterministicAlgorithms() || (rocblas_mod_value != 1 )) {
     rocblas_mode = rocblas_atomics_not_allowed;
   } else {
     rocblas_mode = rocblas_atomics_allowed;
