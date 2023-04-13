@@ -628,7 +628,14 @@ Tensor nll_loss(const Tensor & self, const Tensor & target, const c10::optional<
   c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight_opt);
   const Tensor& weight = *weight_maybe_owned;
 
+  #if defined (__HIP_PLATFORM_HCC__)
+  c10::MaybeOwned<at::Tensor> target_maybe_owned = target.expect_contiguous();
+  const Tensor & target_new = *target_maybe_owned;
+
+  return std::get<0>(at::nll_loss_forward(self, target_new, weight, reduction, ignore_index));
+  #else
   return std::get<0>(at::nll_loss_forward(self, target, weight, reduction, ignore_index));
+  #endif
 }
 
 Tensor nll_loss_nd(
