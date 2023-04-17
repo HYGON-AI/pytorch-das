@@ -355,6 +355,136 @@ static void upsample_bilinear2d_out_cuda_template(
   });
 }
 
+//upsample optimization
+size_t get_env_dcu(const char* env_name, size_t def_value = 0) 
+{
+  if (auto* value = std::getenv(env_name)) {
+    int env_value = c10::stoi(value);
+    if (env_value != 1) return def_value;
+    return env_value;
+  }
+  return def_value;
+}
+//Backward (adjoint) operation 1 <- 2 (accumulates) optimization
+template <typename scalar_t, typename accscalar_t>
+C10_LAUNCH_BOUNDS_1(1024)
+__global__ void upsample_bilinear2d_backward_out_frame_dcu(
+    const size_t nc,
+    const int height1,
+    const int width1,
+    const int height2,
+    const int width2,
+    const accscalar_t rheight,
+    const accscalar_t rwidth,
+    const bool align_corners,
+    scalar_t* __restrict__ idata,
+    const scalar_t* __restrict__ odata) {
+  const size_t o_numel = nc * width2 * height2;
+  const size_t i_numel = nc * width1 * height1;
+  __shared__ scalar_t new_idata[8192];
+  for (int k = 0;k < 8;k++){
+     new_idata[threadIdx.x + k*1024] = static_cast<scalar_t>(0);
+  }
+  __syncthreads();
+  for (size_t index = blockDim.x * blockIdx.x + threadIdx.x; index < o_numel;
+       index += blockDim.x * gridDim.x) {
+    size_t index_temp = index;
+    const int w2 = index_temp % width2; // 0:width2-1
+    index_temp /= width2;
+    const int h2 = index_temp % height2; // 0:height2-1
+    const size_t nc = index_temp / height2;
+    //
+    const accscalar_t h1r = area_pixel_compute_source_index<accscalar_t>(
+        rheight, h2, align_corners, /*cubic=*/false);
+    const int h1 = h1r;
+    const int h1p = (h1 < height1 - 1) ? 1 : 0;
+    const accscalar_t h1lambda = h1r - h1;
+    const accscalar_t h0lambda = static_cast<accscalar_t>(1) - h1lambda;
+    //
+    const accscalar_t w1r = area_pixel_compute_source_index<accscalar_t>(
+        rwidth, w2, align_corners, /*cubic=*/false);
+    const int w1 = w1r;
+    const int w1p = (w1 < width1 - 1) ? 1 : 0;
+    const accscalar_t w1lambda = w1r - w1;
+    const accscalar_t w0lambda = static_cast<accscalar_t>(1) - w1lambda;
+    //
+    const scalar_t d2val = odata[index];
+    if (idx(nc, height1, width1, h1, w1) < 8192){
+      fastAtomicAdd(
+          new_idata,
+          idx(nc, height1, width1, h1, w1),
+          i_numel,
+          static_cast<scalar_t>(h0lambda * w0lambda * d2val),
+          true);
+    } else {
+      fastAtomicAdd(
+          idata,
+          idx(nc, height1, width1, h1, w1),
+          i_numel,
+          static_cast<scalar_t>(h0lambda * w0lambda * d2val),
+          true);
+    }
+    if (idx(nc, height1, width1, h1, w1 + w1p) < 8192){
+      fastAtomicAdd(
+          new_idata,
+          idx(nc, height1, width1, h1, w1 + w1p),
+          i_numel,
+          static_cast<scalar_t>(h0lambda * w1lambda * d2val),
+          true);
+    } else {
+      fastAtomicAdd(
+          idata,
+          idx(nc, height1, width1, h1, w1 + w1p),
+          i_numel,
+          static_cast<scalar_t>(h0lambda * w1lambda * d2val),
+          true);
+    }
+    if (idx(nc, height1, width1, h1 + h1p, w1) < 8192){
+      fastAtomicAdd(
+          new_idata,
+          idx(nc, height1, width1, h1 + h1p, w1),
+          i_numel,
+          static_cast<scalar_t>(h1lambda * w0lambda * d2val),
+          true);
+    } else {
+      fastAtomicAdd(
+          idata,
+          idx(nc, height1, width1, h1 + h1p, w1),
+          i_numel,
+          static_cast<scalar_t>(h1lambda * w0lambda * d2val),
+          true);
+    }
+    if (idx(nc, height1, width1, h1 + h1p, w1 + w1p) < 8192){
+      fastAtomicAdd(
+          new_idata,
+          idx(nc, height1, width1, h1 + h1p, w1 + w1p),
+          i_numel,
+          static_cast<scalar_t>(h1lambda * w1lambda * d2val),
+          true);
+    } else {
+      fastAtomicAdd(
+          idata,
+          idx(nc, height1, width1, h1 + h1p, w1 + w1p),
+          i_numel,
+          static_cast<scalar_t>(h1lambda * w1lambda * d2val),
+          true);
+    }
+  }
+  __syncthreads();
+  for(int i =0 ; i < 8; i++)
+  {
+      if(new_idata[threadIdx.x+i*1024] != static_cast<scalar_t>(0))
+      {
+          fastAtomicAdd(
+            idata,
+            static_cast<size_t>(threadIdx.x+i*1024), 
+            i_numel,
+            static_cast<scalar_t>(new_idata[threadIdx.x+i*1024]),
+            true);
+      }
+  }
+}
+
 static void upsample_bilinear2d_backward_out_cuda_template(
     const Tensor& grad_input,
     const Tensor& grad_output_,
@@ -441,7 +571,8 @@ static void upsample_bilinear2d_backward_out_cuda_template(
       const accscalar_t rwidth = area_pixel_compute_scale<accscalar_t>(
           input_width, output_width, align_corners, scales_w);
 
-      upsample_bilinear2d_backward_out_frame<scalar_t, accscalar_t>
+      if(get_env_dcu("HIP_UPSAMPLE_OPTIMIZE", 0) == 0) {
+        upsample_bilinear2d_backward_out_frame<scalar_t, accscalar_t>
           <<<ceil_div(num_kernels, static_cast<size_t>(num_threads)),
              num_threads,
              0,
@@ -456,6 +587,23 @@ static void upsample_bilinear2d_backward_out_cuda_template(
               align_corners,
               idata,
               odata);
+      } else {
+        upsample_bilinear2d_backward_out_frame_dcu<scalar_t, accscalar_t>
+          <<<cuda::ATenCeilDiv(num_kernels, static_cast<size_t>(num_threads)),
+             num_threads,
+             0,
+             stream>>>(
+              nbatch * channels,
+              input_height,
+              input_width,
+              output_height,
+              output_width,
+              rheight,
+              rwidth,
+              align_corners,
+              idata,
+              odata);
+      }
       C10_CUDA_KERNEL_LAUNCH_CHECK();
 
       if (!grad_input.is_contiguous()) {
