@@ -429,6 +429,16 @@ std::tuple<Tensor, Tensor, Tensor> batch_norm_backward_cpu_template(
   return std::make_tuple(grad_input, grad_weight, grad_bias);
 }
 
+int bn_miopen_enable() {
+  static const char bn_miopen_enable_name[] = "USE_MIOPEN_BATCHNORM";
+  char* bn_miopen_enable_str = std::getenv(bn_miopen_enable_name);
+  int bn_miopen_enable_value = 0;
+  if (bn_miopen_enable_str != nullptr){
+    bn_miopen_enable_value = c10::stoi(bn_miopen_enable_str);
+  }
+  return bn_miopen_enable_value;
+}
+
 // _batch_norm_impl_index(_backward) are used in the JIT be able to keep the run-time selection
 // of backends, while enabling it to keep the information about the used backend, so that it can
 // use its corresponding backward implementation.
@@ -522,6 +532,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, int64_t> _batch_norm_impl_index(
                  || (!running_mean.defined() && !running_var.defined() && training))
                && detail::getCUDAHooks().compiledWithMIOpen()
                && cudnn_enabled
+               && bn_miopen_enable()
                );
 
   if (use_miopen && input.suggest_memory_format() != MemoryFormat::ChannelsLast && input.suggest_memory_format() != MemoryFormat::ChannelsLast3d) {
