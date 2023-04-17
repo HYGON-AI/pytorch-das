@@ -183,6 +183,18 @@ cublasStatus_t cublasGemmStridedBatchedExFix(cublasHandle_t &handle,
     CUDABLAS_NONNEGINT_CHECK(bgemm<Dtype>, num_batches);  \
   } while (0)
 
+//set bgemm/gemm half compute_type fp16r
+int computetypeFp16rAllowed() {
+  static const char rocblas_fp16r_var_name[] = "ROCBLAS_COMPUTETYPE_FP16R";
+  char* enable_fp16r_str = std::getenv(rocblas_fp16r_var_name);
+  int rocblas_fp16r_value = 1;
+  if (enable_fp16r_str != nullptr){
+    rocblas_fp16r_value = c10::stoi(enable_fp16r_str);
+  }
+  return rocblas_fp16r_value;
+}
+
+
 template <>
 void bgemm<double>(CUDABLAS_BGEMM_ARGTYPES(double)) {
   // See Note [Writing Nondeterministic Operations]
@@ -248,21 +260,36 @@ void bgemm<at::Half>(CUDABLAS_BGEMM_ARGTYPES(at::Half)) {
   cublasOperation_t opb = _cublasOpFromChar(transb);
   _cublasAdjustLdLevel3(transa, transb, m, n, k, &lda, &ldb, &ldc);
   BGEMM_CHECK_ARGVALUES(at::Half);
-  float falpha = alpha;
-  float fbeta = beta;
 #ifdef USE_ROCM
   int flag = 0;
 #if USE_GEMM_FLAGS_FP16_ALT_IMPL
   flag = at::ROCmBackwardPassGuard::is_backward_pass() ? rocblas_gemm_flags_fp16_alt_impl : 0;
 #endif
+  if (computetypeFp16rAllowed()){
+  at::Half falpha = alpha;
+  at::Half fbeta = beta;
+  TORCH_CUDABLAS_CHECK(rocblas_gemm_strided_batched_ex(handle, opa, opb, (int)m, (int)n, (int)k,
+                                   (void*)&falpha, a, rocblas_datatype_f16_r, (int)lda, stridea,
+                                   b, rocblas_datatype_f16_r, (int)ldb, strideb,
+                                   (void*)&fbeta, c, rocblas_datatype_f16_r, (int)ldc, stridec,
+                                   c, rocblas_datatype_f16_r, (int)ldc, stridec,
+                                   (int) num_batches, rocblas_datatype_f16_r, rocblas_gemm_algo_standard,
+                                   0, flag));
+  }else {
+  float falpha = alpha;
+  float fbeta = beta;
   TORCH_CUDABLAS_CHECK(rocblas_gemm_strided_batched_ex(handle, opa, opb, (int)m, (int)n, (int)k,
                                    (void*)&falpha, a, rocblas_datatype_f16_r, (int)lda, stridea,
                                    b, rocblas_datatype_f16_r, (int)ldb, strideb,
                                    (void*)&fbeta, c, rocblas_datatype_f16_r, (int)ldc, stridec,
                                    c, rocblas_datatype_f16_r, (int)ldc, stridec,
                                    (int) num_batches, rocblas_datatype_f32_r, rocblas_gemm_algo_standard,
-                                   0, flag));
+                                   0, 0));
+
+  }
 #else
+  float falpha = alpha;
+  float fbeta = beta;
   #if defined(CUDA_VERSION) && CUDA_VERSION < 11000
     // On CUDA versions prior to 11, users are required to set the math mode to CUBLAS_TENSOR_OP_MATH
     // manually to be able to use tensor cores for FP16. On CUDA 11, this is no longer required.
@@ -396,8 +423,6 @@ void gemm<at::Half>(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
   cublasHandle_t handle = at::cuda::getCurrentCUDABlasHandle();
   cublasOperation_t opa = _cublasOpFromChar(transa);
   cublasOperation_t opb = _cublasOpFromChar(transb);
-  float falpha = alpha;
-  float fbeta = beta;
   _cublasAdjustLdLevel3(transa, transb, m, n, k, &lda, &ldb, &ldc);
   GEMM_CHECK_ARGVALUES(at::Half);
 #ifdef USE_ROCM
@@ -405,6 +430,37 @@ void gemm<at::Half>(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
 #if USE_GEMM_FLAGS_FP16_ALT_IMPL
   flag = at::ROCmBackwardPassGuard::is_backward_pass() ? rocblas_gemm_flags_fp16_alt_impl : 0;
 #endif
+if (computetypeFp16rAllowed()){
+  at::Half falpha = alpha;
+  at::Half fbeta = beta;
+  TORCH_CUDABLAS_CHECK(rocblas_gemm_ex(
+      handle,
+      opa,
+      opb,
+      m,
+      n,
+      k,
+      &falpha,
+      a,
+      rocblas_datatype_f16_r,
+      lda,
+      b,
+      rocblas_datatype_f16_r,
+      ldb,
+      &fbeta,
+      c,
+      rocblas_datatype_f16_r,
+      ldc,
+      c,
+      rocblas_datatype_f16_r,
+      ldc,
+      rocblas_datatype_f16_r,
+      rocblas_gemm_algo_standard,
+      0,
+      flag));
+}else {
+  float falpha = alpha;
+  float fbeta = beta;
   TORCH_CUDABLAS_CHECK(rocblas_gemm_ex(
       handle,
       opa,
@@ -430,7 +486,10 @@ void gemm<at::Half>(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
       rocblas_gemm_algo_standard,
       0,
       flag));
+}
 #else
+  float falpha = alpha;
+  float fbeta = beta;
   cudaDeviceProp* prop = at::cuda::getCurrentDeviceProperties();
   if (prop->major >= 5) {
 #if defined(CUDA_VERSION) && CUDA_VERSION < 11000
