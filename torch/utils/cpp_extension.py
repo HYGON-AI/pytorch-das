@@ -1085,7 +1085,7 @@ def CUDAExtension(name, sources, *args, **kwargs):
         hipified_sources = set()
         for source in sources:
             s_abs = os.path.abspath(source)
-            hipified_sources.add(hipify_result[s_abs]["hipified_path"] if (s_abs in hipify_result and
+            hipified_s_abs = (hipify_result[s_abs]["hipified_path"] if (s_abs in hipify_result and
                                  hipify_result[s_abs]["hipified_path"] is not None) else s_abs)
             hipified_sources.add(os.path.relpath(hipified_s_abs, build_dir))
 
