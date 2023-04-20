@@ -589,7 +589,7 @@ static void upsample_bilinear2d_backward_out_cuda_template(
               odata);
       } else {
         upsample_bilinear2d_backward_out_frame_dcu<scalar_t, accscalar_t>
-          <<<cuda::ATenCeilDiv(num_kernels, static_cast<size_t>(num_threads)),
+          <<<ceil_div(num_kernels, static_cast<size_t>(num_threads)),
              num_threads,
              0,
              stream>>>(
