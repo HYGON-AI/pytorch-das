@@ -3,7 +3,7 @@ astunparse
 expecttest
 future
 hypothesis
-numpy==1.21.6
+numpy
 psutil
 pyyaml
 requests
