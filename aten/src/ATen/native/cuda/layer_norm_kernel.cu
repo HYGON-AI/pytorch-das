@@ -481,6 +481,15 @@ __global__ void GammaBetaBackwardSimpleCUDAKernel(
   }
 }
 
+template <int max=32,typename T>
+__inline__ __device__ T WarpReduceSum(T val) {
+#pragma unroll
+  for (int offset = max; offset > 0; offset >>= 1) {
+    val += __shfl_down(val, offset);
+  }
+  return val;
+}
+
 template <typename T, typename T_ACC>
 __global__ void GammaBetaBackwardCUDAKernel1(
     int64_t M,
@@ -525,8 +534,8 @@ __global__ void GammaBetaBackwardCUDAKernel1(
   __syncthreads();
   T_ACC sum1 = g_shared[threadIdx.x][threadIdx.y];
   T_ACC sum2 = b_shared[threadIdx.x][threadIdx.y];
-  sum1 = cuda_utils::WarpReduceSum(sum1);
-  sum2 = cuda_utils::WarpReduceSum(sum2);
+  sum1 = WarpReduceSum<16>(sum1);
+  sum2 = WarpReduceSum<16>(sum2);
   if (threadIdx.x == 0) {
     const int64_t j = blockIdx.x * blockDim.x + threadIdx.y;
     if (j < N) {
@@ -540,8 +549,8 @@ __global__ void GammaBetaBackwardCUDAKernel1(
   }
   sum1 = g_shared[threadIdx.x][threadIdx.y + blockDim.y];
   sum2 = b_shared[threadIdx.x][threadIdx.y + blockDim.y];
-  sum1 = cuda_utils::WarpReduceSum(sum1);
-  sum2 = cuda_utils::WarpReduceSum(sum2);
+  sum1 = WarpReduceSum<16>(sum1);
+  sum2 = WarpReduceSum<16>(sum2);
   if (threadIdx.x == 0) {
     const int64_t j = blockIdx.x * blockDim.x + threadIdx.y + blockDim.y;
     if (j < N) {
