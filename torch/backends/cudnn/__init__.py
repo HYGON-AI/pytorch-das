@@ -33,7 +33,7 @@ if _cudnn is not None:
             if runtime_major != compile_major:
                 cudnn_compatible = False
             elif runtime_major < 7 or not _cudnn.is_cuda:
-                cudnn_compatible = runtime_minor == compile_minor
+                cudnn_compatible = runtime_minor >= compile_minor
             else:
                 cudnn_compatible = runtime_minor >= compile_minor
             if not cudnn_compatible:
