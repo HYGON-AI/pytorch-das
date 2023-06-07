@@ -60,9 +60,10 @@ def get_torch_version(sha: Optional[str] = None) -> str:
         if build_number > 1:
             version += ".post" + str(build_number)
     elif sha != UNKNOWN:
-        if sha is None:
-            sha = get_sha(pytorch_root)
-        version += "+git" + sha[:7]
+        pass
+    #    if sha is None:
+    #        sha = get_sha(pytorch_root)
+    #    version += "+git" + sha[:7]
     return version
 
 def get_dcu_version(sha: Optional[str] = None) -> str:
