@@ -1,5 +1,6 @@
 from typing import Any, Iterable
 from .version import __version__ as internal_version
+from .version import __dcu_version__ as dcu_version
 
 __all__ = ['TorchVersion', 'Version', 'InvalidVersion']
 
@@ -87,3 +88,4 @@ for cmp_method in ["__gt__", "__lt__", "__eq__", "__ge__", "__le__"]:
     setattr(TorchVersion, cmp_method, lambda x, y, method=cmp_method: x._cmp_wrapper(y, method))
 
 __version__ = TorchVersion(internal_version)
+__dcu_version__ = TorchVersion(dcu_version)
