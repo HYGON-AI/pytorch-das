@@ -39,6 +39,15 @@ def get_tag(pytorch_root: Union[str, Path]) -> str:
     except Exception:
         return UNKNOWN
 
+def get_abi():
+    try:
+        command = "echo '#include <string>' | gcc -x c++ -E -dM - | fgrep _GLIBCXX_USE_CXX11_ABI"
+        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        output = result.stdout.strip()
+        abi = "abi" + output.split(" ")[-1]
+        return abi
+    except Exception:
+        return 'abiUnknown'
 
 def get_torch_version(sha: Optional[str] = None) -> str:
     pytorch_root = Path(__file__).parent.parent
@@ -56,6 +65,23 @@ def get_torch_version(sha: Optional[str] = None) -> str:
         version += "+git" + sha[:7]
     return version
 
+def get_dcu_version(sha: Optional[str] = None) -> str:
+    pytorch_root = Path(__file__).parent.parent
+    dcu_version = open(pytorch_root / "version.txt", "r").read().strip()
+
+    if sha != UNKNOWN:
+        if sha is None:
+            sha = get_sha(pytorch_root)
+        dcu_version += "+git" + sha[:7]
+    dcu_version += "." + get_abi()
+    if os.getenv("ROCM_PATH"):
+        rocm_path = os.getenv('ROCM_PATH', "")
+        rocm_version_path = os.path.join(rocm_path, '.info', "rocm_version")
+        with open(rocm_version_path, 'r',encoding='utf-8') as file:
+            lines = file.readlines()
+        rocm_version=lines[0][:-2].replace(".", "")
+        dcu_version += ".dtk" + rocm_version
+    return dcu_version
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -85,8 +111,11 @@ if __name__ == "__main__":
     else:
         version = tagged_version
 
+    dcu_version = get_dcu_version(sha)
+
     with open(version_path, "w") as f:
         f.write("__version__ = '{}'\n".format(version))
+        f.write("__dcu_version__ = '{}'\n".format(dcu_version))
         # NB: This is not 100% accurate, because you could have built the
         # library code with DEBUG, but csrc without DEBUG (in which case
         # this would claim to be a release build when it's not.)
