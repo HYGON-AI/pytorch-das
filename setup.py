@@ -239,7 +239,7 @@ from tools.setup_helpers.env import (IS_WINDOWS, IS_DARWIN, IS_LINUX,
                                      build_type)
 from tools.setup_helpers.cmake import CMake
 from tools.generate_torch_version import get_torch_version
-
+from tools.generate_torch_version import get_dcu_version
 ################################################################################
 # Parameters parsed from environment
 ################################################################################
@@ -312,7 +312,7 @@ cmake_python_include_dir = sysconfig.get_path("include")
 ################################################################################
 package_name = os.getenv('TORCH_PACKAGE_NAME', 'torch')
 package_type = os.getenv('PACKAGE_TYPE', 'wheel')
-version = get_torch_version()
+version = get_dcu_version()
 report("Building wheel {}-{}".format(package_name, version))
 
 cmake = CMake()
