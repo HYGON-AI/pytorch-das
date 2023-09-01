@@ -432,7 +432,7 @@ std::tuple<Tensor, Tensor, Tensor> batch_norm_backward_cpu_template(
 int bn_miopen_enable() {
   static const char bn_miopen_enable_name[] = "USE_MIOPEN_BATCHNORM";
   char* bn_miopen_enable_str = std::getenv(bn_miopen_enable_name);
-  int bn_miopen_enable_value = 0;
+  int bn_miopen_enable_value = 1;
   if (bn_miopen_enable_str != nullptr){
     bn_miopen_enable_value = c10::stoi(bn_miopen_enable_str);
   }
