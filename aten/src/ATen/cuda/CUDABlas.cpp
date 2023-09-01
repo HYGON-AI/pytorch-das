@@ -187,7 +187,7 @@ cublasStatus_t cublasGemmStridedBatchedExFix(cublasHandle_t &handle,
 int computetypeFp16rAllowed() {
   static const char rocblas_fp16r_var_name[] = "ROCBLAS_COMPUTETYPE_FP16R";
   char* enable_fp16r_str = std::getenv(rocblas_fp16r_var_name);
-  int rocblas_fp16r_value = 1;
+  int rocblas_fp16r_value = 0;
   if (enable_fp16r_str != nullptr){
     rocblas_fp16r_value = c10::stoi(enable_fp16r_str);
   }
