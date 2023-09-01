@@ -1273,6 +1273,7 @@ endif()
 
 
 if(USE_ROCM)
+  set(ROCM_PATH $ENV{ROCM_PATH})
   target_compile_definitions(torch_hip PRIVATE
     USE_ROCM
     __HIP_PLATFORM_HCC__
@@ -1292,10 +1293,10 @@ if(USE_ROCM)
     __HIP_PLATFORM_HCC__
     )
   target_include_directories(torch_hip PRIVATE
-    /opt/rocm/include
-    /opt/rocm/hcc/include
-    /opt/rocm/rocblas/include
-    /opt/rocm/hipsparse/include
+    ${ROCM_PATH}/include
+    ${ROCM_PATH}/hcc/include
+    ${ROCM_PATH}/rocblas/include
+    ${ROCM_PATH}/hipsparse/include
     )
 endif()
 
