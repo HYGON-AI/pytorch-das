@@ -1016,6 +1016,7 @@ std::pair<NvrtcFunction, std::string> nvrtcCompile(
 
 #ifdef USE_ROCM
   std::vector<const char*> args = {"--std=c++14"};
+  args.push_back("--gpu-max-threads-per-block=512");
 #if ROCM_VERSION >= 40200
   args.push_back("-hip-pch");
 #endif
