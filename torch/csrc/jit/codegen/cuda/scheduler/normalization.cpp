@@ -53,7 +53,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
       (int64_t)at::cuda::getCurrentDeviceProperties()
           ->maxThreadsPerMultiProcessor;
   // km device_multiprocessor_count=120 softmax acc test error 
-  const int64_t device_multiprocessor_count = 60
+  const int64_t device_multiprocessor_count = 60;
       //(int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
   auto const max_unroll = ceilDiv(
