@@ -9,6 +9,7 @@
 #include <ATen/NestedTensorImpl.h>
 #include <c10/core/DispatchKey.h>
 #include <ATen/native/nested/NestedTensorUtils.h>
+#include <ATen/native/nested/NestedTensorMath.h>
 
 namespace at {
 namespace native {
@@ -41,11 +42,12 @@ std::tuple<Tensor, Tensor, Tensor> nested_linear_backward(
     return std::tuple<Tensor, Tensor, Tensor>{Tensor(), Tensor(), Tensor()};
   }
   Tensor grad_input, grad_weight, grad_bias;
-  auto* nt_grad_output = get_nested_tensor_impl(grad_output);
+  auto grad_ouput_contiguous = grad_output.contiguous();
+  auto* nt_grad_output = get_nested_tensor_impl(grad_ouput_contiguous);
   auto* nt_input = get_nested_tensor_impl(input);
   TORCH_INTERNAL_ASSERT(nt_grad_output != nullptr);
   TORCH_INTERNAL_ASSERT(nt_input != nullptr);
-  TORCH_CHECK(nested_tensor_impl_is_contiguous(nt_grad_output));
+  TORCH_INTERNAL_ASSERT(nested_tensor_impl_is_contiguous(nt_grad_output));
   auto grad_ouput_buffer = nt_grad_output->get_buffer();
   auto input_buffer = nt_input->get_buffer();
 
@@ -154,20 +156,31 @@ Tensor _nested_sum_backward_cpu(
 }
 
 
-Tensor _nested_select_backward(
+Tensor _nested_select_backward_symint(
   const Tensor& grad,
   const Tensor& nested_self,
   int64_t dim,
-  int64_t index) {
+  c10::SymInt index) {
   auto nt_self = get_nested_tensor_impl(nested_self);
   const Tensor& self_buffer = nt_self->get_buffer();
   const auto self_sizes = nt_self->get_nested_size_tensor();
   const Tensor& self_grad_buffer = self_buffer.new_zeros(self_buffer.sizes());
 
   auto nt_grad = wrap_buffer(self_grad_buffer, self_sizes);
-  nt_grad.select(dim, index).copy_(grad);
+  nt_grad.select_symint(dim, index).copy_(grad);
 
   return nt_grad;
+}
+
+Tensor gelu_backwards_nested(const Tensor& grad, const Tensor& self, c10::string_view approximate){
+    auto partial_gelu_backward = [approximate](auto && PH1, auto && PH2) { return at::gelu_backward(std::forward<decltype(PH1)>(PH1), std::forward<decltype(PH2)>(PH2), approximate); };
+    return map_nt_binary(grad, self, partial_gelu_backward);
+}
+
+// Naming convention for relu
+Tensor threshold_backwards_nested(const Tensor& grad_output, const Tensor& input, const Scalar& threshold){
+    auto partial_relu_backward = [threshold](auto && PH1, auto && PH2) { return at::threshold_backward(std::forward<decltype(PH1)>(PH1), std::forward<decltype(PH2)>(PH2), threshold); };
+    return map_nt_binary(grad_output, input, partial_relu_backward);
 }
 
 } // namespace native

@@ -245,6 +245,7 @@ GRADIENT_IMPLEMENTED_FOR_COMPLEX = {
     "log10",
     "log1p",
     "log2",
+    "logcumsumexp",
     "reciprocal",
     "tan",
     "pow",
@@ -257,6 +258,7 @@ GRADIENT_IMPLEMENTED_FOR_COMPLEX = {
     "take",
     "fill_",
     "exp",
+    "exp2",
     "nonzero",
     "mean",
     "std_mean",
@@ -288,19 +290,21 @@ GRADIENT_IMPLEMENTED_FOR_COMPLEX = {
     "addmv",
     "addr",
     "linalg_householder_product",
+    "ormqr",
     "constant_pad_nd",
     "reflection_pad1d",
     "reflection_pad2d",
     "reflection_pad3d",
     "linalg_cholesky_ex",
     "linalg_eig",
+    "diagonal_copy",
+    "diagonal_scatter",
     "select_backward",
     "diagonal_backward",
     "slice_backward",
     "reflection_pad1d_backward",
     "reflection_pad2d_backward",
     "reflection_pad3d_backward",
-    "symeig",
     "_sparse_sparse_matmul",
     "replication_pad1d",
     "replication_pad2d",
@@ -346,11 +350,13 @@ GRADIENT_IMPLEMENTED_FOR_COMPLEX = {
     "conj_physical_",
     "_neg_view",
     "_reshape_alias",
+    "_reshape_copy",
     "_linalg_det",
     "lu_solve",
     "linalg_solve_triangular",
     "linalg_pinv",
     "linalg_lstsq",
+    "unfold_copy",
     "col2im",
     "im2col",
     "cholesky_inverse",
@@ -370,7 +376,6 @@ GRADIENT_IMPLEMENTED_FOR_SPARSE_COMPLEX = {
     "coalesce",
     "values",
     "_sparse_coo_tensor_with_dims_and_tensors",
-    "sparse_mask_helper_cuda",
     "_sparse_addmm",
 }
 
@@ -963,10 +968,10 @@ def emit_body(
         """Find arguments that have derivative definitions"""
         if info is None or not info.has_derivatives:
             return differentiable_inputs
-        names = set(name for d in info.derivatives for name in d.var_names)
+        names = {name for d in info.derivatives for name in d.var_names}
         differentiable = [arg for arg in differentiable_inputs if arg.name in names]
         if len(differentiable) != len(names):
-            missing = names - set(arg.name for arg in differentiable)
+            missing = names - {arg.name for arg in differentiable}
             raise RuntimeError(
                 f"Missing arguments for derivatives: {missing} in {info.name}"
             )

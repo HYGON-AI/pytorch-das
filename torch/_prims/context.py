@@ -65,6 +65,12 @@ def torch_to_refs_map():
     for s in dir(torch.Tensor):
         if s in torch._refs.__all__:
             r[getattr(torch.Tensor, s)] = torch._refs.__dict__.get(s)
+
+    # Support conversions
+    for s in torch._refs._conversions.__all__:
+        tensor_attr = getattr(torch.Tensor, s, None) or getattr(torch, s)
+        r[tensor_attr] = torch._refs._conversions.__dict__.get(s)
+
     return r
 
 
@@ -115,9 +121,7 @@ class NvfuserPrimsMode(torch.overrides.TorchFunctionMode):
         if torch.overrides.resolve_name(orig_func) in self.skip_ops:
             return orig_func(*args, **kwargs)
 
-        if isinstance(orig_func, torch._ops.OpOverload) or isinstance(
-            orig_func, torch._ops.OpOverloadPacket
-        ):
+        if isinstance(orig_func, (torch._ops.OpOverload, torch._ops.OpOverloadPacket)):
             namespace = str(orig_func).split(".")[0]
             name = str(orig_func).split(".")[1]
             if namespace == "prims":
@@ -248,22 +252,100 @@ def _is_func_unsupported_nvfuser(
 
 class TorchRefsNvfuserCapabilityMode(TorchRefsMode):
     def __init__(self, *, skip_ops=()):
+        aten_ops_to_skip = (
+            "aten._log_softmax.default",
+            "aten._log_softmax_backward_data.default",
+            "aten.expand.default",
+        )
+        self.skip_ops = tuple(skip_ops) + aten_ops_to_skip
         super().__init__(
             strict=False,
             should_fallback_fn=functools.partial(
-                _is_func_unsupported_nvfuser, skip_ops=skip_ops
+                _is_func_unsupported_nvfuser,
+                skip_ops=tuple(skip_ops) + aten_ops_to_skip,
             ),
             prims_mode_cls=functools.partial(NvfuserPrimsMode, skip_ops=skip_ops),
         )
 
+    # TODO: remove this once version from _decomp/decompositions.py is working
+    # with this context manager
+    # This is a workaround for AOT Autograd graphs
+    def _cudnn_batch_norm(
+        self,
+        input,
+        weight,
+        bias,
+        running_mean,
+        running_var,
+        training,
+        exponential_average_factor,
+        epsilon,
+    ):
+        a, b, c = torch.ops.nvprims.native_batch_norm(
+            input,
+            weight,
+            bias,
+            running_mean,
+            running_var,
+            training,
+            exponential_average_factor,
+            epsilon,
+        )
+        if training:
+            return (a, b, c, input.new_zeros((0,), dtype=torch.uint8))
+        return (
+            a,
+            weight.new_zeros((0,)),
+            weight.new_zeros((0,)),
+            input.new_zeros((0,), dtype=torch.uint8),
+        )
+
+    # This is a workaround for AOT Autograd graphs
+    def _cudnn_batch_norm_backward(
+        self,
+        input,
+        grad_output,
+        weight,
+        running_mean,
+        running_var,
+        save_mean,
+        save_var,
+        epsilon,
+        reserveSpace,
+    ):
+        func = torch._decomp.decomposition_table[
+            torch.ops.aten.native_batch_norm_backward.default
+        ]
+        return func(
+            grad_output,
+            input,
+            weight,
+            running_mean,
+            running_var,
+            save_mean,
+            save_var,
+            True,
+            epsilon,
+            [True, True, True],
+        )
+
     def _is_var_mean(self, func):
         return "torch.var_mean" == torch.overrides.resolve_name(func) or (
-            (
-                isinstance(func, torch._ops.OpOverload)
-                or isinstance(func, torch._ops.OpOverloadPacket)
-            )
+            (isinstance(func, (torch._ops.OpOverload, torch._ops.OpOverloadPacket)))
             and "aten.var_mean" in str(func)
         )
+
+    def _is_view_or_reshape(self, func):
+        allowed_ops = {
+            "torch.Tensor.view",
+            "torch.Tensor.reshape",
+            "torch.view_copy",
+            "torch.reshape",
+            "aten.view.default",
+            "aten._unsafe_view.default",
+            "aten.view_copy.default",
+        } - set(self.skip_ops)
+        return torch.overrides.resolve_name(func) in allowed_ops
 
     def _is_native_batch_norm(self, func):
         return "torch.native_batch_norm" == torch.overrides.resolve_name(func) or (
@@ -274,6 +356,16 @@ class TorchRefsNvfuserCapabilityMode(TorchRefsMode):
     def _is_rand_like(self, func):
         result = "torch.rand_like" == torch.overrides.resolve_name(func) or (
             func == torch.ops.aten.rand_like or func == torch.ops.aten.rand_like.default
+        )
+        return result
+
+    def _is_full(self, func):
+        result = "torch.full" == torch.overrides.resolve_name(func) or (
+            func
+            in [
+                torch.ops.aten.full,
+                torch.ops.aten.full.names,
+            ]
         )
         return result
 
@@ -290,13 +382,47 @@ class TorchRefsNvfuserCapabilityMode(TorchRefsMode):
         if self._is_var_mean(orig_func):
             return torch.ops.nvprims.var_mean(*args, **kwargs)
 
+        if (
+            orig_func == torch.ops.aten.cudnn_batch_norm.default
+            or orig_func == torch.ops.aten.cudnn_batch_norm
+        ):
+            with self:
+                return self._cudnn_batch_norm(*args, **kwargs)
+
+        # A workaround for AOT Autograd graphs
+        # See https://github.com/pytorch/pytorch/pull/86115#issue-1394883782
+        if (
+            orig_func == torch.ops.aten.cudnn_batch_norm_backward.default
+            or orig_func == torch.ops.aten.cudnn_batch_norm_backward
+        ):
+            with self:
+                return self._cudnn_batch_norm_backward(*args, **kwargs)
+
+        if self._is_view_or_reshape(orig_func):
+            a, *shape = args
+            shape = torch._prims_common.extract_shape_from_varargs(
+                shape, validate=False
+            )  # type: ignore[assignment]
+            if len(kwargs) > 0:
+                warn("view has ignored kwargs!")
+            return torch.ops.nvprims.view(a, shape)
+
+        if orig_func == torch.ops.aten._reshape_alias.default:
+            a, shape, stride = args
+            if len(kwargs) > 0:
+                warn("view has ignored kwargs!")
+            return torch.ops.nvprims.view(a, shape)
+
         if self._is_native_batch_norm(orig_func):
             return torch.ops.nvprims.native_batch_norm(*args, **kwargs)
 
         if self._is_rand_like(orig_func):
             if len(kwargs) > 0:
-                warn("rand_like has ignored kwars!")
+                warn("rand_like has ignored kwargs!")
             return torch.ops.nvprims.rand_like(*args)
+
+        if self._is_full(orig_func):
+            return torch.ops.nvprims.full(*args, **kwargs)
 
         # Then we use TorchRefsMode to interpret the rest
         return super().__torch_function__(orig_func, types, args, kwargs)

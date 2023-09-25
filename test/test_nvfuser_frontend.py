@@ -9,9 +9,11 @@ from torch.testing._internal.jit_utils import RUN_CUDA
 import torch._refs as refs
 import torch._prims as prims
 
-# Will only create the _nvfuser module if CUDA is available
-if hasattr(torch._C, "_nvfuser"):
-    from torch._C._nvfuser import Fusion, FusionCache, FusionDefinition, DataType
+# Will only create the nvfuser module if CUDA is available
+try:
+    from nvfuser._C import Fusion, FusionCache, FusionDefinition, DataType
+except ImportError:
+    pass
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -187,6 +189,24 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out = fs.execute([input1, input2])[0]
         eager_out = refs.add(input1, prims.broadcast_in_dim(input2, [3, 3], [0]))
+        self.assertEqual(eager_out, nvf_out)
+
+    def test_ops_broadcast(self) :
+        fs = Fusion()
+        with FusionDefinition(fs) as fd :
+            t0 = fd.define_tensor(1)
+            t1 = fd.define_tensor(3)
+
+            t0_b = fd.ops.broadcast(t0, [True, False, True])
+            t2 = fd.ops.add(t0_b, t1)
+
+            fd.add_output(t2)
+
+        input1 = torch.randn(3, device='cuda')
+        input2 = torch.randn(2, 3, 4, device='cuda')
+
+        nvf_out = fs.execute([input1, input2])[0]
+        eager_out = refs.add(prims.broadcast_in_dim(input1, [2, 3, 4], [1]), input2)
         self.assertEqual(eager_out, nvf_out)
 
     def test_prim_layer_norm_fwd(self) :

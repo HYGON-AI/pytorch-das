@@ -13,8 +13,9 @@ from torch.autograd import (
 import itertools
 from warnings import warn
 
+__all__ = ["profile"]
 
-class profile(object):
+class profile:
     """DEPRECATED: use torch.profiler instead"""
     def __init__(
             self,

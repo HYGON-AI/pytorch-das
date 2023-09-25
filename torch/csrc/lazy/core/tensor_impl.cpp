@@ -131,11 +131,15 @@ void LTCTensorImpl::shallow_copy_from(
 }
 
 c10::SymIntArrayRef LTCTensorImpl::sym_strides_custom() const {
-  return c10::fromIntArrayRef(strides_custom());
+  return c10::fromIntArrayRefKnownNonNegative(strides_custom());
 }
 
 c10::SymIntArrayRef LTCTensorImpl::sym_sizes_custom() const {
-  return c10::fromIntArrayRef(sizes_custom());
+  return c10::fromIntArrayRefKnownNonNegative(sizes_custom());
+}
+
+c10::SymInt LTCTensorImpl::sym_numel_custom() const {
+  return numel_custom();
 }
 
 void LTCTensorImpl::setup_size_properties() {

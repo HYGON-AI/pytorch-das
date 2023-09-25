@@ -13,6 +13,9 @@ from ._common_operator_config_utils import (
 )
 from .backend_config import BackendConfig, DTypeConfig, DTypeWithConstraints
 
+__all__ = [
+    "get_qnnpack_backend_config",
+]
 
 # ===================
 # |  DTYPE CONFIGS  |
@@ -121,16 +124,16 @@ def get_qnnpack_backend_config() -> BackendConfig:
         qnnpack_default_dynamic_float16_dtype_config,
     ]
     binary_op_dtype_configs = [
-        qnnpack_weighted_op_qint8_symmetric_dtype_config,
-        qnnpack_weighted_op_quint8_dtype_config,
+        qnnpack_default_op_qint8_symmetric_dtype_config,
+        qnnpack_default_op_quint8_dtype_config,
     ]
     default_op_dtype_configs = [
         qnnpack_default_op_qint8_symmetric_dtype_config,
         qnnpack_default_op_quint8_dtype_config,
     ]
     fixed_qparams_op_dtype_configs = [
-        qnnpack_weighted_op_qint8_symmetric_dtype_config,
-        qnnpack_weighted_op_quint8_dtype_config,
+        qnnpack_default_op_qint8_symmetric_dtype_config,
+        qnnpack_default_op_quint8_dtype_config,
     ]
     share_qparams_op_dtype_configs = [
         qnnpack_default_op_qint8_symmetric_dtype_config,
@@ -155,7 +158,3 @@ def get_qnnpack_backend_config() -> BackendConfig:
         .set_backend_pattern_configs(_get_bn_configs(default_op_dtype_configs)) \
         .set_backend_pattern_configs(_get_rnn_op_configs(rnn_op_dtype_configs)) \
         .set_backend_pattern_configs(_get_embedding_op_configs(embedding_op_dtype_configs))
-
-__all__ = [
-    "get_qnnpack_backend_config",
-]

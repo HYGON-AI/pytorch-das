@@ -1,13 +1,26 @@
-#include <ATen/ATen.h>
+#define TORCH_ASSERT_ONLY_METHOD_OPERATORS
+#include <ATen/core/Tensor.h>
+#include <ATen/core/List.h>
+#include <ATen/Dispatch.h>
 #include <ATen/WrapDimUtils.h>
 #include <ATen/core/IListRef.h>
 #include <ATen/native/cpu/Loops.h>
 #include <ATen/native/quantized/cpu/QuantizedOps.h>
 #include <ATen/native/TensorIterator.h>
 #include <ATen/native/TensorShape.h>
-#include <ATen/NativeFunctions.h>
 #include <c10/util/irange.h>
 #include <torch/library.h>
+
+#ifndef AT_PER_OPERATOR_HEADERS
+#include <ATen/Functions.h>
+#include <ATen/NativeFunctions.h>
+#else
+#include <ATen/ops/cat.h>
+#include <ATen/ops/cat_native.h>
+#include <ATen/ops/copy_native.h>
+#include <ATen/ops/quantize_per_tensor.h>
+#include <ATen/ops/zeros_like_ops.h>
+#endif
 
 #include <algorithm>
 #include <vector>
@@ -21,7 +34,7 @@ DEFINE_DISPATCH(qcat_relu_nhwc_stub);
 namespace {
 
 bool is_cat_nhwc_fast_path(const MaterializedITensorListRef& qxs, int64_t dim) {
-  TORCH_CHECK(qxs.size() > 0);
+  TORCH_CHECK(!qxs.empty());
   bool is_fast_path = dim == 1;
   // NOLINTNEXTLINE(performance-implicit-conversion-in-loop)
   for (const at::Tensor& qx : qxs) {
