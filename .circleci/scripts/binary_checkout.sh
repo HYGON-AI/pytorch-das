@@ -56,13 +56,13 @@ else
   echo "Can't tell what to checkout"
   exit 1
 fi
-retry git submodule update --init --recursive --jobs 0
+retry git submodule update --init --recursive
 echo "Using Pytorch from "
 git --no-pager log --max-count 1
 popd
 
 # Clone the Builder master repo
-retry git clone -q https://github.com/pytorch/builder.git -b release/1.13 "$BUILDER_ROOT"
+retry git clone -q https://github.com/pytorch/builder.git -b release/2.0 "$BUILDER_ROOT"
 pushd "$BUILDER_ROOT"
 echo "Using builder from "
 git --no-pager log --max-count 1

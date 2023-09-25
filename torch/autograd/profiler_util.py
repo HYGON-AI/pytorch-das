@@ -10,6 +10,8 @@ from typing import Dict, List, Tuple, Optional
 import bisect
 import math
 
+__all__ = ["EventList", "FormattedTimesMixin", "Interval", "Kernel", "FunctionEvent", "FunctionEventAvg",
+           "StringTable", "MemRecordsAcc"]
 
 class EventList(list):
     """A list of Events (for pretty printing)"""
@@ -17,7 +19,7 @@ class EventList(list):
         use_cuda = kwargs.pop('use_cuda', True)
         profile_memory = kwargs.pop('profile_memory', False)
         with_flops = kwargs.pop('with_flops', False)
-        super(EventList, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self._use_cuda = use_cuda
         self._profile_memory = profile_memory
         self._tree_built = False
@@ -347,7 +349,7 @@ def _attr_formatter(name):
     return property(lambda self: _format_time(getattr(self, name)))
 
 
-class FormattedTimesMixin(object):
+class FormattedTimesMixin:
     """Helpers for FunctionEvent and FunctionEventAvg.
 
     The subclass should define `*_time_total` and `count` attributes.
@@ -368,7 +370,7 @@ class FormattedTimesMixin(object):
         return 0.0 if self.count == 0 else 1.0 * self.cuda_time_total / self.count  # type: ignore[attr-defined]
 
 
-class Interval(object):
+class Interval:
     def __init__(self, start, end):
         self.start = start
         self.end = end

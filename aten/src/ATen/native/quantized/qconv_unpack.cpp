@@ -7,15 +7,33 @@ The implementations for the unpack functions can be found in /cpu/qconv_unpack_i
 and /cudnn/ConvUnpackImpl.cpp, for cudnn.
 */
 
+#define TORCH_ASSERT_ONLY_METHOD_OPERATORS
 #include <tuple>
 
-#include <ATen/ATen.h>
+#include <ATen/core/Tensor.h>
+#include <ATen/core/List.h>
+#include <ATen/core/ivalue.h>
 #include <torch/library.h>
 #include <ATen/native/quantized/cpu/fbgemm_utils.h>
 #include <ATen/native/quantized/cpu/QnnpackUtils.h>
 #include <ATen/native/quantized/cpu/OnednnUtils.h>
 #include <ATen/native/quantized/cpu/QuantUtils.h>
 #include <ATen/native/quantized/PackedParams.h>
+
+#ifndef AT_PER_OPERATOR_HEADERS
+#include <ATen/Functions.h>
+#else
+#include <ATen/ops/_empty_affine_quantized.h>
+#include <ATen/ops/_empty_per_channel_affine_quantized.h>
+#include <ATen/ops/from_blob.h>
+#endif
+
+template <int kSpatialDim = 2>
+int register_conv_params();
+
+extern template int register_conv_params<2>();
+extern template int register_conv_params<3>();
+
 
 namespace at {
 namespace native {
@@ -180,6 +198,8 @@ unpack_quantized_prepacked_sizes_conv2d(const IValue& ivalue) {
 }
 
 TORCH_LIBRARY_IMPL(quantized, CatchAll, m) {
+  register_conv_params<2>();
+  register_conv_params<3>();
   // conv_unpack is deprecated, please use conv2d_unpack for 2D conv.
   m.impl(TORCH_SELECTIVE_NAME("quantized::conv_unpack"), TORCH_FN(QConvUnpackWeightsInt8<2>::run));
   // We use  conv2d_unpack to be consistent with conv3d_unpack

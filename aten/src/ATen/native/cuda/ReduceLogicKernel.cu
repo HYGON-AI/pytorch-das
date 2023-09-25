@@ -7,7 +7,7 @@
 #include <ATen/Dispatch.h>
 #include <ATen/core/Tensor.h>
 
-namespace at { namespace native {
+namespace at::native {
 
 #define MAX_BLOCK 512
 #define MAX_BLOCK8 4096
@@ -265,4 +265,4 @@ void or_kernel_cuda(TensorIterator& iter) {
 REGISTER_DISPATCH(and_stub, &and_kernel_cuda);
 REGISTER_DISPATCH(or_stub, &or_kernel_cuda);
 
-}} // namespace at::native
+} // namespace at::native

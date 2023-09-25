@@ -83,6 +83,10 @@ class Context final {
     enable_op_profiling_ = true;
   }
 
+  inline void disable_op_profiling() {
+    enable_op_profiling_ = false;
+  }
+
   inline bool op_profiling_enabled() {
     return enable_op_profiling_;
   }
@@ -153,17 +157,17 @@ class Context final {
     return std::unique_lock<std::mutex>(cmd_mutex_);
   }
 
- private:
-  inline void set_cmd() {
+  inline void set_cmd(bool reusable = false) {
     if (!cmd_) {
-      cmd_ = command_pool_.get_new_cmd();
+      cmd_ = command_pool_.get_new_cmd(reusable);
       cmd_.begin();
     }
   }
 
+ private:
   DescriptorSet submit_compute_prologue(
       CommandBuffer&,
-      const ShaderSource&,
+      const ShaderInfo&,
       const utils::uvec3&);
 
   void submit_compute_epilogue(
@@ -185,17 +189,17 @@ class Context final {
 
   template <typename... Arguments>
   void submit_compute_job(
-      const ShaderSource&,
+      const ShaderInfo&,
       const PipelineBarrier&,
       const utils::uvec3&,
       const utils::uvec3&,
       const VkFence fence_handle,
       Arguments&&...);
 
- private:
-  void submit_cmd_to_gpu(const VkFence fence_handle = VK_NULL_HANDLE);
+  void submit_cmd_to_gpu(
+      const VkFence fence_handle = VK_NULL_HANDLE,
+      const bool final_use = false);
 
- public:
   void flush();
 };
 
@@ -205,20 +209,24 @@ class UniformParamsBuffer final {
   VulkanBuffer vulkan_buffer_;
 
  public:
+  UniformParamsBuffer() : context_p_{nullptr}, vulkan_buffer_{} {}
+
   template <typename Block>
   UniformParamsBuffer(Context* context_p, const Block& block)
       : context_p_(context_p),
         vulkan_buffer_(
             context_p_->adapter_ptr()->vma().create_params_buffer(block)) {}
 
-  UniformParamsBuffer(const UniformParamsBuffer&) = delete;
-  UniformParamsBuffer& operator=(const UniformParamsBuffer&) = delete;
+  UniformParamsBuffer(const UniformParamsBuffer&);
+  UniformParamsBuffer& operator=(const UniformParamsBuffer&);
 
-  UniformParamsBuffer(UniformParamsBuffer&&) = delete;
-  UniformParamsBuffer& operator=(UniformParamsBuffer&&) = delete;
+  UniformParamsBuffer(UniformParamsBuffer&&) = default;
+  UniformParamsBuffer& operator=(UniformParamsBuffer&&) = default;
 
   ~UniformParamsBuffer() {
-    context_p_->register_buffer_cleanup(vulkan_buffer_);
+    if (vulkan_buffer_) {
+      context_p_->register_buffer_cleanup(vulkan_buffer_);
+    }
   }
 
   VulkanBuffer& buffer() {
@@ -249,14 +257,18 @@ class StorageBuffer final {
   StorageBuffer(const StorageBuffer&) = delete;
   StorageBuffer& operator=(const StorageBuffer&) = delete;
 
-  StorageBuffer(StorageBuffer&&) = delete;
-  StorageBuffer& operator=(StorageBuffer&&) = delete;
+  StorageBuffer(StorageBuffer&&) = default;
+  StorageBuffer& operator=(StorageBuffer&&) = default;
 
   ~StorageBuffer() {
     context_p_->register_buffer_cleanup(vulkan_buffer_);
   }
 
-  VulkanBuffer& buffer() {
+  inline c10::ScalarType dtype() {
+    return dtype_;
+  }
+
+  inline VulkanBuffer& buffer() {
     return vulkan_buffer_;
   }
 };
@@ -290,6 +302,18 @@ inline void record_copy(
     const api::utils::uvec3& copy_range,
     const api::utils::uvec3& src_offset,
     const api::utils::uvec3& dst_offset) = delete;
+
+template <>
+inline void record_copy<VulkanBuffer, VulkanBuffer>(
+    CommandBuffer& cmd,
+    const VulkanBuffer& source,
+    const VulkanBuffer& destination,
+    const api::utils::uvec3& copy_range,
+    const api::utils::uvec3& src_offset,
+    const api::utils::uvec3& dst_offset) {
+  cmd.copy_buffer_to_buffer(
+      source, destination, copy_range, src_offset, dst_offset);
+}
 
 template <>
 inline void record_copy<VulkanImage, VulkanImage>(
@@ -374,7 +398,7 @@ inline void Context::submit_copy(
 
 template <typename... Arguments>
 inline void Context::submit_compute_job(
-    const ShaderSource& shader_descriptor,
+    const ShaderInfo& shader,
     const PipelineBarrier& pipeline_barrier,
     const utils::uvec3& global_work_group,
     const utils::uvec3& local_work_group_size,
@@ -401,7 +425,7 @@ inline void Context::submit_compute_job(
   if (enable_op_profiling_) {
     log_idx = querypool_.shader_profile_begin(
         cmd_,
-        shader_descriptor.kernel_name,
+        shader.kernel_name,
         create_extent3d(global_work_group),
         create_extent3d(local_work_group_size));
   }
@@ -409,16 +433,23 @@ inline void Context::submit_compute_job(
 
   // Factor out template parameter independent code to minimize code bloat.
   DescriptorSet descriptor_set =
-      submit_compute_prologue(cmd_, shader_descriptor, local_work_group_size);
+      submit_compute_prologue(cmd_, shader, local_work_group_size);
 
   detail::bind(
       descriptor_set,
       std::index_sequence_for<Arguments...>{},
       std::forward<Arguments>(arguments)...);
 
+  // Adjust the global workgroup size based on the output tile size
+  const utils::uvec3 effective_global_wg = {
+      utils::div_up(global_work_group.data[0u], shader.out_tile_size.data[0u]),
+      utils::div_up(global_work_group.data[1u], shader.out_tile_size.data[1u]),
+      utils::div_up(global_work_group.data[2u], shader.out_tile_size.data[2u]),
+  };
+
   // Factor out template parameter independent code to minimize code bloat.
   submit_compute_epilogue(
-      cmd_, descriptor_set, pipeline_barrier, global_work_group);
+      cmd_, descriptor_set, pipeline_barrier, effective_global_wg);
 
 #ifdef USE_VULKAN_GPU_DIAGNOSTICS
   if (enable_op_profiling_) {

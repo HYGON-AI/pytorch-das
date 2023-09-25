@@ -14,9 +14,8 @@
 #include <ATen/Dispatch.h>
 #include <ATen/NumericUtils.h>
 #include <ATen/cuda/NumericLimits.cuh>
-#include <ATen/core/Tensor.h>
-namespace at {
-namespace native {
+
+namespace at::native {
 
 
 #define VEC 4
@@ -169,5 +168,4 @@ void max_all_launch_kernel(TensorIterator &iter) {
 
 REGISTER_DISPATCH(max_values_stub, &max_values_kernel_cuda);
 
-} // namespace native
-} // namespace at
+} // namespace at::native
