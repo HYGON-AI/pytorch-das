@@ -1,4 +1,3 @@
-import warnings
 import contextlib
 import warnings
 from collections import defaultdict
