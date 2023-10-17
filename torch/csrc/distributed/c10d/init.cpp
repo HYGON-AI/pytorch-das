@@ -684,7 +684,8 @@ This class does not support ``__members__`` property.)");
       .value("BAND", ::c10d::ReduceOp::RedOpType::BAND)
       .value("BOR", ::c10d::ReduceOp::RedOpType::BOR)
       .value("BXOR", ::c10d::ReduceOp::RedOpType::BXOR)
-      .value("PREMUL_SUM", ::c10d::ReduceOp::RedOpType::PREMUL_SUM);
+      .value("PREMUL_SUM", ::c10d::ReduceOp::RedOpType::PREMUL_SUM)
+      .export_values();
 
   // note(crcrpar): This could be removed because users will not pass
   // `RedOpType` to reduce collective ops Ref: [Implicit
