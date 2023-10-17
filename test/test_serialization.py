@@ -308,12 +308,6 @@ class SerializationMixin:
     def test_serialization_sparse_safe(self):
         self._test_serialization(True)
 
-    def test_serialization_sparse(self):
-        self._test_serialization(False)
-
-    def test_serialization_sparse_safe(self):
-        self._test_serialization(True)
-
     def test_serialization_sparse_invalid(self):
         x = torch.zeros(3, 3)
         x[1][1] = 1
