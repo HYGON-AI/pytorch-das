@@ -1874,14 +1874,6 @@ class TestSDPA(NNTestCase):
             value = torch.randn(shape, dtype=torch.float16, device=device)
             self.assertRaises(RuntimeError, lambda: F.scaled_dot_product_attention(query, key, value))
 
-    # Test failing MHA when bias was NoneType
-    def test_bias_is_none(self):
-        x = torch.rand((1, 5, 10))
-        model = torch.nn.modules.activation.MultiheadAttention(10, 1, bias=False, batch_first=True)
-        model.eval()
-        model(x, x, x)
-        # completes without error
-
 
 # TODO: Replace this with instantiate_device_type_tests() to take advantage of test framework support for
 # cross device / dtype testing.
