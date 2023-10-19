@@ -2515,6 +2515,23 @@ def layer_norm(
     return torch.layer_norm(input, normalized_shape, weight, bias, eps, torch.backends.cudnn.enabled)
 
 
+def fuse_layer_norm(
+    input: Tensor,
+    normalized_shape: List[int],
+    weight: Optional[Tensor] = None,
+    bias: Optional[Tensor] = None,
+    eps: float = 1e-5,
+) -> Tensor:
+    r"""Applies Fuse Layer Normalization for last certain number of dimensions.
+
+    See :class:`~torch.nn.FuseLayerNorm` for details.
+    """
+    if has_torch_function_variadic(input, weight, bias):
+        return handle_torch_function(
+            fuse_layer_norm, (input, weight, bias), input, normalized_shape, weight=weight, bias=bias, eps=eps
+        )
+    return torch.fuse_layer_norm(input, normalized_shape, weight, bias, eps, torch.backends.cudnn.enabled)
+
 def group_norm(
     input: Tensor, num_groups: int, weight: Optional[Tensor] = None, bias: Optional[Tensor] = None, eps: float = 1e-5
 ) -> Tensor:
