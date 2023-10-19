@@ -83,7 +83,30 @@ using forward_fn = void (*)(
     Tensor* /* mean */,
     Tensor* /* rstd */);
 
+using forward_fuse_fn = void (*)(
+    const Tensor& /* X */,
+    const Tensor& /* gamma */,
+    const Tensor& /* beta */,
+    int64_t /* M */,
+    int64_t /* N */,
+    double /* eps */,
+    Tensor* /* Y */,
+    Tensor* /* mean */,
+    Tensor* /* rstd */);
+
 using backward_fn = void (*)(
+    const Tensor& /* dY */,
+    const Tensor& /* X */,
+    const Tensor& /* mean */,
+    const Tensor& /* rstd */,
+    const Tensor& /* gamma */,
+    int64_t /* M */,
+    int64_t /* N */,
+    Tensor* /* dX */,
+    Tensor* /* dgamma */,
+    Tensor* /* dbeta */);
+
+using backward_fuse_fn = void (*)(
     const Tensor& /* dY */,
     const Tensor& /* X */,
     const Tensor& /* mean */,
@@ -97,6 +120,9 @@ using backward_fn = void (*)(
 
 DECLARE_DISPATCH(forward_fn, LayerNormKernel);
 DECLARE_DISPATCH(backward_fn, LayerNormBackwardKernel);
+
+DECLARE_DISPATCH(forward_fuse_fn, FuseLayerNormKernel);
+DECLARE_DISPATCH(backward_fuse_fn, FuseLayerNormBackwardKernel);
 
 } // namespace native
 } // namespace at

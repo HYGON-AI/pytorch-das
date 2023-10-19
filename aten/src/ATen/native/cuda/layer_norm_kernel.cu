@@ -820,28 +820,6 @@ void LayerNormKernelImplInternal(
   }
 }
 
-void LayerNormKernelImpl(
-    const Tensor& X,
-    const Tensor& gamma,
-    const Tensor& beta,
-    int64_t M,
-    int64_t N,
-    double eps,
-    Tensor* Y,
-    Tensor* mean,
-    Tensor* rstd) {
-  AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::ScalarType::Half,
-      at::ScalarType::BFloat16,
-      X.scalar_type(),
-      "LayerNormKernelImpl",
-      [&]() {
-        using acc_t = acc_type<scalar_t, true>;
-        LayerNormKernelImplInternal<scalar_t, acc_t>(
-            X, gamma, beta, M, N, static_cast<acc_t>(eps), Y, mean, rstd);
-      });
-}
-
 template<typename T, typename T_ACC> __device__
 void cuLoadWriteStridedInputs(
     const int i1_block,
@@ -1301,6 +1279,30 @@ void LayerNormBackwardKernelImplInternal(
   }
 }
 
+} // namespace
+
+void LayerNormKernelImpl(
+    const Tensor& X,
+    const Tensor& gamma,
+    const Tensor& beta,
+    int64_t M,
+    int64_t N,
+    double eps,
+    Tensor* Y,
+    Tensor* mean,
+    Tensor* rstd) {
+  AT_DISPATCH_FLOATING_TYPES_AND2(
+      at::ScalarType::Half,
+      at::ScalarType::BFloat16,
+      X.scalar_type(),
+      "LayerNormKernelImpl",
+      [&]() {
+        using acc_t = acc_type<scalar_t, true>;
+        LayerNormKernelImplInternal<scalar_t, acc_t>(
+            X, gamma, beta, M, N, static_cast<acc_t>(eps), Y, mean, rstd);
+      });
+}
+
 void LayerNormBackwardKernelImpl(
     const Tensor& dY,
     const Tensor& X,
@@ -1322,8 +1324,6 @@ void LayerNormBackwardKernelImpl(
             dY.contiguous(), X, mean, rstd, gamma, M, N, dX, dgamma, dbeta);
       });
 }
-
-} // namespace
 
 std::tuple<Tensor, Tensor, Tensor> layer_norm_cuda(
     const Tensor& input,
