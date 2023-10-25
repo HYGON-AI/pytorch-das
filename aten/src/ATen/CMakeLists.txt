@@ -114,6 +114,7 @@ file(GLOB native_quantized_cpp
             "native/quantized/*.cpp"
             "native/quantized/cpu/*.cpp")
 file(GLOB native_nested_cpp "native/nested/*.cpp")
+file(GLOB native_lightop_cpp "native/lightop/*.cpp")
 file(GLOB native_transformers_cpp "native/transformers/*.cpp")
 
 file(GLOB native_h "native/*.h")
@@ -138,6 +139,8 @@ file(GLOB native_quantized_cuda_cpp "native/quantized/cuda/*.cpp")
 file(GLOB native_quantized_cudnn_cpp "native/quantized/cudnn/*.cpp")
 file(GLOB native_nested_cuda_cu "native/nested/cuda/*.cu")
 file(GLOB native_nested_cuda_cpp "native/nested/cuda/*.cpp")
+file(GLOB native_lightop_cuda_cu "native/lightop/cuda/*.cu")
+file(GLOB native_lightop_cuda_cpp "native/lightop/cuda/*.cpp")
 
 file(GLOB native_hip_hip "native/hip/*.hip")
 file(GLOB native_hip_cpp "native/hip/*.cpp")
@@ -146,6 +149,8 @@ file(GLOB native_miopen_cpp "native/miopen/*.cpp")
 file(GLOB native_cudnn_hip_cpp "native/cudnn/hip/*.cpp")
 file(GLOB native_nested_hip_hip "native/nested/hip/*.hip")
 file(GLOB native_nested_hip_cpp "native/nested/hip/*.cpp")
+file(GLOB native_lightop_hip_hip "native/lightop/hip/*.hip")
+file(GLOB native_lightop_hip_cpp "native/lightop/hip/*.cpp")
 file(GLOB native_sparse_hip_hip "native/sparse/hip/*.hip")
 file(GLOB native_sparse_hip_cpp "native/sparse/hip/*.cpp")
 file(GLOB native_quantized_hip_hip "native/quantized/hip/*.hip")
@@ -194,7 +199,7 @@ if(BUILD_LITE_INTERPRETER)
 else()
   set(
     all_cpu_cpp ${base_cpp} ${ATen_CORE_SRCS} ${native_cpp}
-    ${native_ao_sparse_cpp} ${native_sparse_cpp} ${native_nested_cpp}
+    ${native_ao_sparse_cpp} ${native_sparse_cpp} ${native_nested_cpp} ${native_lightop_cpp}
     ${native_quantized_cpp} ${native_mkl_cpp} ${native_mkldnn_cpp}
     ${native_transformers_cpp}
     ${native_utils_cpp} ${native_xnnpack} ${generated_sources} ${core_generated_sources}
@@ -238,6 +243,7 @@ if(USE_CUDA)
     ${cuda_cu}
     ${native_cuda_cu}
     ${native_nested_cuda_cu}
+    ${native_lightop_cuda_cu}
     ${native_sparse_cuda_cu}
     ${native_quantized_cuda_cu}
     ${native_transformers_cuda_cu}
@@ -249,6 +255,7 @@ if(USE_CUDA)
     ${native_cudnn_cpp}
     ${native_miopen_cpp}
     ${native_nested_cuda_cpp}
+    ${native_lightop_cuda_cpp}
     ${native_quantized_cuda_cpp}
     ${native_quantized_cudnn_cpp}
     ${native_sparse_cuda_cpp}
@@ -275,9 +282,9 @@ endif()
 
 if(USE_ROCM)
   list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/hip)
-  set(ATen_HIP_SRCS ${ATen_HIP_SRCS} ${hip_hip} ${native_hip_hip} ${native_nested_hip_hip} ${native_sparse_hip_hip} ${native_quantized_hip_hip} ${native_transformers_hip_hip})
+  set(ATen_HIP_SRCS ${ATen_HIP_SRCS} ${hip_hip} ${native_hip_hip} ${native_nested_hip_hip} ${native_lightop_hip_hip} ${native_sparse_hip_hip} ${native_quantized_hip_hip} ${native_transformers_hip_hip})
   # TODO: Codegen separate files for HIP and use those (s/cuda_generated_sources/hip_generated_sources)
-  set(all_hip_cpp ${native_nested_hip_cpp} ${native_sparse_hip_cpp} ${native_quantized_hip_cpp} ${native_transformers_hip_cpp} ${native_quantized_cudnn_hip_cpp} ${hip_cpp} ${native_hip_cpp} ${native_hip_linalg_cpp} ${cuda_generated_sources} ${ATen_HIP_SRCS})
+  set(all_hip_cpp ${native_nested_hip_cpp} ${native_lightop_hip_cpp} ${native_sparse_hip_cpp} ${native_quantized_hip_cpp} ${native_transformers_hip_cpp} ${native_quantized_cudnn_hip_cpp} ${hip_cpp} ${native_hip_cpp} ${native_hip_linalg_cpp} ${cuda_generated_sources} ${ATen_HIP_SRCS})
   set(all_hip_cpp ${native_miopen_cpp} ${native_cudnn_hip_cpp} ${miopen_cpp} ${all_hip_cpp})
 endif()
 
