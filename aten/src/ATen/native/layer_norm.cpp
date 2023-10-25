@@ -14,13 +14,10 @@
 #include <ATen/ops/empty_like.h>
 #include <ATen/ops/empty_like_native.h>
 #include <ATen/ops/layer_norm_native.h>
-#include <ATen/ops/fuse_layer_norm_native.h>
 #include <ATen/ops/native_batch_norm.h>
 #include <ATen/ops/native_layer_norm.h>
-#include <ATen/ops/native_fuse_layer_norm.h>
 #include <ATen/ops/native_layer_norm_backward_native.h>
 #include <ATen/ops/native_layer_norm_native.h>
-#include <ATen/ops/native_fuse_layer_norm_native.h>
 #include <ATen/ops/zeros_like_native.h>
 #endif
 
@@ -198,25 +195,8 @@ Tensor layer_norm_symint(
   return std::get<0>(at::native_layer_norm_symint(input, normalized_shape, weight, bias, eps));
 }
 
-Tensor fuse_layer_norm_symint(
-    const Tensor& input,
-    c10::SymIntArrayRef normalized_shape, const c10::optional<Tensor>& weight_opt /* optional */, const c10::optional<Tensor>& bias_opt /* optional */,
-    double eps,
-    bool /* cudnn_enable, deprecated */) {
-  // See [Note: hacky wrapper removal for optional tensor]
-  c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight_opt);
-  const Tensor& weight = *weight_maybe_owned;
-  c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias_opt);
-  const Tensor& bias = *bias_maybe_owned;
-
-  return std::get<0>(at::native_fuse_layer_norm_symint(input, normalized_shape, weight, bias, eps));
-}
-
 DEFINE_DISPATCH(LayerNormKernel);
 DEFINE_DISPATCH(LayerNormBackwardKernel);
-
-DEFINE_DISPATCH(FuseLayerNormKernel);
-DEFINE_DISPATCH(FuseLayerNormBackwardKernel);
 
 // Ported from pytorch/xla repo
 std::tuple<Tensor, Tensor, Tensor> math_native_layer_norm(
