@@ -91,6 +91,7 @@ includes = [
     "aten/src/ATen/native/sparse/cuda/*",
     "aten/src/ATen/native/quantized/cuda/*",
     "aten/src/ATen/native/transformers/cuda/*",
+    "aten/src/ATen/native/lightop/cuda/*",
     "aten/src/THC/*",
     "aten/src/ATen/test/*",
     # CMakeLists.txt isn't processed by default, but there are a few
