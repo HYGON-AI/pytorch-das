@@ -1,5 +1,5 @@
 import torch
-
+from warnings import warn
 __all__ = [
     "ReLU6",
     "Hardswish",
@@ -56,14 +56,14 @@ class Hardswish(torch.nn.Hardswish):
         scale: quantization scale of the output tensor
         zero_point: quantization zero point of the output tensor
     """
-    def __init__(self, scale, zero_point):
+    def __init__(self, scale, zero_point, device=None, dtype=None):
+        factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__()
-        self.scale = scale
-        self.zero_point = zero_point
+        self.register_buffer('scale', torch.tensor(scale, **factory_kwargs))
+        self.register_buffer('zero_point', torch.tensor(zero_point, **factory_kwargs))
 
     def forward(self, input):
-        return torch.ao.nn.quantized.functional.hardswish(
-            input, scale=self.scale, zero_point=self.zero_point)
+        return torch.ops.quantized.hardswish(input, self.scale, self.zero_point)
 
     def _get_name(self):
         return 'QuantizedHardswish'
@@ -271,6 +271,11 @@ class PReLU(torch.nn.Module):
         qprelu = cls(float(scale), int(zero_point), mod.num_parameters)
         float_wt = mod.weight.float()
         observer = mod.qconfig.weight()
+        observer(float_wt)
+        if observer.dtype != torch.quint8:
+            warn(
+                f"PReLU's weight observer should have dtype quint8 but got {observer.dtype}"
+            )
         wt_scale, wt_zp = observer.calculate_qparams()
         qweight = torch.quantize_per_tensor(
             float_wt, float(wt_scale), int(wt_zp), torch.quint8)
@@ -282,6 +287,11 @@ class PReLU(torch.nn.Module):
         qprelu = cls(float(scale), int(zero_point), mod.num_parameters)
         float_wt = mod.weight.float()
         observer = mod.qconfig.weight()
+        observer(float_wt)
+        if observer.dtype != torch.quint8:
+            warn(
+                f"PReLU's weight observer should have dtype quint8 but got {observer.dtype}"
+            )
         wt_scale, wt_zp = observer.calculate_qparams()
         qweight = torch.quantize_per_tensor(
             float_wt, float(wt_scale), int(wt_zp), torch.quint8)

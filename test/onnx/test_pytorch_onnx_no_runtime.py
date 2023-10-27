@@ -21,7 +21,6 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 from torch.onnx import OperatorExportTypes, symbolic_helper, utils
-from torch.onnx._globals import GLOBALS
 from torch.onnx._internal import registration
 from torch.testing._internal import common_quantization, common_utils, jit_utils
 
@@ -30,13 +29,11 @@ def export_to_onnx(
     model: Union[torch.nn.Module, torch.jit.ScriptFunction],
     input: Union[torch.Tensor, Tuple[torch.Tensor]],
     custom_ops: Optional[
-        Iterable[
-            Union[contextlib.AbstractContextManager, contextlib.ContextDecorator],
-        ]
+        Iterable[Union[contextlib.AbstractContextManager, contextlib.ContextDecorator]]
     ] = None,
     mocks: Optional[Iterable] = None,
     operator_export_type: torch.onnx.OperatorExportTypes = torch.onnx.OperatorExportTypes.ONNX,
-    opset_version: int = GLOBALS.export_onnx_opset_version,
+    opset_version: int = 17,
     **torch_onnx_export_kwargs,
 ) -> onnx.ModelProto:
     """Exports `model(input)` to ONNX and returns it.
@@ -76,6 +73,7 @@ def export_to_onnx(
     return onnx_model
 
 
+@common_utils.instantiate_parametrized_tests
 class TestONNXExport(pytorch_test_common.ExportTestCase):
     def test_fuse_addmm(self):
         class AddmmModel(torch.nn.Module):
@@ -408,11 +406,7 @@ class TestONNXExport(pytorch_test_common.ExportTestCase):
         onnx_model = export_to_onnx(
             MyClip(),
             torch.randn(3, 4, requires_grad=True),
-            custom_ops=[
-                common_utils.custom_op(
-                    "aten::clamp", bad_clamp, GLOBALS.export_onnx_opset_version
-                )
-            ],
+            custom_ops=[common_utils.custom_op("aten::clamp", bad_clamp, 17)],
             operator_export_type=torch.onnx.OperatorExportTypes.ONNX_ATEN_FALLBACK,
         )
         self.assertAtenOp(onnx_model, "clamp", "Tensor")
@@ -765,7 +759,6 @@ class TestONNXExport(pytorch_test_common.ExportTestCase):
         )
 
     def test_dropout_script(self):
-
         eg = torch.zeros(1, 2, 3, requires_grad=True)
 
         @jit_utils._trace(eg)
@@ -1156,6 +1149,61 @@ class TestONNXExport(pytorch_test_common.ExportTestCase):
         self.assertEqual(onnx_model.graph.node[-1].attribute[1].name, "pads")
         self.assertEqual(onnx_model.graph.node[-1].attribute[2].name, "strides")
 
+    @unittest.skipIf(
+        not torch.hub._check_module_exists("torch_scatter"),
+        "torch_scatter not installed.",
+    )
+    def test_random_namespace_custom_op_is_onnx_exportable(self):
+        from torch_scatter import scatter_max  # type: ignore[import]
+
+        class MyModel(torch.nn.Module):
+            def forward(self, src: torch.Tensor, idx: torch.Tensor):
+                return scatter_max(src, idx)
+
+        m = MyModel().eval()
+        src = torch.ones([3, 10], dtype=torch.float32)
+        idx = torch.randint(0, 4, [3, 10], dtype=torch.long)
+
+        def sym_scatter_max(g, src, index, dim, out, dim_size):
+            return g.op(
+                "torch_scatter::scatter_max", src, index, dim_size_i=-1, outputs=2
+            )
+
+        torch.onnx.register_custom_op_symbolic(
+            "torch_scatter::scatter_max", sym_scatter_max, 1
+        )
+        with torch.no_grad():
+            torch.onnx.export(
+                m,
+                (src, idx),
+                "mymodel.onnx",
+                verbose=False,
+                opset_version=13,
+                custom_opsets={"torch_scatter": 1},
+                do_constant_folding=True,
+            )
+
+    @common_utils.parametrize("fp8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
+    def test_fp8_export(self, fp8_dtype: torch.dtype):
+        class Model(torch.nn.Module):
+            def forward(self, x):
+                return x.to(torch.float32)
+
+        x = torch.randn(2, 3).to(fp8_dtype)
+
+        f = io.BytesIO()
+        torch.onnx.export(Model(), x, f, opset_version=19)
+        onnx.checker.check_model(f.getvalue())
+
+        onnx_type = {
+            torch.float8_e4m3fn: 17,
+            torch.float8_e5m2: 19,
+        }  # From https://github.com/onnx/onnx/blob/main/onnx/onnx.proto3#L512-L521
+        loaded_model = onnx.load_from_string(f.getvalue())
+        self.assertEqual(
+            loaded_model.graph.input[0].type.tensor_type.elem_type, onnx_type[fp8_dtype]
+        )
+
 
 class TestQuantizeEagerONNXExport(common_utils.TestCase):
     def _test_lower_graph_impl(self, model, data):
@@ -1243,6 +1291,30 @@ class TestQuantizeEagerONNXExport(common_utils.TestCase):
                 if a.name == "value" and a.t.data_type == 11:
                     double_type_count += 1
         self.assertNotEqual(double_type_count, 0)
+
+    @pytorch_test_common.skipIfNoCuda
+    def test_aten_device_with_index(self):
+        from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-small")
+        model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-small")
+        model = torch.compile(model, backend="onnxrt")
+        model = model.eval()
+        device = "cuda:0"
+        model = model.to(device)
+        ids = tokenizer.batch_encode_plus(["This is a test"], return_tensors="pt").to(
+            device
+        )
+
+        with torch.no_grad():
+            _ = model(
+                **{
+                    "input_ids": ids["input_ids"],
+                    "attention_mask": ids["attention_mask"],
+                    "decoder_input_ids": ids["input_ids"],
+                    "decoder_attention_mask": ids["attention_mask"],
+                }
+            )
 
 
 if __name__ == "__main__":

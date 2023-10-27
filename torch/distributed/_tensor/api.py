@@ -1,26 +1,32 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates
-import copy
 import warnings
-from typing import Callable, cast, Dict, Optional, Sequence
+from typing import Callable, cast, Optional, Sequence, Tuple
 
 import torch
-import torch.nn as nn
 
 import torch.distributed._tensor.dispatch as op_dispatch
-from torch.distributed._tensor.device_mesh import DeviceMesh, get_global_device_mesh
+import torch.distributed._tensor.random as random
+import torch.nn as nn
+from torch.distributed._tensor._collective_utils import mesh_broadcast
+from torch.distributed._tensor._utils import compute_global_tensor_info
+from torch.distributed._tensor.device_mesh import DeviceMesh, mesh_resources
 from torch.distributed._tensor.placement_types import (
-    _Partial,
     DTensorSpec,
     Placement,
     Replicate,
     Shard,
 )
-from torch.distributed._tensor.sharding_prop import ShardingPropagator
+from torch.distributed._tensor.random import (
+    is_rng_supported_mesh,
+    OffsetBasedRNGTracker,
+)
 from torch.distributed._tensor.redistribute import Redistribute
-from torch.utils._pytree import tree_flatten
+from torch.distributed._tensor.sharding_prop import ShardingPropagator
+from torch.fx.passes.shape_prop import TensorMetadata
 
 
 __all__ = ["DTensor", "distribute_tensor", "distribute_module"]
+
 
 # NOTE [Autograd interaction between torch.Tensor]
 #
@@ -35,7 +41,7 @@ __all__ = ["DTensor", "distribute_tensor", "distribute_module"]
 #  input(torch.Tensor) -> Module A -> Module B -> Module C -> output (torch.Tensor)
 #
 # Suppose I only want to make Module B be a sharded module with
-# DistributedTensor params, we would need to make the folloing
+# DistributedTensor params, we would need to make the following
 # flow to work:
 #
 #  input(torch.Tensor) -> Module A
@@ -49,22 +55,27 @@ __all__ = ["DTensor", "distribute_tensor", "distribute_module"]
 class _ToTorchTensor(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: "DTensor"):  # type: ignore[override]
-        ctx.dtensor_device_mesh = input.device_mesh
-        ctx.dtensor_placements = input.placements
-        ctx.dtensor_shape = input.shape
-        ctx.dtensor_requires_grad = input.requires_grad
-        return input._local_tensor.detach()
+        ctx.dtensor_spec = input._spec
+        # We need to return a fresh Tensor object there as autograd metadata
+        # will be inplaced into it. So we don't want to polute the Tensor
+        # object stored in _local_tensor.
+        return input._local_tensor.view_as(input._local_tensor)
 
     @staticmethod
     def backward(ctx, grad_output: torch.Tensor):  # type: ignore[override]
-        device_mesh = ctx.dtensor_device_mesh
-        placements = ctx.dtensor_placements
+        dtensor_spec = ctx.dtensor_spec
+        dtensor_meta = dtensor_spec.tensor_meta
+        _, tensor_stride = compute_global_tensor_info(
+            grad_output, dtensor_spec.mesh, dtensor_spec.placements
+        )
         return DTensor(
             grad_output,
-            device_mesh,
-            placements,
-            size=ctx.dtensor_shape,
+            dtensor_spec.mesh,
+            dtensor_spec.placements,
+            shape=dtensor_meta.shape,
+            dtype=dtensor_meta.dtype,
             requires_grad=grad_output.requires_grad,
+            stride=tuple(tensor_stride),
         )
 
 
@@ -74,13 +85,24 @@ class _FromTorchTensor(torch.autograd.Function):
         ctx,  # pyre-ignore[2]: Parameter must be annotated.
         input: torch.Tensor,
         device_mesh: DeviceMesh,
-        placements: Sequence[Placement],
+        placements: Tuple[Placement, ...],
         run_check: bool,
     ) -> "DTensor":
         ctx.previous_placement = placements
         ctx.previous_device_mesh = device_mesh
 
-        if run_check:
+        # if it's not by default run_check, we assume user is certain that each
+        # rank has the same tensor shape, and we just use that to calculate the
+        # global shape
+        tensor_shape, tensor_stride = compute_global_tensor_info(
+            input, device_mesh, placements
+        )
+
+        if device_mesh.get_coordinate() is None:
+            # if the global rank is not participating in the device mesh, we
+            # simply set the local tensor to an empty tensor
+            input = input.new_empty(0, requires_grad=input.requires_grad)
+        elif run_check:
             # TODO: by default check tensor metas across rank
             # TODO: See if we need to make this run_check logic
             # have a corresponding backward.
@@ -89,26 +111,19 @@ class _FromTorchTensor(torch.autograd.Function):
                     # broadcast rank 0 tensor to all ranks
                     # only broadcast if run_check is True
                     input = input.contiguous()
-                    device_mesh.broadcast(input, mesh_dim=idx)
+                    mesh_broadcast(input, device_mesh, mesh_dim=idx)
 
-        # if it's not by default run_check, we assume user is certain that each
-        # rank has the same tensor shape, and we just use that to calculate the
-        # global shape
-        tensor_shape = list(input.size())
-        for idx, placement in enumerate(placements):
-            if placement.is_shard():
-                shard_dim = cast(Shard, placement).dim
-                local_dim_size = tensor_shape[shard_dim]
-                tensor_shape[shard_dim] = local_dim_size * device_mesh.size(idx)
-
+        # We want a fresh Tensor object that shares memory with the input tensor
         dist_tensor = DTensor(
-            input,
+            input.view_as(input),
             device_mesh,
             placements,
-            size=torch.Size(tensor_shape),
+            shape=torch.Size(tensor_shape),
+            dtype=input.dtype,
             # requires_grad of the dist tensor depends on if input
             # requires_grad or not
             requires_grad=input.requires_grad,
+            stride=tuple(tensor_stride),
         )
         return dist_tensor
 
@@ -140,22 +155,17 @@ class DTensor(torch.Tensor):  # pyre-ignore[13]: pyre is bad at __new__
     # rules, keyed by aten op name, value is propagation func
     _propagator: ShardingPropagator = ShardingPropagator()
 
-    # class attribute that handles custom registered ops, all handled
-    # custom ops should appear in this table, and overriding the default
-    # operators that's been covered by _op_to_rules or fallbacks.
-    # (custom operator is the highest priority when dispatching).
-    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
-    _custom_dispatch_ops: Dict[str, Callable] = {}
-
     @staticmethod
     def __new__(
         cls,
         local_tensor: torch.Tensor,
         device_mesh: DeviceMesh,
-        placements: Sequence[Placement],
+        placements: Tuple[Placement, ...],
         *,
-        size: torch.Size,
-        requires_grad: bool = False,
+        shape: torch.Size,
+        dtype: torch.dtype,
+        requires_grad: bool,
+        stride: Tuple[int, ...],
     ) -> "DTensor":
         """
         Construct a DTensor from a local tensor, device mesh, and placement and
@@ -167,25 +177,6 @@ class DTensor(torch.Tensor):  # pyre-ignore[13]: pyre is bad at __new__
             already have tensor initialized and want to shard this tensor),
             consider using `distribute_tensor`.
         """
-        # recover tensor strides from local tensor strides and global size info
-        # in the case of sharding
-        # TODO: we should try to use meta tensor for shape and stride calculation
-        tensor_stride = list(local_tensor.stride())
-        local_size = list(local_tensor.size())
-        for placement in placements:
-            if isinstance(placement, Shard):
-                shard_dim = placement.dim
-                # recover tensor stride by modifying the stride that larger than
-                # the current stride on the shard_dim
-                for i in range(len(tensor_stride)):
-                    if i != shard_dim and tensor_stride[i] >= tensor_stride[shard_dim]:
-                        # rescale the stride by the shard size
-                        tensor_stride[i] = (
-                            tensor_stride[i] // local_size[shard_dim]
-                        ) * size[shard_dim]
-            elif not isinstance(placement, (Replicate, _Partial)):
-                raise RuntimeError(f"placement type {type(placement)} not supported!")
-
         if requires_grad != local_tensor.requires_grad:
             warnings.warn(
                 "To construct DTensor from torch.Tensor, it's recommended to "
@@ -196,19 +187,22 @@ class DTensor(torch.Tensor):  # pyre-ignore[13]: pyre is bad at __new__
         # placement spec, it does not do actual distribution
         r = torch.Tensor._make_wrapper_subclass(  # type: ignore[attr-defined]
             cls,
-            size,
-            strides=tensor_stride,
-            dtype=local_tensor.dtype,
+            shape,
+            strides=stride,
+            dtype=dtype,
             device=local_tensor.device,
             layout=local_tensor.layout,
             requires_grad=requires_grad,
         )
+
+        # TODO: populate all tensor meta fields properly
+        # NOTE: memory_format is non-pickable so we intentionally skip it
+        tensor_meta = TensorMetadata(
+            shape, dtype, requires_grad, stride, None, False, {}
+        )
         # deepcopy and set spec
-        r._spec = DTensorSpec(device_mesh, copy.deepcopy(placements), shape=r.size())
-        # detach local tensor from autograd graph as we initialize the
-        # distributed tensor and autograd will be working on top of
-        # the wrapper tensor directly instead of local torch.Tensor
-        r._local_tensor = local_tensor.detach()
+        r._spec = DTensorSpec(device_mesh, placements, tensor_meta=tensor_meta)
+        r._local_tensor = local_tensor
         return r
 
     # pyre-fixme[14]: `__repr__` overrides method defined in `DTensor` inconsistently.
@@ -217,35 +211,45 @@ class DTensor(torch.Tensor):  # pyre-ignore[13]: pyre is bad at __new__
         # TODO: consider all_gather the local tensors for better debugging
         return f"DTensor(local_tensor={self._local_tensor}, device_mesh={self._spec.mesh}, placements={self._spec.placements})"
 
+    def __tensor_flatten__(self):
+        """
+        protocol to inform how to flatten a DTensor to local tensor
+        for PT2 tracing
+        """
+        return self._local_tensor, self._spec
+
+    @staticmethod
+    def __tensor_unflatten__(local_tensor, spec):
+        assert (
+            spec is not None
+        ), "Expecting spec to be not None from `__tensor_flatten__` return value!"
+        return DTensor(
+            local_tensor,
+            spec.mesh,
+            spec.placements,
+            shape=spec.tensor_meta.shape,
+            dtype=spec.tensor_meta.dtype,
+            requires_grad=spec.tensor_meta.requires_grad,
+            stride=spec.tensor_meta.stride,
+        )
+
     @classmethod
     # pyre-fixme[3]: Return type must be annotated.
     # pyre-fixme[2]: Parameter must be annotated.
     def __torch_dispatch__(cls, func, types, args=(), kwargs=None):
-        # check that we are not getting mixed vanilla and Distributed tensors
-        arg_list, _ = tree_flatten(args)
-        for arg in arg_list:
-            if isinstance(arg, torch.Tensor) and not isinstance(arg, DTensor):
-                raise RuntimeError(
-                    f"{func}: got mixed distributed and non-distributed tensors."
-                )
-
-        if kwargs is None:
-            kwargs = {}
-
         return op_dispatch.operator_dispatch(
             func,
             args,
-            kwargs,
+            kwargs or {},
             DTensor._propagator,
-            DTensor._custom_dispatch_ops,
         )
 
-    @classmethod
+    @staticmethod
     def from_local(
-        cls,
         local_tensor: torch.Tensor,
         device_mesh: Optional[DeviceMesh] = None,
         placements: Optional[Sequence[Placement]] = None,
+        *,
         run_check: bool = True,
     ) -> "DTensor":
         """
@@ -262,6 +266,8 @@ class DTensor(torch.Tensor):  # pyre-ignore[13]: pyre is bad at __new__
                 have the same number of elements as `device_mesh.ndim`. If not
                 specified, we will by default replicate the tensor across the
                 `device_mesh` from the first rank of each dimension of the `device_mesh`.
+
+        Keyword args:
             run_check (bool, optional): indicate whether to run check across ranks
                 to check meta information and data. if have :class:`Replicate` in
                 `placements`, the data on first rank of the device mesh dimension
@@ -278,7 +284,8 @@ class DTensor(torch.Tensor):  # pyre-ignore[13]: pyre is bad at __new__
         # There should be no data communication unless there's replication
         # strategy, where we broadcast the replication from the first rank
         # in the mesh dimension
-        device_mesh = get_global_device_mesh() if device_mesh is None else device_mesh
+        device_mesh = device_mesh or mesh_resources.get_current_mesh()
+
         # convert the local tensor to desired device base on device mesh's device_type
         if not local_tensor.is_meta:
             local_tensor = local_tensor.to(device_mesh.device_type)
@@ -291,7 +298,7 @@ class DTensor(torch.Tensor):  # pyre-ignore[13]: pyre is bad at __new__
         # created should flow back the gradients to the local_tensor, so we call an autograd
         # function to construct the dist tensor instead.
         return _FromTorchTensor.apply(  # pyre-ignore[16]: autograd func
-            local_tensor, device_mesh, placements, run_check
+            local_tensor, device_mesh, tuple(placements), run_check
         )
 
     def to_local(self) -> torch.Tensor:
@@ -332,13 +339,12 @@ class DTensor(torch.Tensor):  # pyre-ignore[13]: pyre is bad at __new__
 
         .. note:: `redistribute` is differentiable.
         """
-        # This API perform necessary transformations and get
-        # a new DTensor with the new spec. i.e. for
-        # sharding it's a reshard behavior.
-        # Note that redistribute currently only supports out
+        # NOTE: This redistribute API currently only supports out
         # of place redistribution, i.e. it always create a new
         # DTensor object and leave the original one unchanged.
-        device_mesh = get_global_device_mesh() if device_mesh is None else device_mesh
+
+        # if device_mesh is not specified, use the current device_mesh
+        device_mesh = device_mesh or self.device_mesh
         # raise error if new placements not specified
         if placements is None:
             raise RuntimeError("placements is needed for redistribute!")
@@ -384,7 +390,7 @@ def distribute_tensor(
     Args:
         tensor (torch.Tensor): torch.Tensor to be distributed. Note that if you
             want to shard a tensor on a dimension that is not evenly divisible by
-            the number of devices in that mesh dimension, we use `torch.tensor_split`
+            the number of devices in that mesh dimension, we use `torch.chunk`
             semantic to shard the tensor and scatter the shards.
         device_mesh (:class:`DeviceMesh`, optional): DeviceMesh to distribute the
             tensor, if not specified, must be called under a DeviceMesh context
@@ -398,9 +404,25 @@ def distribute_tensor(
     Returns:
         A :class:`DTensor` object
     """
+
+    torch._C._log_api_usage_once("torch.dtensor.distribute_tensor")
+
     # get default device mesh if there's nothing specified
-    device_mesh = get_global_device_mesh() if device_mesh is None else device_mesh
-    # convert tensor to the correponding device type if it's not in that device type
+    device_mesh = device_mesh or mesh_resources.get_current_mesh()
+
+    # instantiate a RNG tracker if haven't. By default DTensor uses an
+    # OffsetBasedRNGTracker to perform random operators.
+    # TODO: the value assignment to global variable is not the ideal solution
+    # we can replace it in future.
+    if is_rng_supported_mesh(device_mesh) and not random._rng_tracker:
+        random._rng_tracker = OffsetBasedRNGTracker(device_mesh.device_type)
+
+    if not tensor.is_leaf:
+        raise RuntimeError(
+            "`distribute_tensor` should be used to distribute leaf tensors! but found non-leaf tensor!"
+        )
+
+    # convert tensor to the corresponding device type if it's not in that device type
     if not tensor.is_meta:
         tensor = tensor.to(device_mesh.device_type)
     # set default placements to replicated if not specified
@@ -421,7 +443,7 @@ def distribute_tensor(
                 f"Cannot distribute a DTensor with device mesh {tensor.device_mesh} "
                 f"to a different device mesh {device_mesh}."
             )
-        if tensor.placements != placements:
+        if tensor.placements != tuple(placements):
             raise ValueError(
                 f"Cannot distribute a DTensor with placements {tensor.placements} "
                 f"to a different placements {placements}. do you want to call "
@@ -435,27 +457,26 @@ def distribute_tensor(
     for idx, placement in enumerate(placements):
         if placement.is_shard():
             placement = cast(Shard, placement)
-            output = placement._shard_tensor(local_tensor, device_mesh, idx)
-            # scatter call could not return a tensor with correct requires_grad
-            # field, as ProcessGroupNCCL refuse to take a tensor with requires_grad
-            # to do inplace update! So we manually set it here
-            output.requires_grad_(tensor.requires_grad)
-            local_tensor = output
+            local_tensor = placement._shard_tensor(local_tensor, device_mesh, idx)
         elif placement.is_replicate():
-            local_tensor = local_tensor.contiguous()
-            device_mesh.broadcast(local_tensor, mesh_dim=idx)
+            placement = cast(Replicate, placement)
+            local_tensor = placement._replicate_tensor(local_tensor, device_mesh, idx)
         else:
             raise RuntimeError(
                 f"Trying to distribute tensor with unsupported placements {placement} on device mesh dimension {idx}!"
             )
 
     assert local_tensor is not None, "distributing a tensor should not be None"
+    # detach the local tensor passed to DTensor since after the construction
+    # of DTensor, autograd would work on top of DTensor instead of local tensor
     return DTensor(
-        local_tensor,
+        local_tensor.detach().requires_grad_(tensor.requires_grad),
         device_mesh,
-        placements,
-        size=tensor.size(),
+        tuple(placements),
+        shape=tensor.size(),
+        dtype=tensor.dtype,
         requires_grad=tensor.requires_grad,
+        stride=tensor.stride(),
     )
 
 
@@ -488,8 +509,9 @@ def distribute_module(
         A module that contains parameters/buffers that are all `DTensor`s.
     """
 
-    if device_mesh is None:
-        device_mesh = get_global_device_mesh()
+    torch._C._log_api_usage_once("torch.dtensor.distribute_module")
+
+    device_mesh = device_mesh or mesh_resources.get_current_mesh()
 
     def replicate_module_params_buffers(m: nn.Module, mesh: DeviceMesh) -> None:
         # This function loop over the immediate module parameters and

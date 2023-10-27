@@ -32,6 +32,7 @@ jobs:
   build:
     if: ${{ github.repository == 'pytorch/pytorch' }}
     runs-on: [self-hosted, linux.2xlarge]
+    environment: ${{ (github.ref == 'refs/heads/main' || startsWith(github.event.ref, 'refs/tags/v')) && 'docker-build' || '' }}
     timeout-minutes: 240
     strategy:
       matrix:
@@ -46,7 +47,7 @@ jobs:
       BUILD_PLATFORMS: ${{ matrix.platform }}
     steps:
       - name: Setup SSH (Click me for login details)
-        uses: pytorch/test-infra/.github/actions/setup-ssh@main
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.1
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
       # [see note: pytorch repo ref]
@@ -81,13 +82,11 @@ jobs:
           echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
           # Generate PyTorch version to use
           echo "PYTORCH_VERSION=$(python3 .github/scripts/generate_pytorch_version.py)" >> "${GITHUB_ENV}"
-      - name: Setup nightly specific variables
-        if: ${{ github.event.ref == 'refs/heads/nightly' || startsWith(github.event.ref, 'refs/tags/ciflow/nightly/') }}
+      - name: Setup release specific variables
         run: |
           {
-            echo "DOCKER_IMAGE=pytorch-nightly";
-            echo "INSTALL_CHANNEL=pytorch-nightly";
-            echo "TRITON_VERSION=2.0.0+$(cut -c -10 .github/ci_commit_pins/triton.txt)";
+            echo "INSTALL_CHANNEL=pytorch-test";
+            echo "TRITON_VERSION=$(cut -f 1 .ci/docker/triton_version.txt)+$(cut -c -10 .ci/docker/ci_commit_pins/triton.txt)";
           } >> "${GITHUB_ENV}"
       - name: Run docker build / push
         # WITH_PUSH is used here to determine whether or not to add the --push flag
@@ -108,5 +107,5 @@ jobs:
                  ghcr.io/pytorch/pytorch-nightly:latest
           docker push ghcr.io/pytorch/pytorch-nightly:latest
       - name: Teardown Linux
-        uses: pytorch/test-infra/.github/actions/teardown-linux@main
+        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.1
         if: always()

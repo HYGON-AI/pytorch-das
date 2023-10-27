@@ -1,3 +1,4 @@
+#include <fmt/core.h>
 #include <torch/csrc/DynamicTypes.h>
 #include <torch/csrc/THP.h>
 #include <torch/csrc/autograd/variable.h>
@@ -15,6 +16,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 int THPUtils_getCallable(PyObject* arg, PyObject** result) {
@@ -22,6 +24,26 @@ int THPUtils_getCallable(PyObject* arg, PyObject** result) {
     return 0;
   *result = arg;
   return 1;
+}
+
+bool THPUtils_checkIndex(PyObject* obj) {
+  if (PyBool_Check(obj)) {
+    return false;
+  }
+  if (THPUtils_checkLong(obj)) {
+    return true;
+  }
+  // Avoid poking __index__ early as that will immediately cause a guard
+  if (torch::is_symint(py::handle(obj))) {
+    return true;
+  }
+  torch::jit::tracer::NoWarn no_warn_guard;
+  auto index = THPObjectPtr(PyNumber_Index(obj));
+  if (!index) {
+    PyErr_Clear();
+    return false;
+  }
+  return true;
 }
 
 std::vector<int64_t> THPUtils_unpackLongs(PyObject* arg) {
@@ -195,22 +217,13 @@ void THPPointer<THPStorage>::free() {
     Py_DECREF(ptr);
 }
 
-void storage_copy(at::Storage dst, at::Storage src, bool non_blocking) {
-  auto dst_options = c10::TensorOptions().device(dst.device()).dtype(at::kByte);
-  auto dst_t = at::empty({0}, {}, dst_options).set_(dst);
-
-  auto src_options = c10::TensorOptions().device(src.device()).dtype(at::kByte);
-  auto src_t = at::empty({0}, {}, src_options).set_(src);
-  dst_t.copy_(src_t, non_blocking);
-}
-
-void storage_fill(at::Storage self, uint8_t value) {
+void storage_fill(const at::Storage& self, uint8_t value) {
   auto options = c10::TensorOptions().device(self.device()).dtype(at::kByte);
   auto self_t = at::empty({0}, {}, options).set_(self);
   self_t.fill_(value);
 }
 
-void storage_set(at::Storage self, ptrdiff_t idx, uint8_t value) {
+void storage_set(const at::Storage& self, ptrdiff_t idx, uint8_t value) {
   TORCH_CHECK(
       (idx >= 0) && (idx < static_cast<ptrdiff_t>(self.nbytes())),
       "out of bounds");
@@ -219,7 +232,7 @@ void storage_set(at::Storage self, ptrdiff_t idx, uint8_t value) {
   self_t[idx].fill_(value);
 }
 
-uint8_t storage_get(at::Storage self, ptrdiff_t idx) {
+uint8_t storage_get(const at::Storage& self, ptrdiff_t idx) {
   TORCH_CHECK(
       (idx >= 0) && (idx < static_cast<ptrdiff_t>(self.nbytes())),
       "out of bounds");
@@ -255,7 +268,7 @@ char* tensor_repr(at::Tensor tensor) {
   const char* buf = nullptr;
   char* result = nullptr;
 
-  pytensor = THPVariable_Wrap(at::Tensor(tensor));
+  pytensor = THPVariable_Wrap(at::Tensor(std::move(tensor)));
   if (!pytensor)
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
     goto error;
@@ -271,7 +284,7 @@ char* tensor_repr(at::Tensor tensor) {
   result =
       static_cast<char*>(malloc(bufsize + 1)); // account for the trailing \0
   if (!result) {
-    fprintf(stderr, "cannot allocate memory for the result\n");
+    fmt::print(stderr, "cannot allocate memory for the result\n");
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
     goto error;
   }
@@ -292,6 +305,18 @@ error:
   free(result);
   PyGILState_Release(gil);
   return nullptr;
+}
+
+std::string int_array_ref_string(at::IntArrayRef sizes) {
+  std::stringstream ss;
+  ss << sizes;
+  return ss.str();
+}
+
+std::string dispatch_keyset_string(c10::DispatchKeySet keyset) {
+  std::stringstream ss;
+  ss << keyset;
+  return ss.str();
 }
 
 } // namespace gdb

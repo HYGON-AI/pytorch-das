@@ -45,7 +45,7 @@ PyObject* THPFInfo_pynew(PyTypeObject* type, PyObject* args, PyObject* kwargs) {
   torch::ParsedArgs<1> parsed_args;
   auto r = parser.parse(args, kwargs, parsed_args);
   TORCH_CHECK(r.idx < 2, "Not a type");
-  at::ScalarType scalar_type;
+  at::ScalarType scalar_type = at::ScalarType::Undefined;
   if (r.idx == 1) {
     scalar_type = torch::tensors::get_default_scalar_type();
     // The default tensor type can only be set to a floating point type/
@@ -107,14 +107,20 @@ PyObject* THPDTypeInfo_compare(THPDTypeInfo* a, THPDTypeInfo* b, int op) {
 }
 
 static PyObject* THPDTypeInfo_bits(THPDTypeInfo* self, void*) {
-  // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions,cppcoreguidelines-avoid-magic-numbers)
-  int64_t bits = elementSize(self->type) * 8;
-  return THPUtils_packInt64(bits);
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+  uint64_t bits = elementSize(self->type) * 8;
+  return THPUtils_packUInt64(bits);
 }
 
 static PyObject* THPFInfo_eps(THPFInfo* self, void*) {
-  return AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND2(
-      at::kHalf, at::ScalarType::BFloat16, self->type, "epsilon", [] {
+  return AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND4(
+      at::kHalf,
+      at::ScalarType::BFloat16,
+      at::ScalarType::Float8_e4m3fn,
+      at::ScalarType::Float8_e5m2,
+      self->type,
+      "epsilon",
+      [] {
         return PyFloat_FromDouble(
             std::numeric_limits<
                 at::scalar_value_type<scalar_t>::type>::epsilon());
@@ -122,16 +128,28 @@ static PyObject* THPFInfo_eps(THPFInfo* self, void*) {
 }
 
 static PyObject* THPFInfo_max(THPFInfo* self, void*) {
-  return AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND2(
-      at::kHalf, at::ScalarType::BFloat16, self->type, "max", [] {
+  return AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND4(
+      at::kHalf,
+      at::ScalarType::BFloat16,
+      at::ScalarType::Float8_e4m3fn,
+      at::ScalarType::Float8_e5m2,
+      self->type,
+      "max",
+      [] {
         return PyFloat_FromDouble(
             std::numeric_limits<at::scalar_value_type<scalar_t>::type>::max());
       });
 }
 
 static PyObject* THPFInfo_min(THPFInfo* self, void*) {
-  return AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND2(
-      at::kHalf, at::ScalarType::BFloat16, self->type, "lowest", [] {
+  return AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND4(
+      at::kHalf,
+      at::ScalarType::BFloat16,
+      at::ScalarType::Float8_e4m3fn,
+      at::ScalarType::Float8_e5m2,
+      self->type,
+      "lowest",
+      [] {
         return PyFloat_FromDouble(
             std::numeric_limits<
                 at::scalar_value_type<scalar_t>::type>::lowest());
@@ -163,17 +181,21 @@ static PyObject* THPIInfo_min(THPIInfo* self, void*) {
 }
 
 static PyObject* THPIInfo_dtype(THPIInfo* self, void*) {
-  std::string primary_name, legacy_name;
-  std::tie(primary_name, legacy_name) = torch::utils::getDtypeNames(self->type);
-  // NOLINTNEXTLINE(clang-diagnostic-unused-local-typedef)
-  return AT_DISPATCH_INTEGRAL_TYPES(self->type, "dtype", [primary_name] {
-    return PyUnicode_FromString((char*)primary_name.data());
+  auto primary_name = torch::utils::getDtypeNames(self->type).first;
+  return AT_DISPATCH_INTEGRAL_TYPES(self->type, "dtype", [&primary_name] {
+    return PyUnicode_FromString(primary_name.data());
   });
 }
 
 static PyObject* THPFInfo_smallest_normal(THPFInfo* self, void*) {
-  return AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND2(
-      at::kHalf, at::ScalarType::BFloat16, self->type, "min", [] {
+  return AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND4(
+      at::kHalf,
+      at::ScalarType::BFloat16,
+      at::ScalarType::Float8_e4m3fn,
+      at::ScalarType::Float8_e5m2,
+      self->type,
+      "smallest",
+      [] {
         return PyFloat_FromDouble(
             std::numeric_limits<at::scalar_value_type<scalar_t>::type>::min());
       });
@@ -185,8 +207,14 @@ static PyObject* THPFInfo_tiny(THPFInfo* self, void*) {
 }
 
 static PyObject* THPFInfo_resolution(THPFInfo* self, void*) {
-  return AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND2(
-      at::kHalf, at::ScalarType::BFloat16, self->type, "digits10", [] {
+  return AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND4(
+      at::kHalf,
+      at::ScalarType::BFloat16,
+      at::ScalarType::Float8_e4m3fn,
+      at::ScalarType::Float8_e5m2,
+      self->type,
+      "digits10",
+      [] {
         return PyFloat_FromDouble(std::pow(
             10,
             -std::numeric_limits<
@@ -195,13 +223,15 @@ static PyObject* THPFInfo_resolution(THPFInfo* self, void*) {
 }
 
 static PyObject* THPFInfo_dtype(THPFInfo* self, void*) {
-  std::string primary_name, legacy_name;
-  std::tie(primary_name, legacy_name) = torch::utils::getDtypeNames(self->type);
-  // NOLINTNEXTLINE(clang-diagnostic-unused-local-typedef)
-  return AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND2(
-      at::kHalf, at::ScalarType::BFloat16, self->type, "dtype", [primary_name] {
-        return PyUnicode_FromString((char*)primary_name.data());
-      });
+  auto primary_name = torch::utils::getDtypeNames(self->type).first;
+  return AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND4(
+      at::kHalf,
+      at::ScalarType::BFloat16,
+      at::ScalarType::Float8_e4m3fn,
+      at::ScalarType::Float8_e5m2,
+      self->type,
+      "dtype",
+      [&primary_name] { return PyUnicode_FromString(primary_name.data()); });
 }
 
 PyObject* THPFInfo_str(THPFInfo* self) {
