@@ -38,10 +38,6 @@ fi
 EXTRA_CONDA_FLAGS=""
 NUMPY_PIN=""
 PROTOBUF_PACKAGE="defaults::protobuf"
-if [[ "\$python_nodot" = *311* ]]; then
-  # Numpy is yet not avaiable on default conda channel
-  EXTRA_CONDA_FLAGS="-c=malfet"
-fi
 
 if [[ "\$python_nodot" = *310* ]]; then
   # There's an issue with conda channel priority where it'll randomly pick 1.19 over 1.20
@@ -81,6 +77,7 @@ if [[ "$PACKAGE_TYPE" == conda ]]; then
       "numpy\${NUMPY_PIN}" \
       mkl>=2018 \
       ninja \
+      sympy \
       typing-extensions \
       ${PROTOBUF_PACKAGE}
     if [[ "$DESIRED_CUDA" == 'cpu' ]]; then
@@ -93,12 +90,18 @@ if [[ "$PACKAGE_TYPE" == conda ]]; then
       if [[ "\${TORCH_CONDA_BUILD_FOLDER}" == "pytorch-nightly" ]]; then
               PYTORCH_CHANNEL="pytorch-nightly"
       fi
-      retry conda install \${EXTRA_CONDA_FLAGS} -yq -c nvidia -c "\${PYTORCH_CHANNEL}" "pytorch-cuda=\${cu_ver}"
+      retry conda install \${EXTRA_CONDA_FLAGS} -yq -c nvidia -c pytorch-test "pytorch-cuda=\${cu_ver}"
     fi
     conda install \${EXTRA_CONDA_FLAGS} -y "\$pkg" --offline
   )
 elif [[ "$PACKAGE_TYPE" != libtorch ]]; then
-  pip install "\$pkg" --extra-index-url "https://download.pytorch.org/whl/nightly/${DESIRED_CUDA}"
+  if [[ "$(uname -m)" == aarch64 ]]; then
+    # Using "extra-index-url" until all needed aarch64 dependencies are
+    # added to "https://download.pytorch.org/whl/nightly/"
+    pip install "\$pkg" --extra-index-url "https://download.pytorch.org/whl/test/${DESIRED_CUDA}"
+  else
+    pip install "\$pkg" --index-url "https://download.pytorch.org/whl/test/${DESIRED_CUDA}"
+  fi
   retry pip install -q numpy protobuf typing-extensions
 fi
 if [[ "$PACKAGE_TYPE" == libtorch ]]; then

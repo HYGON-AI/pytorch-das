@@ -4,9 +4,13 @@
 
 #include <c10/cuda/CUDACachingAllocator.h>
 
+#include <map>
+#include <memory>
 #include <regex>
+#include <string>
+#include <tuple>
 
-namespace at { namespace cuda {
+namespace at::cuda {
 
 namespace {
 
@@ -82,7 +86,7 @@ at::DataPtr getNewWorkspace() {
 
 cublasHandle_t getCurrentCUDABlasHandle() {
   int device;
-  AT_CUDA_CHECK(cudaGetDevice(&device));
+  AT_CUDA_CHECK(c10::cuda::GetDevice(&device));
 
   // Thread local PoolWindows are lazily-initialized
   // to avoid initialization issues that caused hangs on Windows.
@@ -122,22 +126,22 @@ cublasHandle_t getCurrentCUDABlasHandle() {
     TORCH_CUDABLAS_CHECK(cublasSetMathMode(handle, CUBLAS_DEFAULT_MATH));
   }
 #endif
-#if defined(USE_ROCM) && ROCM_VERSION >= 30800
+#if defined(USE_ROCM)
   static const char rocblas_config_var_name[] = "ROCBLAS_ATOMICS_MOD";
   char* rocblas_config = std::getenv(rocblas_config_var_name);
   int rocblas_mod_value =1;
   if (rocblas_config != nullptr){
     rocblas_mod_value = c10::stoi(rocblas_config);
   }
-  rocblas_atomics_mode rocblas_mode;
-  if (at::globalContext().deterministicAlgorithms() || (rocblas_mod_value != 1 )) {
-    rocblas_mode = rocblas_atomics_not_allowed;
+  hipblasAtomicsMode_t hipblas_mode;
+  if (at::globalContext().deterministicAlgorithms() ||  (rocblas_mod_value != 1 )) {
+    hipblas_mode = HIPBLAS_ATOMICS_NOT_ALLOWED;
   } else {
-    rocblas_mode = rocblas_atomics_allowed;
+    hipblas_mode = HIPBLAS_ATOMICS_ALLOWED;
   }
-  TORCH_CUDABLAS_CHECK(rocblas_set_atomics_mode(handle, rocblas_mode));
+  TORCH_CUDABLAS_CHECK(hipblasSetAtomicsMode(handle, hipblas_mode));
 #endif
   return handle;
 }
 
-}} // namespace at::cuda
+} // namespace at::cuda

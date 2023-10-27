@@ -43,6 +43,7 @@ static std::unordered_map<std::string, ParameterType> type_map = {
     {"MemoryFormat", ParameterType::MEMORY_FORMAT},
     {"QScheme", ParameterType::QSCHEME},
     {"Device", ParameterType::DEVICE},
+    {"DeviceIndex", ParameterType::INT64},
     {"Stream", ParameterType::STREAM},
     {"std::string", ParameterType::STRING},
     {"c10::string_view", ParameterType::STRING},
@@ -195,7 +196,7 @@ auto handle_torch_function_setter(
 }
 
 // Combines self and args into one tuple.
-auto combine_self_args(PyObject* self, PyObject* args) -> py::tuple {
+static auto combine_self_args(PyObject* self, PyObject* args) -> py::tuple {
   if (args == nullptr) {
     return py::make_tuple(py::handle(self));
   } else if (self == nullptr) {
@@ -233,7 +234,7 @@ auto handle_torch_function(
       torch_api_function.ptr() != nullptr, "torch API function must exist");
   py::tuple args_ = combine_self_args(self, args);
   return handle_torch_function_no_python_arg_parser(
-      {py::handle(self)},
+      {self},
       args_.ptr(),
       kwargs,
       func_name.c_str(),
@@ -259,7 +260,7 @@ static PyObject* get_type_of_overloaded_arg(PyObject* obj_or_type) {
 
 // See Note: [Overloaded args] for what they hold
 auto handle_torch_function_no_python_arg_parser(
-    at::ArrayRef<py::handle> overloaded_args,
+    at::ArrayRef<PyObject*> overloaded_args,
     PyObject* args,
     PyObject* kwargs,
     const char* func_name,
@@ -283,12 +284,12 @@ auto handle_torch_function_no_python_arg_parser(
   std::vector<py::object> overloaded_types;
   overloaded_types.reserve(overloaded_args.size());
   for (auto& arg : overloaded_args) {
-    overloaded_types.push_back(py::reinterpret_borrow<py::object>(
-        get_type_of_overloaded_arg(arg.ptr())));
+    overloaded_types.push_back(
+        py::reinterpret_borrow<py::object>(get_type_of_overloaded_arg(arg)));
   }
   py::tuple py_types = py::cast(overloaded_types);
   py::object ret;
-  PyObject* mode_obj = nullptr;
+  py::object mode_obj;
 
   const bool is_torch_function =
       torch_function_name == TorchFunctionName::TorchFunction;
@@ -302,15 +303,19 @@ auto handle_torch_function_no_python_arg_parser(
     // experience if you try to, e.g., print your tensors.
     at::optional<torch::overrides::StashTorchFunctionModeGuard> tf_g;
     at::optional<torch_dispatch_mode::StashTorchDispatchModeGuard> td_g;
+    // NB: We only really need keep the mode_obj live if the function call
+    // fails for error reporting, but whatever, Python refcounts are cheap
     if (is_torch_function) {
       tf_g.emplace();
-      mode_obj = tf_g->get_cur_mode()->ptr(getPyInterpreter());
+      mode_obj = py::reinterpret_borrow<py::object>(
+          tf_g->get_cur_mode()->ptr(getPyInterpreter()));
     } else {
       td_g.emplace();
-      mode_obj = td_g->get_cur_mode()->ptr(getPyInterpreter());
+      mode_obj = py::reinterpret_borrow<py::object>(
+          td_g->get_cur_mode()->ptr(getPyInterpreter()));
     }
     py::object torch_function =
-        PyObject_FastGetAttrString(mode_obj, torch_function_name_str);
+        PyObject_FastGetAttrString(mode_obj.ptr(), torch_function_name_str);
     if (!torch_function) {
       TORCH_INTERNAL_ASSERT(0);
     }
@@ -319,7 +324,7 @@ auto handle_torch_function_no_python_arg_parser(
 
     TORCH_CHECK(
         PyObject_FastGetAttrString(torch_function.ptr(), "__self__")
-            .is(py::reinterpret_borrow<py::object>(mode_obj)),
+            .is(mode_obj),
         "Defining your mode's `",
         torch_function_name_str,
         "` as a classmethod is not supported, please make it a plain method");
@@ -328,7 +333,7 @@ auto handle_torch_function_no_python_arg_parser(
     // because the nullptr terminates the argument list ick ick ick.
     if (kwargs == nullptr) {
       ret = py::reinterpret_steal<py::object>(PyObject_CallMethod(
-          mode_obj,
+          mode_obj.ptr(),
           torch_function_name_str,
           "OOO",
           torch_api_function,
@@ -336,7 +341,7 @@ auto handle_torch_function_no_python_arg_parser(
           args));
     } else {
       ret = py::reinterpret_steal<py::object>(PyObject_CallMethod(
-          mode_obj,
+          mode_obj.ptr(),
           torch_function_name_str,
           "OOOO",
           torch_api_function,
@@ -351,14 +356,14 @@ auto handle_torch_function_no_python_arg_parser(
   if (ret.ptr() == nullptr || ret.ptr() == Py_NotImplemented) {
     for (auto& arg : overloaded_args) {
       py::object torch_function =
-          PyObject_FastGetAttrString(arg.ptr(), torch_function_name_str);
+          PyObject_FastGetAttrString(arg, torch_function_name_str);
       if (!torch_function) {
         TORCH_INTERNAL_ASSERT(0);
       }
 
       // See https://github.com/pytorch/pytorch/issues/63767
       if (PyObject_FastGetAttrString(torch_function.ptr(), "__self__")
-              .is(arg) &&
+              .is(py::handle(arg)) &&
           torch_function.ptr() != torch::disabled_torch_function_impl()) {
         TORCH_WARN(
             "Defining your `",
@@ -390,7 +395,7 @@ auto handle_torch_function_no_python_arg_parser(
     // all __torch_function__ implementations in overloaded_args
     // returned NotImplemented, so we raise a TypeError.
     std::stringstream ss;
-    ss << "no implementation found for '";
+    ss << "Multiple dispatch failed for '";
     if (module_name && func_name) {
       ss << module_name << "." << func_name;
     } else {
@@ -398,14 +403,16 @@ auto handle_torch_function_no_python_arg_parser(
       ss << py::str(fn.attr("__module__")) << "."
          << py::str(fn.attr("__name__"));
     }
-    ss << "' on types that implement " << torch_function_name_str << ": [";
-    for (auto& arg : overloaded_args) {
-      ss << py::repr(get_type_of_overloaded_arg(arg.ptr()));
-      if (!arg.is(overloaded_args.back())) {
-        ss << ", ";
-      }
+    ss << "'; all " << torch_function_name_str
+       << " handlers returned NotImplemented:\n\n";
+    if (mode_obj) {
+      ss << "  - mode object " << py::repr(mode_obj) << "\n";
     }
-    ss << "]";
+    for (auto& arg : overloaded_args) {
+      ss << "  - tensor subclass " << py::repr(get_type_of_overloaded_arg(arg))
+         << "\n";
+    }
+    ss << "\nFor more information, try re-running with TORCH_LOGS=not_implemented";
     const std::string& tmp = ss.str();
     PyErr_SetString(PyExc_TypeError, tmp.c_str());
     throw python_error();
@@ -426,18 +433,9 @@ auto handle_torch_function(
       (char*)(func_name_override ? func_name_override : r.get_func_name().c_str()));
   TORCH_INTERNAL_ASSERT(
       torch_api_function.ptr() != nullptr, "torch API function must exist");
-  py::object ret;
   py::tuple args_ = combine_self_args(self, args);
-  // overloaded_args already all have unique types
-  std::vector<py::object> overloaded_types;
-  overloaded_types.reserve(r.signature.overloaded_args.size());
-  for (auto& arg : r.signature.overloaded_args) {
-    overloaded_types.push_back(
-        py::reinterpret_borrow<py::object>((PyObject*)Py_TYPE(arg.ptr())));
-  }
-  py::tuple py_types = py::cast(overloaded_types);
   return handle_torch_function_no_python_arg_parser(
-      r.signature.overloaded_args,
+      r.overloaded_args,
       args_.ptr(),
       kwargs,
       r.get_func_name().c_str(),
@@ -467,7 +465,7 @@ auto handle_torch_function_indexing(
   } else {
     index_tup = py::make_tuple(py::handle(index));
   }
-  std::vector<py::handle> overridable_args;
+  std::vector<PyObject*> overridable_args;
   is_tensor_and_append_overloaded(self, &overridable_args);
   auto size = PyTuple_GET_SIZE(index_tup.ptr());
   for (auto i : c10::irange(size)) {
@@ -512,7 +510,7 @@ auto handle_torch_function_indexing(
  *  entry in overloaded_args for this type with higher precedence than
  *  the superclass.
  *
- *  See torch._overrides._get_overloaded_types_and_args for the equivalent
+ *  See torch._overrides._get_overloaded_args for the equivalent
  *  function in the Python __torch_function__ implementation.
  *
  *  The precedence-determining algorithm implemented in this function is
@@ -532,13 +530,13 @@ auto handle_torch_function_indexing(
  */
 
 static void append_overloaded_arg(
-    std::vector<py::handle>* overloaded_args,
+    std::vector<PyObject*>* overloaded_args,
     PyObject* obj,
     bool obj_is_type) {
   bool class_not_seen_yet = true;
   PyObject* obj_type = obj_is_type ? obj : (PyObject*)Py_TYPE(obj);
   for (auto& arg : *overloaded_args) {
-    if (obj_type == get_type_of_overloaded_arg(arg.ptr())) {
+    if (obj_type == get_type_of_overloaded_arg(arg)) {
       // obj is the same type as another parameter we've seen in a prior
       // iteration of the loop over parameters so we already have an entry
       // with the proper __torch_function__ implementation to call, so skip
@@ -551,9 +549,7 @@ static void append_overloaded_arg(
     auto arg_index = overloaded_args->size();
     for (const auto j : c10::irange(arg_index)) {
       if (PyObject_IsSubclass(
-              obj_type,
-              (PyObject*)(get_type_of_overloaded_arg(
-                  (*overloaded_args)[j].ptr())))) {
+              obj_type, get_type_of_overloaded_arg((*overloaded_args)[j]))) {
         // obj is a subclass of another object we've seen already so its
         // __torch_function__ should be called first, therefore we
         // insert it into overloaded_args before the superclass
@@ -570,20 +566,20 @@ static void append_overloaded_arg(
 }
 
 void append_overloaded_tensor(
-    std::vector<py::handle>* overloaded_args,
+    std::vector<PyObject*>* overloaded_args,
     PyObject* obj) {
   append_overloaded_arg(overloaded_args, obj, /*obj_is_type*/ false);
 }
 
 void append_overloaded_type(
-    std::vector<py::handle>* overloaded_args,
+    std::vector<PyObject*>* overloaded_args,
     PyObject* obj) {
   append_overloaded_arg(overloaded_args, obj, /*obj_is_type*/ true);
 }
 
 bool is_tensor_and_append_overloaded(
     PyObject* obj,
-    std::vector<py::handle>* overloaded_args) {
+    std::vector<PyObject*>* overloaded_args) {
   if (THPVariable_CheckExact(obj)) {
     // torch.Tensor instances (not subclasses, except for Parameter)
     return true;
@@ -601,7 +597,7 @@ bool is_tensor_and_append_overloaded(
   return false;
 }
 
-bool is_scalar_list(PyObject* obj) {
+static bool is_scalar_list(PyObject* obj) {
   auto tuple = six::isTuple(obj);
   if (!(tuple || PyList_Check(obj))) {
     return false;
@@ -620,7 +616,7 @@ bool is_scalar_list(PyObject* obj) {
 
 bool is_tensor_list_and_append_overloaded(
     PyObject* obj,
-    std::vector<py::handle>* overloaded_args,
+    std::vector<PyObject*>* overloaded_args,
     int argnum,
     bool throw_error) {
   auto tuple = six::isTuple(obj);
@@ -646,7 +642,7 @@ bool is_tensor_list_and_append_overloaded(
   return true;
 }
 
-bool is_float_or_complex_list(PyObject* obj) {
+static bool is_float_or_complex_list(PyObject* obj) {
   auto tuple = six::isTuple(obj);
   if (!(tuple || PyList_Check(obj))) {
     return false;
@@ -698,6 +694,20 @@ static bool is_int_list(
       return true;
     }
 
+    // in dynamo, FakeTensor is qualified for INT_LIST
+    if (is_dynamo_compiling && THPVariable_Check(item.ptr())) {
+      auto& var = THPVariable_Unpack(item.ptr());
+      if (var.numel() != 1 || !var.sizes().empty() ||
+          !at::isIntegralType(
+              var.dtype().toScalarType(), /*include_bool*/ true)) {
+        if (failed_idx != nullptr) {
+          *failed_idx = 0;
+        }
+        return false;
+      }
+      return true;
+    }
+
     // NOTE: JIT tracer allows arbitrary scalar tensors to act as ints
     // in an intlist argument. Even float or complex scalar tensors.
     bool r =
@@ -718,7 +728,23 @@ static bool is_int_or_symint(PyObject* obj) {
   // which may have side effects if obj is a symint node
   // so we do `is_symint` check first
   // TODO: maybe we should be using checkLong here?
-  return torch::is_symint(py::handle(obj)) || THPUtils_checkIndex(obj);
+  if (torch::is_symint(py::handle(obj))) {
+    return true;
+  }
+
+  if (THPUtils_checkIndex(obj)) {
+    return true;
+  }
+
+  // FakeTensor(..., size=()) is qualified for SymInt param
+  if (is_dynamo_compiling && THPVariable_Check(obj)) {
+    auto& var = THPVariable_Unpack(obj);
+    if (var.numel() == 1 && var.sizes().empty() &&
+        at::isIntegralType(var.dtype().toScalarType(), /*include_bool*/ true)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 static bool is_int_or_symint_list(
@@ -734,6 +760,7 @@ static bool is_int_or_symint_list(
     if (is_int_or_symint(item.ptr())) {
       return true;
     }
+
     // NOTE: JIT tracer allows arbitrary scalar tensors to act as ints
     // in an intlist argument. Even float or complex scalar tensors.
     bool r =
@@ -744,15 +771,16 @@ static bool is_int_or_symint_list(
     }
     return r;
   }
+
   // if a size is specified (e.g. IntArrayRef[2]) we also allow passing a single
   // int
-  return broadcast_size > 0 && THPUtils_checkLong(obj);
+  return broadcast_size > 0 && is_int_or_symint(obj);
 }
 
 // argnum is needed for raising the TypeError, it's used in the error message.
 auto FunctionParameter::check(
     PyObject* obj,
-    std::vector<py::handle>& overloaded_args,
+    std::vector<PyObject*>& overloaded_args,
     int argnum,
     int64_t* failed_idx) -> bool {
   switch (type_) {
@@ -769,12 +797,12 @@ auto FunctionParameter::check(
       if (THPUtils_checkScalar(obj)) {
         return true;
       }
-      // fallthrough
+      [[fallthrough]];
     case ParameterType::COMPLEX:
       if (PyComplex_Check(obj)) {
         return true;
       }
-      // fallthrough
+      [[fallthrough]];
     case ParameterType::DOUBLE: {
       if (THPUtils_checkDouble(obj)) {
         return true;
@@ -782,6 +810,10 @@ auto FunctionParameter::check(
       if (THPVariable_Check(obj)) {
         const auto& var = THPVariable_Unpack(obj);
         return !var.requires_grad() && var.dim() == 0;
+      }
+      if (torch::is_symfloat(py::handle(obj))) {
+        // This will induce a guard
+        return true;
       }
       return false;
     }
@@ -793,6 +825,10 @@ auto FunctionParameter::check(
         const auto& var = THPVariable_Unpack(obj);
         return at::isIntegralType(var.scalar_type(), /*includeBool=*/false) &&
             !var.requires_grad() && var.dim() == 0;
+      }
+      if (torch::is_symint(py::handle(obj))) {
+        // This will induce a guard
+        return true;
       }
       return false;
     }
@@ -906,8 +942,7 @@ std::string FunctionParameter::type_name() const {
 static inline c10::optional<int64_t> parse_as_integer(const std::string& s) {
   if (s.empty())
     return c10::nullopt;
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  char* str_end;
+  char* str_end = nullptr;
   long ans = strtol(s.c_str(), &str_end, 0);
   // *str_end == 0 if the entire string was parsed as an integer.
   return (*str_end == 0) ? c10::optional<int64_t>(ans) : c10::nullopt;
@@ -1301,6 +1336,7 @@ bool FunctionSignature::parse(
     PyObject* args,
     PyObject* kwargs,
     PyObject* dst[], // NOLINT
+    std::vector<PyObject*>& overloaded_args,
     bool raise_exception) {
   Py_ssize_t nargs = args ? PyTuple_GET_SIZE(args) : 0;
   auto remaining_kwargs = kwargs ? PyDict_Size(kwargs) : 0;
@@ -1328,13 +1364,9 @@ bool FunctionSignature::parse(
     return false;
   }
 
-  if (!overloaded_args.empty()) {
-    overloaded_args.clear();
-  }
-
   int i = 0;
   if (self != nullptr && check_has_torch_function(self, /*ignore_mode*/ true)) {
-    append_overloaded_tensor(&this->overloaded_args, self);
+    append_overloaded_tensor(&overloaded_args, self);
   }
   for (auto& param : params) {
     PyObject* obj = nullptr;
@@ -1369,7 +1401,7 @@ bool FunctionSignature::parse(
         missing_args(*this, i);
       }
       return false;
-    } else if (param.check(obj, this->overloaded_args, i, &failed_idx)) {
+    } else if (param.check(obj, overloaded_args, i, &failed_idx)) {
       dst[i++] = obj;
       // XXX: the Variable check is necessary because sizes become tensors when
       // tracer is enabled. This behavior easily leads to ambiguities, and we
@@ -1442,7 +1474,9 @@ bool FunctionSignature::parse(
   return true;
 }
 
-PythonArgParser::PythonArgParser(std::vector<std::string> fmts, bool traceable)
+PythonArgParser::PythonArgParser(
+    const std::vector<std::string>& fmts,
+    bool traceable)
     : max_args(0), traceable(traceable) {
   int index = 0;
   for (auto& fmt : fmts) {
@@ -1493,15 +1527,20 @@ PythonArgs PythonArgParser::raw_parse(
     PyObject* parsed_args[]) { // NOLINT
   if (signatures_.size() == 1) {
     auto& signature = signatures_[0];
-    signature.parse(self, args, kwargs, parsed_args, true);
+    std::vector<PyObject*> overloaded_args;
+    signature.parse(self, args, kwargs, parsed_args, overloaded_args, true);
     check_deprecated(signature);
-    return PythonArgs(traceable, signature, parsed_args);
+    return PythonArgs(
+        traceable, signature, parsed_args, std::move(overloaded_args));
   }
 
   for (auto& signature : signatures_) {
-    if (signature.parse(self, args, kwargs, parsed_args, false)) {
+    std::vector<PyObject*> overloaded_args;
+    if (signature.parse(
+            self, args, kwargs, parsed_args, overloaded_args, false)) {
       check_deprecated(signature);
-      return PythonArgs(traceable, signature, parsed_args);
+      return PythonArgs(
+          traceable, signature, parsed_args, std::move(overloaded_args));
     }
   }
 
@@ -1513,8 +1552,8 @@ void PythonArgParser::print_error(
     PyObject* args,
     PyObject* kwargs,
     PyObject* parsed_args[]) { // NOLINT
-  // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
-  size_t num_args = PyTuple_GET_SIZE(args) + (kwargs ? PyDict_Size(kwargs) : 0);
+  size_t num_args =
+      (args ? PyTuple_GET_SIZE(args) : 0) + (kwargs ? PyDict_Size(kwargs) : 0);
   std::vector<unsigned> plausible_idxs;
   unsigned i = 0;
   for (auto& signature : signatures_) {
@@ -1527,7 +1566,8 @@ void PythonArgParser::print_error(
 
   if (plausible_idxs.size() == 1) {
     auto& signature = signatures_[plausible_idxs[0]];
-    signature.parse(self, args, kwargs, parsed_args, true);
+    std::vector<PyObject*> overloaded_args;
+    signature.parse(self, args, kwargs, parsed_args, overloaded_args, true);
   }
 
   auto options = get_signatures();
@@ -1577,6 +1617,9 @@ at::Tensor PythonArgs::tensor_slow(int i) {
   } else if (torch::is_symfloat(py::handle(obj))) {
     save_symint = true;
     scalar = at::Scalar(std::numeric_limits<double>::quiet_NaN());
+  } else if (torch::is_symbool(py::handle(obj))) {
+    save_symint = true;
+    scalar = at::Scalar(true);
   } else {
     // NB: Are you here because you passed None to a Variable method,
     // and you expected an undefined tensor to be returned?   Don't add
@@ -1637,6 +1680,13 @@ at::Scalar PythonArgs::scalar_slow(PyObject* arg) {
 
   if (torch::is_symfloat(arg)) {
     return at::Scalar(py::cast<c10::SymFloat>(arg));
+  }
+
+  if (torch::is_symbool(arg)) {
+    // Windows build fails with C2440: '<function-style-cast>'
+    // when at:Scalar(py::cast<c10::SymBool>(arg))
+    auto sym_bool = py::handle(arg).cast<c10::SymBool>();
+    return at::Scalar(sym_bool);
   }
 
   return at::Scalar(THPUtils_unpackDouble(arg));
