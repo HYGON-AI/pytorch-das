@@ -152,23 +152,6 @@ _fused_doc = r"""fused (bool, optional): whether the fused implementation (CUDA 
               we want to give it sufficient bake-in time, so we default to foreach and NOT
               fused when the user has not specified either flag."""
 
-_fused_doc = r"""fused (bool, optional): whether the fused implementation (CUDA only) is used.
-            Currently, `torch.float64`, `torch.float32`, `torch.float16`, and `torch.bfloat16`
-            are supported. (default: None)
-
-    .. note:: The foreach and fused implementations are typically faster than the for-loop,
-              single-tensor implementation. Thus, if the user has not specified BOTH flags
-              (i.e., when foreach = fused = None), we will attempt defaulting to the foreach
-              implementation when the tensors are all on CUDA. For example, if the user specifies
-              True for fused but nothing for foreach, we will run the fused implementation. If
-              the user specifies False for foreach but nothing for fused (or False for fused but
-              nothing for foreach), we will run the for-loop implementation. If the user specifies
-              True for both foreach and fused, we will prioritize fused over foreach, as it is
-              typically faster. We attempt to use the fastest, so the hierarchy goes fused ->
-              foreach -> for-loop. HOWEVER, since the fused implementation is relatively new,
-              we want to give it sufficient bake-in time, so we default to foreach and NOT
-              fused when the user has not specified either flag."""
-
 _capturable_doc = r"""capturable (bool, optional): whether this instance is safe to
             capture in a CUDA graph. Passing True can impair ungraphed performance,
             so if you don't intend to graph capture this instance, leave it False
