@@ -1844,7 +1844,7 @@ void geqrf_magma(const Tensor& input, const Tensor& tau) {
 }
 
 void geqrf_kernel(const Tensor& input, const Tensor& tau) {
-#ifdef USE_LINALG_SOLVER  && !defined(USE_ROCM)
+#if defined(USE_LINALG_SOLVER) && !defined(USE_ROCM)
   auto geqrf_cusolver_backend = [](const Tensor& input, const Tensor& tau) {
       // For the benchmarks see
       // https://github.com/pytorch/pytorch/pull/56253#discussion_r622851107
