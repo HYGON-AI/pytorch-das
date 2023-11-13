@@ -81,6 +81,8 @@ def get_dcu_version(sha: Optional[str] = None) -> str:
             lines = file.readlines()
         rocm_version=lines[0][:-2].replace(".", "")
         dcu_version += ".dtk" + rocm_version
+    if os.getenv('PYTORCH_CUSTOM_SUFFIX'):
+        dcu_version += "." + str(os.getenv('PYTORCH_CUSTOM_SUFFIX'))
     return dcu_version
 
 if __name__ == "__main__":
