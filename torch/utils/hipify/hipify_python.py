@@ -33,6 +33,9 @@ import os
 from . import constants
 from .cuda_to_hip_mappings import CUDA_TO_HIP_MAPPINGS
 from .cuda_to_hip_mappings import MATH_TRANSPILATIONS
+#aiss add
+from .cuda_to_hip_mappings import CUDA_MACROS_MAP
+from .nvcc_args import NVCC_ARGS_MAPPING
 
 from typing import Dict, List, Iterator, Optional
 from collections.abc import Mapping, Iterable
@@ -592,9 +595,9 @@ def get_hip_file_path(rel_filepath, is_pytorch_extension=False):
     dirpath = dirpath.replace('cuda', 'hip')
     dirpath = dirpath.replace('CUDA', 'HIP')
     dirpath = dirpath.replace('THC', 'THH')
-
-    root = root.replace('cuda', 'hip')
-    root = root.replace('CUDA', 'HIP')
+    if root.split("_")[-1] != 'cuda' and root.split("_")[-1] != 'CUDA':
+        root = root.replace('cuda', 'hip')
+        root = root.replace('CUDA', 'HIP')
     # Special case to handle caffe2/core/THCCachingAllocator
     if dirpath != "caffe2/core":
         root = root.replace('THC', 'THH')
@@ -726,6 +729,10 @@ CAFFE2_TRIE = Trie()
 CAFFE2_MAP = {}
 PYTORCH_TRIE = Trie()
 PYTORCH_MAP: Dict[str, object] = {}
+#aiss add for nvcc
+CUDAMACROS_MAP: Dict[str, object] = {}
+NVCC_TRIE = Trie()
+NVCC_ARGS_MAP: Dict[str, object] = {}
 
 # In PyTorch, we map cuBLAS->rocBLAS and cuSPARSE->hipSPARSE. Note the prefix, roc versus hip.
 # The 'hip' APIs offer a more direct CUDA-friendly mapping, but calling rocBLAS directly has better performance.
@@ -753,6 +760,12 @@ for mapping in CUDA_TO_HIP_MAPPINGS:
         if constants.API_PYTORCH not in meta_data and constants.API_SPECIAL not in meta_data:
             CAFFE2_TRIE.add(src)
             CAFFE2_MAP[src] = dst
+#add for cudamacros
+for src, value in CUDA_MACROS_MAP.items():
+    dst = value[0]
+    meta_data = value[1:]
+    CUDAMACROS_MAP[src] = dst
+
 RE_CAFFE2_PREPROCESSOR = re.compile(CAFFE2_TRIE.pattern())
 RE_PYTORCH_PREPROCESSOR = re.compile(fr'(?<=\W)({PYTORCH_TRIE.pattern()})(?=\W)')
 
@@ -760,6 +773,26 @@ RE_QUOTE_HEADER = re.compile(r'#include "([^"]+)"')
 RE_ANGLE_HEADER = re.compile(r'#include <([^>]+)>')
 RE_THC_GENERIC_FILE = re.compile(r'#define THC_GENERIC_FILE "([^"]+)"')
 RE_CU_SUFFIX = re.compile(r'\.cu\b')  # be careful not to pick up .cuh
+
+def match_nvcc_args(NVCC_ARGS_MAPPING):
+    for nvcc_mapping in NVCC_ARGS_MAPPING:
+        src_long = nvcc_mapping[0]
+        src_short = nvcc_mapping[1]
+        dst_hip = nvcc_mapping[2][1]
+        NVCC_ARGS_MAP[src_short] = dst_hip
+        NVCC_ARGS_MAP[src_long] = dst_hip
+        
+        NVCC_TRIE.add(src_short)
+        NVCC_TRIE.add(src_long)
+    #RE_NVCC_PREPROCESSOR = re.compile(r'(?<=\W)({0})(?=\W)'.format(NVCC_TRIE.pattern()))
+    return NVCC_ARGS_MAP
+
+
+NVCC_ARGS_MAP = match_nvcc_args(NVCC_ARGS_MAPPING)
+
+#aiss add for nvcc
+def nvarg_repl(m):
+    return NVCC_ARGS_MAP[m.group(0)]
 
 """
 Returns a HipifyResult object with the following details:
@@ -813,13 +846,17 @@ def preprocessor(
     def pt_repl(m):
         return PYTORCH_MAP[m.group(0)]
 
+    def cumacro_repl(m):
+        CUDAMACROS_MAP_new = {**PYTORCH_MAP, **CUDAMACROS_MAP}
+        return CUDAMACROS_MAP_new[m.group(0)]
+
     def pt_special_repl(m):
         # checks SPECIAL map first, and if a miss occurs, falls back to pytorch mappings
         return PYTORCH_SPECIAL_MAP.get(m.group(0), pt_repl(m))
 
 
     if is_pytorch_extension:
-        output_source = RE_PYTORCH_PREPROCESSOR.sub(pt_repl, output_source)
+        output_source = RE_PYTORCH_PREPROCESSOR.sub(cumacro_repl, output_source)#add cuda macro convert
     else:
         if is_special_file(rel_filepath):
             output_source = RE_PYTORCH_PREPROCESSOR.sub(pt_special_repl, output_source)
