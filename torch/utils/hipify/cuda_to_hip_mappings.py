@@ -8614,6 +8614,13 @@ C10_MAPPINGS = collections.OrderedDict(
     ]
 )
 
+CUDA_MACROS_MAP = collections.OrderedDict(
+    [
+        ("CUDA_VERSION", ("DTK_VERSION", API_PYTORCH)),
+        ("__CUDA_ARCH__", ("__DTK_ARCH__", API_PYTORCH)),
+    ]
+)
+
 # NB: C10 mappings are more specific than Caffe2 mappings, so run them
 # first
 CUDA_TO_HIP_MAPPINGS = [
