@@ -21,6 +21,10 @@ from .file_baton import FileBaton
 from ._cpp_extension_versioner import ExtensionVersioner
 from .hipify import hipify_python
 from .hipify.hipify_python import GeneratedFileCleaner
+from .hipify.hipify_python import match_nvcc_args
+from .hipify import nvcc_args
+from .hipify.nvcc_args import NVCC_ARGS_MAPPING
+
 from typing import Dict, List, Optional, Union, Tuple
 from torch.torch_version import TorchVersion
 
