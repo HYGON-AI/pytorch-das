@@ -75,6 +75,14 @@ MATH_TRANSPILATIONS = collections.OrderedDict(
     ]
 )
 
+CUDATODTK_DICT = collections.OrderedDict(
+    [
+        ("CUDART_VERSION", ("DTKRT_VERSION")),
+        ("CUDA_VERSION", ("DTK_VERSION")),
+        ("__CUDA_ARCH__", ("__DTK_ARCH__")),
+    ]
+)
+
 CUDA_TYPE_NAME_MAP = collections.OrderedDict(
     [
         ("CUresult", ("hipError_t", CONV_TYPE, API_DRIVER)),
