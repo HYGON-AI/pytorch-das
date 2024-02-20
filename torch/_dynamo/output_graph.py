@@ -6,6 +6,7 @@ import itertools
 import logging
 import operator
 import re
+import os
 import sys
 import traceback
 import weakref
@@ -89,6 +90,7 @@ from .variables.tensor import (
     TensorVariable,
     UnspecializedPythonVariable,
 )
+from torch._dynamo.lightop_utils import lightop_replace
 
 log = logging.getLogger(__name__)
 graph_tabular_log = torch._logging.getArtifactLogger(__name__, "graph")
@@ -995,6 +997,10 @@ class OutputGraph(Checkpointable[OutputGraphState]):
 
         gm._param_name_to_source = self.param_name_to_source
         gm._source_to_user_stacks = self.source_to_user_stacks
+
+        # lightop optimize
+        if os.environ.get("USE_LIGHTOP", False):
+            gm = lightop_replace(gm)    
 
         try:
             name = (
