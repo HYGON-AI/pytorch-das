@@ -8325,9 +8325,6 @@ CUDA_SPECIAL_MAP = collections.OrderedDict(
         ('cusolverDnXgesvdjSetTolerance', ('hipsolverDnXgesvdjSetTolerance', CONV_MATH_FUNC, API_SPECIAL)),
         ('cusolverDnXgesvdjSetMaxSweeps', ('hipsolverDnXgesvdjSetMaxSweeps', CONV_MATH_FUNC, API_SPECIAL)),
         
-        ("__shfl_down_sync", ("__shfl_down",CONV_TYPE, API_SPECIAL)),
-        ("__shfl_up_sync", ("__shfl_up",CONV_TYPE, API_SPECIAL)),
-        ("__syncwarp", ("__syncthreads",CONV_TYPE, API_SPECIAL)),
     ]
 )
 
