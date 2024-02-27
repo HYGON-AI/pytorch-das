@@ -614,6 +614,7 @@ CUDA_INCLUDE_MAP = collections.OrderedDict(
         ),
         ("cooperative_groups.h", ("hip/hip_cooperative_groups.h", CONV_INCLUDE, API_RUNTIME)),
         ("vector_types.h", ("hip/hip_vector_types.h", CONV_INCLUDE, API_RUNTIME)),
+        ("vector_functions.h", ("hip/hip_vector_types.h", CONV_INCLUDE, API_RUNTIME)),
         ("cublas.h", ("hipblas/hipblas.h", CONV_INCLUDE_CUDA_MAIN_H, API_BLAS)),
         ("cublas_v2.h", ("hipblas/hipblas.h", CONV_INCLUDE_CUDA_MAIN_H, API_BLAS)),
         ("curand.h", ("hiprand/hiprand.h", CONV_INCLUDE_CUDA_MAIN_H, API_RAND)),
@@ -7861,6 +7862,7 @@ CUDA_IDENTIFIER_MAP = collections.OrderedDict(
         ("cub::DeviceSegmentedReduce", ("hipcub::DeviceSegmentedReduce", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::DeviceSelect", ("hipcub::DeviceSelect", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::KeyValuePair", ("hipcub::KeyValuePair", CONV_SPECIAL_FUNC, API_RUNTIME)),
+        ("cub::BLOCK_REDUCE_RAKING_COMMUTATIVE_ONLY", ("hipcub::BLOCK_REDUCE_RAKING_COMMUTATIVE_ONLY", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::Max", ("hipcub::Max", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::Min", ("hipcub::Min", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::Sum", ("hipcub::Sum", CONV_SPECIAL_FUNC, API_RUNTIME)),
@@ -8322,6 +8324,10 @@ CUDA_SPECIAL_MAP = collections.OrderedDict(
         # gesvdj SetXXX
         ('cusolverDnXgesvdjSetTolerance', ('hipsolverDnXgesvdjSetTolerance', CONV_MATH_FUNC, API_SPECIAL)),
         ('cusolverDnXgesvdjSetMaxSweeps', ('hipsolverDnXgesvdjSetMaxSweeps', CONV_MATH_FUNC, API_SPECIAL)),
+        
+        ("__shfl_down_sync", ("__shfl_down",CONV_TYPE, API_SPECIAL)),
+        ("__shfl_up_sync", ("__shfl_up",CONV_TYPE, API_SPECIAL)),
+        ("__syncwarp", ("__syncthreads",CONV_TYPE, API_SPECIAL)),
     ]
 )
 
