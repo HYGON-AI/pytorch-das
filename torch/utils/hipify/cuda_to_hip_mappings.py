@@ -75,6 +75,14 @@ MATH_TRANSPILATIONS = collections.OrderedDict(
     ]
 )
 
+CUDATODTK_DICT = collections.OrderedDict(
+    [
+        ("CUDART_VERSION", ("DTKRT_VERSION")),
+        ("CUDA_VERSION", ("DTK_VERSION")),
+        ("__CUDA_ARCH__", ("__DTK_ARCH__")),
+    ]
+)
+
 CUDA_TYPE_NAME_MAP = collections.OrderedDict(
     [
         ("CUresult", ("hipError_t", CONV_TYPE, API_DRIVER)),
@@ -606,6 +614,7 @@ CUDA_INCLUDE_MAP = collections.OrderedDict(
         ),
         ("cooperative_groups.h", ("hip/hip_cooperative_groups.h", CONV_INCLUDE, API_RUNTIME)),
         ("vector_types.h", ("hip/hip_vector_types.h", CONV_INCLUDE, API_RUNTIME)),
+        ("vector_functions.h", ("hip/hip_vector_types.h", CONV_INCLUDE, API_RUNTIME)),
         ("cublas.h", ("hipblas/hipblas.h", CONV_INCLUDE_CUDA_MAIN_H, API_BLAS)),
         ("cublas_v2.h", ("hipblas/hipblas.h", CONV_INCLUDE_CUDA_MAIN_H, API_BLAS)),
         ("curand.h", ("hiprand/hiprand.h", CONV_INCLUDE_CUDA_MAIN_H, API_RAND)),
@@ -7853,6 +7862,7 @@ CUDA_IDENTIFIER_MAP = collections.OrderedDict(
         ("cub::DeviceSegmentedReduce", ("hipcub::DeviceSegmentedReduce", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::DeviceSelect", ("hipcub::DeviceSelect", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::KeyValuePair", ("hipcub::KeyValuePair", CONV_SPECIAL_FUNC, API_RUNTIME)),
+        ("cub::BLOCK_REDUCE_RAKING_COMMUTATIVE_ONLY", ("hipcub::BLOCK_REDUCE_RAKING_COMMUTATIVE_ONLY", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::Max", ("hipcub::Max", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::Min", ("hipcub::Min", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::Sum", ("hipcub::Sum", CONV_SPECIAL_FUNC, API_RUNTIME)),
@@ -8314,6 +8324,7 @@ CUDA_SPECIAL_MAP = collections.OrderedDict(
         # gesvdj SetXXX
         ('cusolverDnXgesvdjSetTolerance', ('hipsolverDnXgesvdjSetTolerance', CONV_MATH_FUNC, API_SPECIAL)),
         ('cusolverDnXgesvdjSetMaxSweeps', ('hipsolverDnXgesvdjSetMaxSweeps', CONV_MATH_FUNC, API_SPECIAL)),
+        
     ]
 )
 
@@ -8611,6 +8622,13 @@ C10_MAPPINGS = collections.OrderedDict(
         ("cuda::CUDAAllocator", ("hip::HIPAllocator", API_C10)),
         ("CUDAAllocator", ("HIPAllocator", API_C10)),
         ("C10_CUDA_KERNEL_LAUNCH_CHECK", ("C10_HIP_KERNEL_LAUNCH_CHECK", API_C10))
+    ]
+)
+
+CUDA_MACROS_MAP = collections.OrderedDict(
+    [
+        ("CUDA_VERSION", ("DTK_VERSION", API_PYTORCH)),
+        ("__CUDA_ARCH__", ("__DTK_ARCH__", API_PYTORCH)),
     ]
 )
 

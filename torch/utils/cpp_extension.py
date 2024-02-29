@@ -21,6 +21,10 @@ from .file_baton import FileBaton
 from ._cpp_extension_versioner import ExtensionVersioner
 from .hipify import hipify_python
 from .hipify.hipify_python import GeneratedFileCleaner
+from .hipify.hipify_python import match_nvcc_args
+from .hipify import nvcc_args
+from .hipify.nvcc_args import NVCC_ARGS_MAPPING
+
 from typing import Dict, List, Optional, Union, Tuple
 from torch.torch_version import TorchVersion
 
@@ -1142,7 +1146,23 @@ def CUDAExtension(name, sources, *args, **kwargs):
         extra_compile_args['nvcc_dlink'] = extra_compile_args_dlink
 
         kwargs['extra_compile_args'] = extra_compile_args
-
+#aiss add for nvcc args in cudaExtension
+    extra_compile_args = kwargs.get('extra_compile_args', {})
+    extra_nvcc_args = extra_compile_args.get('nvcc', '')
+    if(extra_nvcc_args):
+        NVCC_ARGS_MAP = match_nvcc_args(NVCC_ARGS_MAPPING)
+        output_nvcc_args = ""
+        output_nvcc_argslist=[]
+        for item in extra_nvcc_args:
+            output_nvcc_args = NVCC_ARGS_MAP.get(item, item)
+            print("each_nvcc_Input_output: ", str(item), output_nvcc_args)
+            if(output_nvcc_args not in output_nvcc_argslist):
+                output_nvcc_argslist.append(output_nvcc_args)
+        
+        print("input_nvcc_args: ", extra_nvcc_args)
+        print("output_nvcc_args: ", output_nvcc_argslist)
+        kwargs['extra_compile_args']['nvcc'] = output_nvcc_argslist
+#end for nvcc preprocess
     return setuptools.Extension(name, sources, *args, **kwargs)
 
 
