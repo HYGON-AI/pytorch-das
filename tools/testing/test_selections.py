@@ -33,7 +33,7 @@ if IS_ROCM and not IS_MEM_LEAK_CHECK:
         )
         count = 0
         for line in lines:
-            if " gfx" in line:
+            if "gfx" in line:
                 count += 1
         assert count > 0  # there must be at least 1 GPU
         # Limiting to 8 GPUs(PROCS)
