@@ -1,7 +1,6 @@
 import functools
 import logging
 from enum import auto, Enum
-from itertools import chain
 from typing import Any, Callable, Dict, List, no_type_check, Optional, Set, Tuple
 
 import torch
@@ -11,8 +10,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.autograd.graph import register_multi_grad_hook
-from torch.distributed import get_backend, get_world_size
-from torch.distributed._tensor import DeviceMesh
 from torch.distributed.algorithms._comm_hooks import LOW_PRECISION_HOOKS
 from torch.distributed.fsdp._common_utils import (
     _assert_in_training_states,
@@ -24,22 +21,22 @@ from torch.distributed.fsdp._common_utils import (
     clean_tensor_name,
     TrainingState,
 )
-from torch.distributed.fsdp._init_utils import HYBRID_SHARDING_STRATEGIES
-from torch.distributed.fsdp.api import BackwardPrefetch
-from torch.distributed.fsdp.flat_param import (
+from torch.distributed.fsdp._flat_param import (
     FlatParameter,
     FlatParamHandle,
     HandleShardingStrategy,
     HandleTrainingState,
     RESHARD_AFTER_FORWARD_HANDLE_STRATEGIES,
 )
+from torch.distributed.fsdp._init_utils import HYBRID_SHARDING_STRATEGIES
+from torch.distributed.fsdp.api import BackwardPrefetch
 from torch.distributed.utils import (
     _apply_to_tensors,
     _cast_forward_inputs,
     _p_assert,
     _to_kwargs,
 )
-from torch.utils._pytree import tree_flatten
+from torch.utils import _pytree as pytree
 
 log = logging.getLogger(__name__)
 
@@ -108,38 +105,6 @@ def _is_fsdp_root(state: _FSDPState, module: nn.Module) -> bool:
 
 
 @no_type_check
-def _validate_and_get_hybrid_shard_state(root_module: nn.Module) -> None:
-    """
-    Precondition: ``root_module`` is a ``FullyShardedDataParallel`` instance.
-
-    This checks that all instances using a hybrid sharding strategy have the
-    same intra- and inter-node process groups.
-    """
-    intra_node_pgs: Set[dist.ProcessGroup] = set()
-    inter_node_pgs: Set[dist.ProcessGroup] = set()
-    for fsdp_state in traversal_utils._get_fsdp_states(root_module):
-        # TODO: Change this to handle's sharding strategy if we deprecate
-        # `ShardingStrategy` internally.
-        # https://github.com/pytorch/pytorch/issues/90857
-        if fsdp_state.sharding_strategy in HYBRID_SHARDING_STRATEGIES:
-            intra_node_pgs.add(fsdp_state.process_group)
-            inter_node_pgs.add(fsdp_state._inter_node_pg)
-    if len(intra_node_pgs) == 0 and len(inter_node_pgs) == 0:
-        # No instances use a hybrid sharding strategy
-        return
-    error_prefix = "At least one instance uses a hybrid sharding strategy but has no "
-    if len(intra_node_pgs) > 0 and len(inter_node_pgs) == 0:
-        raise AssertionError(error_prefix + "inter-node process group set")
-    if len(intra_node_pgs) == 0 and len(inter_node_pgs) > 0:
-        raise AssertionError(error_prefix + "intra-node process group set")
-    error_prefix = "Some instances use a hybrid sharding strategy, but "
-    if len(intra_node_pgs) != 1:
-        raise ValueError(error_prefix + "intra-node process groups do not match")
-    if len(inter_node_pgs) != 1:
-        raise ValueError(error_prefix + "inter-node process groups do not match")
-
-
-@no_type_check
 def _lazy_init(
     state: _FSDPState,
     root_module: nn.Module,
@@ -198,24 +163,6 @@ def _check_flat_params_on_expected_device(state: _FSDPState, module: nn.Module):
             )
 
 
-def _init_device_mesh(
-    root_state: _FSDPState,
-) -> Optional[DeviceMesh]:
-    # We are testing 1D DeviceMesh where dist.get_world_size(pg) == dist.get_world_size() for now.
-    # TODO: Address cases when dist.get_world_size(pg) != dist.get_world_size(). This would capture
-    #       what 1D DeviceMesh currently would not work for:
-    #       1) HSDP Hybrid Sharding, 2) 2D FSDP + TP, 3) dist.new_group() cannot be expressed in 1D DeviceMesh.
-    if root_state.process_group != dist.distributed_c10d._get_default_group():
-        return None
-    if get_backend() == "fake" or not root_state.compute_device:
-        return None
-
-    device_type = root_state.compute_device.type
-    mesh_tensor = torch.arange(get_world_size(root_state.process_group))
-    device_mesh = DeviceMesh(device_type, mesh_tensor, _validate_mesh=False)
-    return device_mesh
-
-
 @no_type_check
 def _share_state_and_init_handle_attrs(
     root_state: _FSDPState,
@@ -229,12 +176,10 @@ def _share_state_and_init_handle_attrs(
     handle = root_state._handle
     if handle:
         handle.init_flat_param_attributes()
-    _validate_and_get_hybrid_shard_state(root_module)
     attr_name_to_values: Dict[str, Set[Any]] = {}
     for attr_name in HOMOGENEOUS_ATTR_NAMES:
         attr_name_to_values[attr_name] = set()
     root_state._all_handles = root_state._exec_order_data.all_handles  # share reference
-    root_state._device_mesh = _init_device_mesh(root_state)
     # Update _has_optim_in_backward for each handle.
     for handle in root_state._all_handles:
         flat_param = handle.flat_param
@@ -245,6 +190,8 @@ def _share_state_and_init_handle_attrs(
         handle._has_optim_in_backward = flat_param._params is not None and any(
             hasattr(param, "_in_backward_optimizers") for param in flat_param._params
         )
+        if handle._has_optim_in_backward:
+            torch._C._log_api_usage_once("fsdp.optimizer_in_backward")
     for fsdp_state in root_state._all_fsdp_states:
         for attr_name in HOMOGENEOUS_ATTR_NAMES:
             _p_assert(
@@ -270,7 +217,8 @@ def _share_state_and_init_handle_attrs(
         fsdp_state._default_stream = root_state._default_stream
         fsdp_state._exec_order_data = root_state._exec_order_data
         fsdp_state._free_event_queue = root_state._free_event_queue
-        fsdp_state._device_mesh = root_state._device_mesh
+        if fsdp_state._fsdp_extension is not None:
+            fsdp_state._fsdp_extension.compute_stream = root_state._default_stream
         handle = fsdp_state._handle
         if handle:
             handle.init_flat_param_attributes()
@@ -300,6 +248,10 @@ def _init_streams(
     high_priority = -1 if state.limit_all_gathers and uses_hybrid_sharding else 0
     # Default stream for computation
     state._default_stream = state._device_handle.current_stream()
+    if state._fsdp_extension is not None:
+        # set the compute stream to the FSDP extension
+        state._fsdp_extension.compute_stream = state._default_stream
+
     # Stream for unshard logic, including allocating the all-gather destination
     # tensors and the all-gathers themselves
     state._unshard_stream = state._device_handle.Stream(priority=high_priority)
@@ -367,10 +319,9 @@ def _reshard(
             free_event.record()
             state._free_event_queue.enqueue(free_event)
     handle.post_reshard()
-    # Since we prefetch entire handles keys at a time, conservatively mark
-    # the entire key as no longer prefetched once we free at least one
-    if free_unsharded_flat_param:
-        handle._prefetched = False
+    # Flat parameter freed or not, we always have to "unshard" the parameter
+    # upon next access to get its shape correct.
+    handle._prefetched = False
 
 
 def _unshard_grads(
@@ -614,6 +565,7 @@ def _root_pre_forward(
                     handles.append(fsdp_state._handle)
             for handle in handles:
                 handle._needs_pre_forward_unshard = True
+                handle._prefetched = False
         _wait_for_computation_stream(
             state._device_handle.current_stream(),
             state._unshard_stream,
@@ -850,10 +802,15 @@ def _reduce_grad(state: _FSDPState, handle: FlatParamHandle) -> None:
     )
     if state._comm_hook is None:  # default path
         _div_if_needed(padded_unsharded_grad, state._gradient_predivide_factor)
+        pg = (
+            handle._fake_process_group
+            if handle._use_fake_reduce
+            else state.process_group
+        )
         dist.reduce_scatter_tensor(
             new_sharded_grad,
             padded_unsharded_grad,
-            group=state.process_group,
+            group=pg,
         )
         if uses_hybrid_sharded_strategy:
             state._all_reduce_stream.wait_stream(state._post_backward_stream)
@@ -1466,21 +1423,20 @@ def _register_post_backward_reshard_only_hook(
     inp_tensors: Optional[List[torch.Tensor]] = None
     if not handle:
         return
-    if handle.flat_param.requires_grad:
+    flat_param = handle.flat_param
+    already_registered = hasattr(flat_param, "_post_backward_hook_state")
+    if already_registered or flat_param.requires_grad:
         return
     if inp_tensors is None:
-        args_list, _ = tree_flatten(args)
-        kwargs_list, _ = tree_flatten(kwargs)
+        args_flat = pytree.arg_tree_leaves(*args, **kwargs)
         inp_tensors = [
-            obj
-            for obj in chain(args_list, kwargs_list)
-            if torch.is_tensor(obj) and obj.requires_grad
+            obj for obj in args_flat if torch.is_tensor(obj) and obj.requires_grad
         ]
     assert inp_tensors is not None  # mypy
     hook_handle = register_multi_grad_hook(
         inp_tensors, functools.partial(_post_backward_reshard, state, handle)
     )
-    handle.flat_param._post_backward_hook_state = (hook_handle,)  # type: ignore[attr-defined, assignment]
+    flat_param._post_backward_hook_state = (hook_handle,)  # type: ignore[attr-defined, assignment]
 
 
 @no_type_check
