@@ -62,9 +62,9 @@ SUPPORTED_PERIODICAL_MODES: Dict[str, Callable[[Optional[str]], bool]] = {
 }
 
 # The link to the published list of disabled jobs
-DISABLED_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/disabled-jobs.json"
+DISABLED_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/disabled-jobs.json?versionId=jbbJUxI_SSZFssBBGCU6ybH9sxHitHLY"
 # and unstable jobs
-UNSTABLE_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/unstable-jobs.json"
+UNSTABLE_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/unstable-jobs.json?versionId=hUtTalgnWb1m3AtJyVLUdu7DBrnddRkp"
 
 # Some constants used to handle disabled and unstable jobs
 JOB_NAME_SEP = "/"
@@ -410,16 +410,17 @@ def process_jobs(
             if target_job in (TEST_JOB_NAME, BUILD_AND_TEST_JOB_NAME):
                 target_cfg = m.group("cfg")
 
-                return _filter_jobs(
+                # NB: There can be multiple unstable configurations, i.e. inductor, inductor_huggingface
+                test_matrix = _filter_jobs(
                     test_matrix=test_matrix,
                     issue_type=issue_type,
                     target_cfg=target_cfg,
                 )
-
-        warnings.warn(
-            f"Found a matching {issue_type.value} issue {target_url} for {workflow} / {job_name}, "
-            + f"but the name {target_job_cfg} is invalid"
-        )
+        else:
+            warnings.warn(
+                f"Found a matching {issue_type.value} issue {target_url} for {workflow} / {job_name}, "
+                + f"but the name {target_job_cfg} is invalid"
+            )
 
     # Found no matching target, return the same input test matrix
     return test_matrix
