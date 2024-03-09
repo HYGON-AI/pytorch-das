@@ -968,6 +968,7 @@ class CustomDict(dict):
 
 
 def row_processor(row):
+    import numpy as np
     return np.add(row, 1)
 
 
