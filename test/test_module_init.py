@@ -86,6 +86,7 @@ def build_constructor_arg_db():
         torch.nn.LSTM: ((5, 10), {}),
         torch.nn.LSTMCell: ((5, 10), {}),
         torch.nn.LayerNorm: ((2,), {}),
+        torch.nn.FuseLayerNorm: ((2,), {}),
         torch.nn.LazyBatchNorm1d: ((), {}),
         torch.nn.LazyBatchNorm2d: ((), {}),
         torch.nn.LazyBatchNorm3d: ((), {}),
