@@ -31,7 +31,7 @@ __inline__ __device__ ValueIndex<T> WarpReduceMax(ValueIndex<T> val,int count) {
 #pragma unroll
   for (int offset = count; offset > 0; offset >>= 1) {
     ValueIndex<T> val2;
-    val2.value=__shfl_down(val.value, offset);
+    val2.value=WARP_SHFL_DOWN(val.value, offset);
     val2.index=__shfl_down(val.index, offset);
     if(val2.value>val.value)val=val2;
   }
