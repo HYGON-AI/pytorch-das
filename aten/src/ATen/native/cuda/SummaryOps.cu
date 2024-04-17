@@ -376,8 +376,22 @@ Tensor _bincount_cuda(
     const auto scalar = weights.scalar_type();
     if (scalar == ScalarType::Undefined || scalar == ScalarType::Float)
       return _bincount_cuda_template<scalar_t, float>(self, weights, minlength);
+#ifdef  __HIP_PLATFORM_AMD__   
+    hipDeviceProp_t props = {0};
+    hipGetDeviceProperties(&props, 0);
+    char* found = std::strchr(props.gcnArchName, 'gfx928');
+    if (found != nullptr) {
+      return _bincount_cuda_template<scalar_t, float>(
+        self, weights.to(kFloat), minlength);
+    }
+    else{
+      return _bincount_cuda_template<scalar_t, double>(
+        self, weights.to(kDouble), minlength); 
+    }
+#else
     return _bincount_cuda_template<scalar_t, double>(
         self, weights.to(kDouble), minlength);
+#endif
   });
 }
 
