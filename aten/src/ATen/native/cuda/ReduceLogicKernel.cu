@@ -12,11 +12,11 @@ namespace at::native {
 #define MAX_BLOCK 512
 #define MAX_BLOCK8 4096
 
-bool check_exchange_last_dim(const c10::IntArrayRef& strides,const c10::IntArrayRef& sizes,int n)
+bool check_exchange_last_dim(const c10::IntArrayRef& strides,const c10::IntArrayRef& sizes,int64_t n)
 {
-  int a=1;
-  int length=sizes.size()-1,stridelast=-1;
-  for(int i=length;i>=0;i--){
+  int64_t a=1;
+  int64_t length=sizes.size()-1,stridelast=-1;
+  for(int64_t i=length;i>=0;i--){
     if(i!=length&&i!=n){
       if(strides[i]!=a)return false;
       a*=sizes[i];
@@ -37,11 +37,11 @@ bool check_exchange_last_dim(const c10::IntArrayRef& strides,const c10::IntArray
 
 //when M<=128,very fast.example1: M=64,N=4000,0.011ms  example2: M=64,N=4000,0.007ms
 __launch_bounds__(MAX_BLOCK)
-__global__ void and_kernel_continuous_small(bool* result, bool* self,int M,int N,int lines_per_block){
-  int tid=threadIdx.x;
-  int idx1=tid/M;
-  int idx2=tid%M;
-  int line=blockIdx.x*lines_per_block+idx1;
+__global__ void and_kernel_continuous_small(bool* result, bool* self,int64_t M,int64_t N,int64_t lines_per_block){
+  int64_t tid=threadIdx.x;
+  int64_t idx1=tid/M;
+  int64_t idx2=tid%M;
+  int64_t line=blockIdx.x*lines_per_block+idx1;
   extern __shared__ bool sresult[];
   
   if(tid>=lines_per_block*M || line>=N)return;
@@ -59,11 +59,11 @@ __global__ void and_kernel_continuous_small(bool* result, bool* self,int M,int N
 
 
 __launch_bounds__(MAX_BLOCK)
-__global__ void and_kernel_continuous_middle(bool* result, bool* self,int M){
-  int idx=threadIdx.x;
-  int idx8=idx*8;
+__global__ void and_kernel_continuous_middle(bool* result, bool* self,int64_t M){
+  int64_t idx=threadIdx.x;
+  int64_t idx8=idx*8;
   if(idx8>=M)return;
-  int base_idx=blockIdx.x*M;
+  int64_t base_idx=blockIdx.x*M;
   __shared__ bool sresult;
   if(threadIdx.x==0)sresult=true;
   __syncthreads();
@@ -79,15 +79,15 @@ __global__ void and_kernel_continuous_middle(bool* result, bool* self,int M){
 }
 
 __launch_bounds__(MAX_BLOCK)
-__global__ void and_kernel_continuous_big(bool* result, bool* self,int M){
-  int idx=threadIdx.x;
-  int idx8=idx*8;
+__global__ void and_kernel_continuous_big(bool* result, bool* self,int64_t M){
+  int64_t idx=threadIdx.x;
+  int64_t idx8=idx*8;
   if(idx8>=M)return;
-  int base_idx=blockIdx.x*M;
+  int64_t base_idx=blockIdx.x*M;
   __shared__ bool sresult;
   if(threadIdx.x==0)sresult=true;
   __syncthreads();
-  for(int i=idx8;i<M;i+=MAX_BLOCK8){
+  for(int64_t i=idx8;i<M;i+=MAX_BLOCK8){
     bool* t=self+base_idx+i;
     if(i+8>M)t-=i+8-M;
     if(*(int64_t*)t!=0x0101010101010101){
@@ -102,11 +102,11 @@ __global__ void and_kernel_continuous_big(bool* result, bool* self,int M){
 
 //when M<=128,very fast.example1: M=64,N=4000,0.011ms  example2: M=64,N=4000,0.007ms
 __launch_bounds__(MAX_BLOCK)
-__global__ void any_kernel_continuous_small(bool* result, bool* self,int M,int N,int lines_per_block){
-  int tid=threadIdx.x;
-  int idx1=tid/M;
-  int idx2=tid%M;
-  int line=blockIdx.x*lines_per_block+idx1;
+__global__ void any_kernel_continuous_small(bool* result, bool* self,int64_t M,int64_t N,int64_t lines_per_block){
+  int64_t tid=threadIdx.x;
+  int64_t idx1=tid/M;
+  int64_t idx2=tid%M;
+  int64_t line=blockIdx.x*lines_per_block+idx1;
   extern __shared__ bool sresult[];
   
   if(tid>=lines_per_block*M || line>=N)return;
@@ -124,11 +124,11 @@ __global__ void any_kernel_continuous_small(bool* result, bool* self,int M,int N
 
 
 __launch_bounds__(MAX_BLOCK)
-__global__ void any_kernel_continuous_middle(bool* result, bool* self,int M){
-  int idx=threadIdx.x;
-  int idx8=idx*8;
+__global__ void any_kernel_continuous_middle(bool* result, bool* self,int64_t M){
+  int64_t idx=threadIdx.x;
+  int64_t idx8=idx*8;
   if(idx8>=M)return;
-  int base_idx=blockIdx.x*M;
+  int64_t base_idx=blockIdx.x*M;
   __shared__ bool sresult;
   if(threadIdx.x==0)sresult=false;
   __syncthreads();
@@ -144,15 +144,15 @@ __global__ void any_kernel_continuous_middle(bool* result, bool* self,int M){
 }
 
 __launch_bounds__(MAX_BLOCK)
-__global__ void any_kernel_continuous_big(bool* result, bool* self,int M){
-  int idx=threadIdx.x;
-  int idx8=idx*8;
+__global__ void any_kernel_continuous_big(bool* result, bool* self,int64_t M){
+  int64_t idx=threadIdx.x;
+  int64_t idx8=idx*8;
   if(idx8>=M)return;
-  int base_idx=blockIdx.x*M;
+  int64_t base_idx=blockIdx.x*M;
   __shared__ bool sresult;
   if(threadIdx.x==0)sresult=false;
   __syncthreads();
-  for(int i=idx8;i<M;i+=MAX_BLOCK8){
+  for(int64_t i=idx8;i<M;i+=MAX_BLOCK8){
     bool* t=self+base_idx+i;
     if(i+8>M)t-=i+8-M;
     if(*(int64_t*)t){
@@ -173,29 +173,29 @@ void and_kernel_cuda(TensorIterator& iter) {
     const auto & strides_i=input.strides();
     const auto & sizes_i=input.sizes();
     const auto & sizes_o=output.sizes();
-    const int ndim=sizes_i.size();
-    int dim=-1;
-    for(int i=0;i<ndim;i++){
+    const int64_t ndim=sizes_i.size();
+    int64_t dim=-1;
+    for(int64_t i=0;i<ndim;i++){
       if(sizes_i[i]!=sizes_o[i]){
         dim=i;
         break;
       }
     }
     if(dim!=-1&&check_exchange_last_dim(strides_i,sizes_i,dim)){
-      int N=output.numel();
-      int M=input.numel()/N;
+      int64_t N=output.numel();
+      int64_t M=input.numel()/N;
       bool* output_data = output.data_ptr<bool>();
       bool* input_data = (bool *)input.data_ptr();
       if(M>4096)and_kernel_continuous_big<<<N, MAX_BLOCK, 0, at::cuda::getCurrentCUDAStream()>>>
                   (output_data,input_data,M);
       else if(M>128){
-        int blocksize=((M/8-1)/64+1)*64;
+        int64_t blocksize=((M/8-1)/64+1)*64;
         and_kernel_continuous_middle<<<N, blocksize, 0, at::cuda::getCurrentCUDAStream()>>>
                   (output_data,input_data,M);
       }
       else{
-        int lines_per_block=MAX_BLOCK/M;
-        int grid = (N-1)/lines_per_block+1;
+        int64_t lines_per_block=MAX_BLOCK/M;
+        int64_t grid = (N-1)/lines_per_block+1;
         and_kernel_continuous_small<<<grid, MAX_BLOCK, lines_per_block, at::cuda::getCurrentCUDAStream()>>>
                   (output_data,input_data,M,N,lines_per_block);
       }
@@ -221,29 +221,29 @@ void or_kernel_cuda(TensorIterator& iter) {
     const auto & strides_i=input.strides();
     const auto & sizes_i=input.sizes();
     const auto & sizes_o=output.sizes();
-    const int ndim=sizes_i.size();
-    int dim=-1;
-    for(int i=0;i<ndim;i++){
+    const int64_t ndim=sizes_i.size();
+    int64_t dim=-1;
+    for(int64_t i=0;i<ndim;i++){
       if(sizes_i[i]!=sizes_o[i]){
         dim=i;
         break;
       }
     }
     if(dim!=-1&&check_exchange_last_dim(strides_i,sizes_i,dim)){
-      int N=output.numel();
-      int M=input.numel()/N;
+      int64_t N=output.numel();
+      int64_t M=input.numel()/N;
       bool* output_data = output.data_ptr<bool>();
       bool* input_data = (bool *)input.data_ptr();
       if(M>4096)any_kernel_continuous_big<<<N, MAX_BLOCK, 0, at::cuda::getCurrentCUDAStream()>>>
                   (output_data,input_data,M);
       else if(M>128){
-        int blocksize=((M/8-1)/64+1)*64;
+        int64_t blocksize=((M/8-1)/64+1)*64;
         any_kernel_continuous_middle<<<N, blocksize, 0, at::cuda::getCurrentCUDAStream()>>>
                   (output_data,input_data,M);
       }
       else{
-        int lines_per_block=MAX_BLOCK/M;
-        int grid = (N-1)/lines_per_block+1;
+        int64_t lines_per_block=MAX_BLOCK/M;
+        int64_t grid = (N-1)/lines_per_block+1;
         any_kernel_continuous_small<<<grid, MAX_BLOCK, lines_per_block, at::cuda::getCurrentCUDAStream()>>>
                   (output_data,input_data,M,N,lines_per_block);
       }
