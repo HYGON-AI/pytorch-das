@@ -1031,9 +1031,9 @@ def get_device_tflops(dtype):
     clock_rate = driver.utils.get_device_properties(device)["sm_clock_rate"]
 
     if torch.backends.cuda.matmul.allow_tf32:
-        return get_max_tensorcore_tflops(torch.float32)
+        return get_max_tensorcore_tflops(torch.float32,clock_rate)
     else:
-        return get_max_simd_tflops(torch.float32)
+        return get_max_simd_tflops(torch.float32,clock_rate)
 
 
 def get_gpu_dram_gbps():
