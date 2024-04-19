@@ -1024,6 +1024,11 @@ def get_device_tflops(dtype):
     assert dtype in (torch.float16, torch.bfloat16, torch.float32)
     if dtype in (torch.float16, torch.bfloat16):
         return get_max_tensorcore_tflops(dtype)
+ 
+    # Triton API change in https://github.com/openai/triton/pull/2293
+    from triton.runtime import driver
+    device = torch.cuda.current_device()
+    clock_rate = driver.utils.get_device_properties(device)["sm_clock_rate"]
 
     if torch.backends.cuda.matmul.allow_tf32:
         return get_max_tensorcore_tflops(torch.float32)
