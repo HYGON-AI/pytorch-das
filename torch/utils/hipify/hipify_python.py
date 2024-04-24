@@ -71,7 +71,8 @@ __all__ = ['InputError', 'openf', 'bcolors', 'GeneratedFileCleaner', 'match_exte
            'find_bracket_group', 'find_parentheses_group', 'replace_math_functions', 'hip_header_magic', 'replace_extern_shared',
            'get_hip_file_path', 'is_out_of_place', 'is_pytorch_file', 'is_cusparse_file', 'is_special_file', 'is_caffe2_gpu_file',
            'is_caffe2_gpu_file', 'Trie', 'preprocessor', 'file_specific_replacement', 'file_add_header',
-           'fix_static_global_kernels', 'extract_arguments', 'str2bool', 'CurrentState', 'HipifyResult', 'hipify']
+           'fix_static_global_kernels', 'extract_arguments', 'str2bool', 'CurrentState', 'HipifyResult', 'hipify','dtk_replace_cuda_functions',
+           'match_nvcc_args','nvarg_repl',]
 
 
 class InputError(Exception):
