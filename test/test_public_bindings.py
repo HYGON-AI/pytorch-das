@@ -21,6 +21,8 @@ NOT_IMPORTED_WHEN_TEST_WRITTEN = {
     "torch.fx.passes.backends.cudagraphs",
     "torch.fx.passes.infra.partitioner",
     "torch.fx.passes.utils.fuser_utils",
+    #PAN
+    "torch.fx.experimental.optimization",
 }
 
 
