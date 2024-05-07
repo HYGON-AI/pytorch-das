@@ -1227,6 +1227,22 @@
   mean: not_implemented("native_layer_norm_backward mean")
   rstd: not_implemented("native_layer_norm_backward rstd")
 
+- name: native_fuse_bias_gelu(Tensor input, Tensor bias) -> Tensor
+  input, bias: "grad.defined() ? native_fuse_bias_gelu_backward(grad, input, bias) : std::tuple<Tensor, Tensor>()"
+
+- name: native_fuse_bias_gelu_backward(Tensor grad_out, Tensor input, Tensor bias) -> (Tensor, Tensor)
+  grad_out: Tensor()
+  input: Tensor()
+  bias: Tensor()
+  
+- name: native_fuse_bias_swiglu(Tensor input, Tensor bias) -> Tensor
+  input, bias: "grad.defined() ? native_fuse_bias_swiglu_backward(grad, input, bias) : std::tuple<Tensor, Tensor>()"
+
+- name: native_fuse_bias_swiglu_backward(Tensor grad_out, Tensor input, Tensor bias) -> (Tensor, Tensor)
+  grad_out: Tensor()
+  input: Tensor()
+  bias: Tensor()
+
 - name: native_fuse_layer_norm(Tensor input, SymInt[] normalized_shape, Tensor? weight, Tensor? bias, float eps) -> (Tensor, Tensor, Tensor)
   input, weight, bias: "grad.defined() ? native_fuse_layer_norm_backward_symint(grad, input, normalized_shape, result1, result2, weight, bias) : std::tuple<Tensor, Tensor, Tensor>()"
 
