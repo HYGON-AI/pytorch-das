@@ -2542,6 +2542,23 @@ def layer_norm(
         )
     return torch.layer_norm(input, normalized_shape, weight, bias, eps, torch.backends.cudnn.enabled)
 
+def fuse_ln_dropout(
+    input: Tensor,
+    weight: Optional[Tensor] = None,
+    bias: Optional[Tensor] = None,
+    eps: float = 1e-5,
+    p: float = 0.5,
+    training: bool = True,
+) -> Tensor:
+    r"""Applies Fuse Dropout + Layer Normalization for last certain number of dimensions.
+
+    See :class:`~torch.nn.FuseLnDropout` for details.
+    """
+    if has_torch_function_variadic(input, weight, bias):
+        return handle_torch_function(
+            fuse_ln_dropout, (input, weight, bias), input, weight=weight, bias=bias, eps=eps, p=p, training=training,
+        )
+    return torch.fuse_ln_dropout(input, weight, bias, eps, p, training, torch.backends.cudnn.enabled)
 
 def fuse_layer_norm(
     input: Tensor,
