@@ -3219,6 +3219,22 @@
     SparseCPU, SparseCUDA: nan_to_num_sparse_
   tags: pointwise
 
+- func: fuse_ln_dropout(Tensor input, Tensor? weight=None, Tensor? bias=None, float eps=1e-05, float p=0.5, bool training=True, bool cudnn_enable=True) -> Tensor
+  tags: nondeterministic_seeded
+
+- func: native_fuse_ln_dropout(Tensor input, Tensor? weight, Tensor? bias, float eps, float p, bool training) -> (Tensor, Tensor, Tensor, Tensor)
+  variants: function
+  dispatch:
+    CUDA: fuse_ln_dropout_cuda
+  autogen: native_fuse_ln_dropout.out
+  tags: [nondeterministic_seeded, core]
+
+- func: native_fuse_ln_dropout_backward(Tensor grad_out, Tensor input, Tensor mean, Tensor rstd, Tensor? weight, Tensor? bias) -> (Tensor, Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_ln_dropout_backward_cuda
+  autogen: native_fuse_ln_dropout_backward.out
+  tags: core
+
 - func: nan_to_num.out(Tensor self, float? nan=None, float? posinf=None, float? neginf=None, *, Tensor(a!) out) -> Tensor(a!)
   dispatch:
     CPU, CUDA: nan_to_num_out

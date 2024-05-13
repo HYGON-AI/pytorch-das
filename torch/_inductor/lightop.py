@@ -63,6 +63,24 @@ def matches_one_function_pattern(pattern, node):
         return False
     return True
 
+# Works for length 2 patterns with 2 modules
+def matches_module_pattern(pattern: Iterable[Type], node: fx.Node, modules: Dict[str, Any]):
+    if len(node.args) == 0:
+        return False
+    nodes: Tuple[Any, fx.Node] = (node.args[0], node)
+    for expected_type, current_node in zip(pattern, nodes):
+        if not isinstance(current_node, fx.Node):
+            return False
+        if current_node.op != 'call_module':
+            return False
+        if not isinstance(current_node.target, str):
+            return False
+        if current_node.target not in modules:
+            return False
+        if type(modules[current_node.target]) is not expected_type:
+            return False
+    return True
+
 def fuselayernorm_replaces_layernorm(gm: torch.fx.GraphModule):
     modules_patterns = [(torch.nn.LayerNorm,),]
     function_patterns = [(F.layer_norm,),]
@@ -94,5 +112,27 @@ def fuselayernorm_replaces_layernorm(gm: torch.fx.GraphModule):
                 replace_node_module(node, modules, new_node)
     gm.graph.lint()
     gm.recompile()
+    return gm
 
+def fuse_ln_dropout_fusion(gm: torch.fx.GraphModule):
+    modules_patterns = [(torch.nn.Dropout, torch.nn.LayerNorm),]
+    function_patterns = [(F.dropout, F.layer_norm),]
+    modules = dict(gm.named_modules())
+    for pattern in modules_patterns:
+        for node in gm.graph.nodes:
+            if matches_module_pattern(pattern, node, modules):
+                if len(node.args[0].users) > 1:
+                    continue
+                layer_norm = modules[node.target]
+                dropout = modules[node.args[0].target]
+                ln_dropout = torch.nn.FuseLnDropout(normalized_shape=layer_norm.normalized_shape)
+                ln_dropout.weight = torch.nn.Parameter(layer_norm.weight, layer_norm.weight.requires_grad)
+                ln_dropout.bias = torch.nn.Parameter(layer_norm.bias, layer_norm.bias.requires_grad)
+                ln_dropout.eps = layer_norm.eps
+                ln_dropout.p = dropout.p
+                replace_node_module(node.args[0], modules, ln_dropout)
+                node.replace_all_uses_with(node.args[0])
+                gm.graph.erase_node(node)
+    gm.graph.lint()
+    gm.recompile()
     return gm
