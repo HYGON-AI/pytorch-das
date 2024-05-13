@@ -6,7 +6,7 @@ from .conv import Conv1d, Conv2d, Conv3d, \
 from .activation import Threshold, ReLU, Hardtanh, ReLU6, Sigmoid, Tanh, \
     Softmax, Softmax2d, LogSoftmax, ELU, SELU, CELU, GELU, Hardshrink, LeakyReLU, LogSigmoid, \
     Softplus, Softshrink, MultiheadAttention, PReLU, Softsign, Softmin, Tanhshrink, RReLU, GLU, \
-    Hardsigmoid, Hardswish, SiLU, Mish
+    Hardsigmoid, Hardswish, SiLU, Mish, FuseBiasGelu, FuseBiasSwiGLU
 from .loss import L1Loss, NLLLoss, KLDivLoss, MSELoss, BCELoss, BCEWithLogitsLoss, NLLLoss2d, \
     CosineEmbeddingLoss, CTCLoss, HingeEmbeddingLoss, MarginRankingLoss, \
     MultiLabelMarginLoss, MultiLabelSoftMarginLoss, MultiMarginLoss, SmoothL1Loss, HuberLoss, \
@@ -64,5 +64,5 @@ __all__ = [
     'LazyBatchNorm1d', 'LazyBatchNorm2d', 'LazyBatchNorm3d',
     'LazyInstanceNorm1d', 'LazyInstanceNorm2d', 'LazyInstanceNorm3d',
     'Flatten', 'Unflatten', 'Hardsigmoid', 'Hardswish', 'SiLU', 'Mish', 'TripletMarginWithDistanceLoss', 'ChannelShuffle',
-    'CircularPad1d', 'CircularPad2d', 'CircularPad3d'
+    'CircularPad1d', 'CircularPad2d', 'CircularPad3d', 'FuseBiasGelu', 'FuseBiasSwiGLU'
 ]
