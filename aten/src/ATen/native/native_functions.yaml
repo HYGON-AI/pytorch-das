@@ -4903,6 +4903,36 @@
     MkldnnCPU: mkldnn_gelu_backward
     NestedTensorCPU, NestedTensorCUDA: gelu_backwards_nested
   tags: pointwise
+    
+- func: fuse_bias_gelu(Tensor input, Tensor bias) -> Tensor
+
+- func: native_fuse_bias_gelu(Tensor input, Tensor bias) -> Tensor
+  variants: function
+  dispatch:
+    CUDA: fuse_bias_gelu_forward_cuda
+  autogen: native_fuse_bias_gelu.out
+  tags: core
+
+- func: native_fuse_bias_gelu_backward(Tensor grad_out, Tensor input, Tensor bias) -> (Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_bias_gelu_backward_cuda
+  autogen: native_fuse_bias_gelu_backward.out
+  tags: core
+
+- func: fuse_bias_swiglu(Tensor input, Tensor bias) -> Tensor
+
+- func: native_fuse_bias_swiglu(Tensor input, Tensor bias) -> Tensor
+  variants: function
+  dispatch:
+    CUDA: fuse_bias_swiglu_forward_gpu
+  autogen: native_fuse_bias_swiglu.out
+  tags: core
+
+- func: native_fuse_bias_swiglu_backward(Tensor grad_out, Tensor input, Tensor bias) -> (Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_bias_swiglu_backward_gpu
+  autogen: native_fuse_bias_swiglu_backward.out
+  tags: core
 
 - func: infinitely_differentiable_gelu_backward(Tensor grad, Tensor self) -> Tensor
   variants: function

@@ -2,6 +2,10 @@
 #include <ATen/ops/native_fuse_layer_norm.h>
 #include <ATen/ops/fuse_layer_norm_native.h>
 #include <ATen/ops/native_fuse_layer_norm_native.h>
+#include <ATen/ops/native_fuse_bias_gelu.h>
+#include <ATen/ops/native_fuse_bias_gelu_native.h>
+#include <ATen/ops/native_fuse_bias_swiglu.h>
+#include <ATen/ops/native_fuse_bias_swiglu_native.h>
 #include <ATen/ops/native_fuse_ln_dropout_native.h>
 #include <ATen/ops/native_fuse_ln_dropout.h>
 #include <array>
@@ -43,5 +47,21 @@ Tensor fuse_ln_dropout(
 
 DEFINE_DISPATCH(FuseLayerNormKernel);
 DEFINE_DISPATCH(FuseLayerNormBackwardKernel);
+
+Tensor fuse_bias_gelu(
+  const Tensor& input,
+  const Tensor& bias
+)
+{
+  return at::native_fuse_bias_gelu(input, bias);
+}
+Tensor fuse_bias_swiglu(
+  const Tensor& input,
+  const Tensor& bias
+)
+{
+  return at::native_fuse_bias_swiglu(input, bias);
+}
+
 } // namespace native
 } // namespace at

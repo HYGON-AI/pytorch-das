@@ -12,7 +12,7 @@ from .. import functional as F
 __all__ = ['Threshold', 'ReLU', 'RReLU', 'Hardtanh', 'ReLU6', 'Sigmoid', 'Hardsigmoid', 'Tanh',
            'SiLU', 'Mish', 'Hardswish', 'ELU', 'CELU', 'SELU', 'GLU', 'GELU', 'Hardshrink', 'LeakyReLU',
            'LogSigmoid', 'Softplus', 'Softshrink', 'MultiheadAttention', 'PReLU', 'Softsign', 'Tanhshrink',
-           'Softmin', 'Softmax', 'Softmax2d', 'LogSoftmax']
+           'Softmin', 'Softmax', 'Softmax2d', 'LogSoftmax','FuseBiasGelu', 'FuseBiasSwiGLU']
 
 
 class Threshold(Module):
@@ -1589,3 +1589,17 @@ class LogSoftmax(Module):
 
     def extra_repr(self):
         return f'dim={self.dim}'
+
+class FuseBiasGelu(Module):
+    def __init__(self, device=None, dtype=None ):
+        super(FuseBiasGelu,self).__init__()
+
+    def forward(self, input:Tensor, bias:Tensor):
+        return F.fuse_bias_gelu(input, bias)
+
+class FuseBiasSwiGLU(Module):
+    def __init__(self, device=None, dtype=None ):
+        super(FuseBiasSwiGLU,self).__init__()
+
+    def forward(self, input:Tensor, bias:Tensor):
+        return F.fuse_bias_swiglu(input, bias)

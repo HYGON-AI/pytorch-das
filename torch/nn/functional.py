@@ -5480,3 +5480,14 @@ def multi_head_attention_forward(
             # squeeze the output if input was unbatched
             attn_output = attn_output.squeeze(1)
         return attn_output, None
+
+def fuse_bias_gelu(input:Tensor, bias:Tensor):
+    r"""Applies Fuse Bias Gelu.
+    """
+    return torch.fuse_bias_gelu(input, bias)
+
+def fuse_bias_swiglu(input:Tensor, bias:Tensor):
+    r"""Applies Fuse Bias SwiGLU.
+
+    """
+    return torch.fuse_bias_swiglu(input, bias)
