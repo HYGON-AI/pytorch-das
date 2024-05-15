@@ -71,11 +71,11 @@ jobs:
       test-matrix: ${{ steps.filter.outputs.test-matrix }}
     steps:
       - name: Clean up disk space before running MacOS workflow
-        uses: pytorch/test-infra/.github/actions/check-disk-space@release/2.1
+        uses: pytorch/test-infra/.github/actions/check-disk-space@release/2.2
 
       # [see note: pytorch repo ref]
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.1
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.2
 
       - name: Set xcode version
         env:
@@ -87,7 +87,7 @@ jobs:
 
       - name: Setup miniconda
         if: inputs.environment-file == ''
-        uses: pytorch/test-infra/.github/actions/setup-miniconda@release/2.1
+        uses: pytorch/test-infra/.github/actions/setup-miniconda@release/2.2
         with:
           python-version: ${{ inputs.python-version }}
           environment-file: .github/requirements/conda-env-${{ runner.os }}-${{ runner.arch }}
@@ -97,7 +97,7 @@ jobs:
       # environment even though the arch is x86-64
       - name: Setup miniconda using the provided environment file
         if: inputs.environment-file != ''
-        uses: pytorch/test-infra/.github/actions/setup-miniconda@release/2.1
+        uses: pytorch/test-infra/.github/actions/setup-miniconda@release/2.2
         with:
           python-version: ${{ inputs.python-version }}
           environment-file: ${{ inputs.environment-file }}
@@ -160,6 +160,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           test-matrix: ${{ inputs.test-matrix }}
+          job-name: ${{ steps.get-job-id.outputs.job-name }}
 
       - name: Build
         if: steps.filter.outputs.is-test-matrix-empty == 'False' || inputs.test-matrix == ''
@@ -182,7 +183,7 @@ jobs:
       - name: Archive artifacts into zip
         if: inputs.build-generates-artifacts && steps.build.outcome != 'skipped'
         run: |
-          zip -1 -r artifacts.zip dist/ build/.ninja_log build/compile_commands.json .pytorch-test-times.json .pytorch-test-file-ratings.json
+          zip -1 -r artifacts.zip dist/ build/.ninja_log build/compile_commands.json .additional_ci_files
 
       - name: Store PyTorch Build Artifacts on GHA
         uses: actions/upload-artifact@v3
@@ -206,4 +207,4 @@ jobs:
       - name: Clean up disk space
         if: always()
         continue-on-error: true
-        uses: pytorch/test-infra/.github/actions/check-disk-space@release/2.1
+        uses: pytorch/test-infra/.github/actions/check-disk-space@release/2.2

@@ -59,7 +59,7 @@ class _PartialWrapper:
         # skip if arg_name in keywords so its possible to overwrite
         for arg_name in self.callable_args:
             if arg_name not in keywords:
-                keywords = {**keywords, **{arg_name: self.callable_args[arg_name]()}}
+                keywords = {**keywords, arg_name: self.callable_args[arg_name]()}
         return self.p(*args, **keywords)
 
     def __repr__(self):
@@ -133,11 +133,14 @@ class ObserverBase(ABC, nn.Module):
     Args:
         dtype: dtype argument to the `quantize` node needed to implement the
                reference model spec.
+        is_dynamic: indicator for whether the observer is a placeholder for dynamic quantization
+        or static quantization
     """
 
-    def __init__(self, dtype):
+    def __init__(self, dtype, is_dynamic=False):
         super().__init__()
         self.dtype = dtype
+        self.is_dynamic = is_dynamic
 
     @abstractmethod
     def forward(self, x):
@@ -168,6 +171,7 @@ class UniformQuantizationObserverBase(ObserverBase):
     .. warning::
 
         :attr:`dtype` can only take ``torch.qint8`` or ``torch.quint8``.
+               or `torch.int8` or `torch.uint8`
 
     .. warning::
 
@@ -206,9 +210,11 @@ class UniformQuantizationObserverBase(ObserverBase):
         quant_max=None,
         factory_kwargs=None,
         eps=torch.finfo(torch.float32).eps,
+        is_dynamic=False,
+        **kwargs,
     ) -> None:
         factory_kwargs = torch.nn.factory_kwargs(factory_kwargs)
-        super().__init__(dtype=dtype)
+        super().__init__(dtype=dtype, is_dynamic=is_dynamic, **kwargs)
         self.qscheme = qscheme
         if reduce_range:
             warnings.warn(
@@ -228,12 +234,19 @@ class UniformQuantizationObserverBase(ObserverBase):
         ), "Default Observer only works for per_tensor_affine, \
                 per_tensor_symmetric, per_channel_affine, \
                 per_channel_symmetric and per_channel_float_qparams quantization scheme"
-        assert self.dtype in (
+
+        _ALLOWED_DTYPES = (
             torch.qint8,
             torch.quint8,
             torch.quint4x2,
             torch.qint32,
-        ), "Default Observer only works for qint8, quint8 and quint4x2 data type"
+            torch.int8,
+            torch.uint8,
+            torch.int16,
+            torch.int32,
+        )
+
+        assert self.dtype in _ALLOWED_DTYPES, f"Default Observer only works for {_ALLOWED_DTYPES} data type"
         self.has_customized_qrange = (quant_min is not None) and (quant_max is not None)
         if self.has_customized_qrange:
             validate_qmin_qmax(quant_min, quant_max)
@@ -330,7 +343,7 @@ class UniformQuantizationObserverBase(ObserverBase):
             max_val_pos = torch.max(-min_val_neg, max_val_pos)
             scale = max_val_pos / (float(quant_max - quant_min) / 2)
             scale = torch.max(scale, self.eps)
-            if self.dtype == torch.quint8:
+            if self.dtype in [torch.quint8, torch.uint8]:
                 if self.has_customized_qrange:
                     # When customized quantization range is used, down-rounded midpoint of the range is chosen.
                     zero_point = zero_point.new_full(
@@ -455,12 +468,18 @@ class MinMaxObserver(UniformQuantizationObserverBase):
         quant_max=None,
         factory_kwargs=None,
         eps=torch.finfo(torch.float32).eps,
+        is_dynamic=False,
+        **kwargs,
     ) -> None:
         if not is_per_tensor(qscheme):
             raise NotImplementedError(
                 "MinMaxObserver's qscheme only support torch.per_tensor_symmetric \
                     and torch.per_tensor_affine."
             )
+        # TODO: MinMaxObserver by itself doesn't support dynamic quantization, but
+        # if it's inherited by MovingAverageObserver, and averaging_constant is 1, it
+        # supports dynamic quantization, we may need to better error checking here
+
         # For x86 quantized kernels, we need to ensure that the vpmaddubsw
         # instruction does not overflow. We allow for a reduce_range argument to
         # observers that reduces the quantized range to (0,127) or (-64, 63).
@@ -475,6 +494,8 @@ class MinMaxObserver(UniformQuantizationObserverBase):
             quant_max=quant_max,
             factory_kwargs=factory_kwargs,
             eps=eps,
+            is_dynamic=is_dynamic,
+            **kwargs,
         )
         factory_kwargs = torch.nn.factory_kwargs(factory_kwargs)
         self.register_buffer("min_val", torch.tensor(float("inf"), **factory_kwargs))
@@ -572,14 +593,21 @@ class MovingAverageMinMaxObserver(MinMaxObserver):
         quant_min=None,
         quant_max=None,
         eps=torch.finfo(torch.float32).eps,
+        is_dynamic=False,
         **kwargs
     ) -> None:
         if not is_per_tensor(qscheme):
             raise NotImplementedError(
-                "MovingAverageMinMaxObserver's qscheme only support \
-                    torch.per_tensor_symmetric and torch.per_tensor_affine."
+                f"MovingAverageMinMaxObserver's qscheme only support \
+                torch.per_tensor_symmetric and torch.per_tensor_affine. \
+                but got: {qscheme}"
             )
         self.averaging_constant = averaging_constant
+        if is_dynamic and self.averaging_constant != 1:
+            raise NotImplementedError(
+                "MovingAverageMinMaxObserver doesn't support dynamic quantization for "
+                f"averaging constant of {self.averaging_constant}"
+            )
         super().__init__(
             dtype=dtype,
             qscheme=qscheme,
@@ -587,6 +615,7 @@ class MovingAverageMinMaxObserver(MinMaxObserver):
             quant_min=quant_min,
             quant_max=quant_max,
             eps=eps,
+            is_dynamic=is_dynamic,
             **kwargs
         )
 
@@ -648,11 +677,17 @@ class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
         quant_max=None,
         factory_kwargs=None,
         eps=torch.finfo(torch.float32).eps,
+        is_dynamic=False,
+        **kwargs,
     ) -> None:
         if not is_per_channel(qscheme):
             raise NotImplementedError(
                 "PerChannelMinMaxObserver's qscheme only support \
                     torch.per_channel_symmetric, torch.per_channel_affine and torch.per_channel_affine_float_qparams."
+            )
+        if is_dynamic:
+            raise NotImplementedError(
+                "PerChannelMinMaxObserver doesn't support dynamic quantization"
             )
         super().__init__(
             dtype=dtype,
@@ -662,6 +697,8 @@ class PerChannelMinMaxObserver(UniformQuantizationObserverBase):
             quant_max=quant_max,
             factory_kwargs=factory_kwargs,
             eps=eps,
+            is_dynamic=is_dynamic,
+            **kwargs,
         )
         factory_kwargs = torch.nn.factory_kwargs(factory_kwargs)
         self.ch_axis = ch_axis
@@ -839,12 +876,17 @@ class MovingAveragePerChannelMinMaxObserver(PerChannelMinMaxObserver):
         quant_min=None,
         quant_max=None,
         eps=torch.finfo(torch.float32).eps,
+        is_dynamic=False,
         **kwargs
     ) -> None:
         if not is_per_channel(qscheme):
             raise NotImplementedError(
                 "MovingAveragePerChannelMinMaxObserver's qscheme only support \
                     torch.per_channel_symmetric, torch.per_channel_affine and torch.per_channel_affine_float_qparams."
+            )
+        if is_dynamic:
+            raise NotImplementedError(
+                "MovingAveragePerChannelMinMaxObserver doesn't support dynamic quantization"
             )
         super().__init__(
             ch_axis=ch_axis,
@@ -854,6 +896,7 @@ class MovingAveragePerChannelMinMaxObserver(PerChannelMinMaxObserver):
             quant_min=quant_min,
             quant_max=quant_max,
             eps=eps,
+            is_dynamic=is_dynamic,
             **kwargs
         )
         self.averaging_constant = averaging_constant
@@ -926,11 +969,17 @@ class HistogramObserver(UniformQuantizationObserverBase):
         quant_max=None,
         factory_kwargs=None,
         eps=torch.finfo(torch.float32).eps,
+        is_dynamic=False,
+        **kwargs,
     ) -> None:
         if not is_per_tensor(qscheme):
             raise NotImplementedError(
                 "HistogramObserver's qscheme only support torch.per_tensor_symmetric \
                     and torch.per_tensor_affine."
+            )
+        if is_dynamic:
+            raise NotImplementedError(
+                "HistogramObserver doesn't support dynamic quantization"
             )
         # bins: The number of bins used for histogram calculation.
         super().__init__(
@@ -941,6 +990,8 @@ class HistogramObserver(UniformQuantizationObserverBase):
             quant_max=quant_max,
             factory_kwargs=factory_kwargs,
             eps=eps,
+            is_dynamic=is_dynamic,
+            **kwargs
         )
         factory_kwargs = torch.nn.factory_kwargs(factory_kwargs)
         self.bins = bins
@@ -1175,6 +1226,11 @@ class HistogramObserver(UniformQuantizationObserverBase):
             assert (
                 combined_min.numel() == 1 and combined_max.numel() == 1
             ), "histogram min/max values must be scalar."
+
+            # TODO: For some reason, this is required for it to pass torchscript test
+            # combined_min and combined_max should already have requires_grad set to False
+            combined_min, combined_max = combined_min.detach(), combined_max.detach()
+
             combined_histogram = torch.histc(
                 x, self.bins, min=combined_min, max=combined_max  # type: ignore[arg-type]
             )
@@ -1283,14 +1339,22 @@ class FixedQParamsObserver(ObserverBase):
     scale: torch.Tensor
     zero_point: torch.Tensor
 
-    def __init__(self,
-                 scale,
-                 zero_point,
-                 dtype=torch.quint8,
-                 qscheme=torch.per_tensor_affine,
-                 quant_min=0,
-                 quant_max=255):
-        super().__init__(dtype=dtype)
+    def __init__(
+        self,
+        scale,
+        zero_point,
+        dtype=torch.quint8,
+        qscheme=torch.per_tensor_affine,
+        quant_min=0,
+        quant_max=255,
+        is_dynamic=False,
+        **kwargs,
+    ):
+        if is_dynamic:
+            raise NotImplementedError(
+                "FixedQParamsObserver doesn't support dynamic quantization"
+            )
+        super().__init__(dtype=dtype, is_dynamic=is_dynamic, **kwargs)
         self.quant_min = quant_min
         self.quant_max = quant_max
         self.register_buffer('scale', torch.tensor([scale], dtype=torch.float))
@@ -1334,7 +1398,7 @@ class PlaceholderObserver(ObserverBase):
         quant_min=None, quant_max=None, qscheme=None, eps=None,
         is_dynamic=False,
     ) -> None:
-        super().__init__(dtype=dtype)
+        super().__init__(dtype=dtype, is_dynamic=is_dynamic)
         if qscheme is None:
             qscheme = torch.per_tensor_affine
         if eps is None:
@@ -1356,7 +1420,6 @@ class PlaceholderObserver(ObserverBase):
                     `compute_dtype` will be deprecated in a future release \
                     of PyTorch."
             )
-        self.is_dynamic = is_dynamic
 
     def forward(self, x):
         return x
@@ -1383,8 +1446,8 @@ class RecordingObserver(ObserverBase):
     """
     __annotations__ = {"tensor_val": List[Optional[torch.Tensor]]}
 
-    def __init__(self, dtype=torch.quint8, **kwargs):
-        super().__init__(dtype=dtype, **kwargs)  # type: ignore[call-arg]
+    def __init__(self, dtype=torch.quint8):
+        super().__init__(dtype=dtype, is_dynamic=False)  # type: ignore[call-arg]
         self.tensor_val = []
 
     def forward(self, x):
@@ -1415,7 +1478,7 @@ class NoopObserver(ObserverBase):
     """
 
     def __init__(self, dtype=torch.float16, custom_op_name="") -> None:
-        super().__init__(dtype=dtype)
+        super().__init__(dtype=dtype, is_dynamic=False)
         self.dtype = dtype
         self.custom_op = custom_op_name
 
@@ -1440,7 +1503,7 @@ class ReuseInputObserver(ObserverBase):
     Note: this is only enabled in FX Graph Mode Quantization
     """
     def __init__(self):
-        super().__init__(torch.quint8)
+        super().__init__(torch.quint8, is_dynamic=False)
 
     def forward(self, x):
         return x
