@@ -29,8 +29,7 @@
 #include <torch/csrc/jit/passes/onnx/unpack_quantized_weights.h>
 #include <torch/csrc/jit/serialization/export.h>
 
-namespace torch {
-namespace onnx {
+namespace torch::onnx {
 
 using namespace torch::jit;
 
@@ -210,7 +209,7 @@ void initONNXBindings(PyObject* module) {
           "Enables or disables ONNX logging.")
       .def(
           "_jit_set_onnx_log_output_stream",
-          [](std::string stream_name = "stdout") -> void {
+          [](const std::string& stream_name = "stdout") -> void {
             std::shared_ptr<std::ostream> out;
             if (stream_name == "stdout") {
               out = std::shared_ptr<std::ostream>(
@@ -227,7 +226,7 @@ void initONNXBindings(PyObject* module) {
           "Set specific file stream for ONNX logging.")
       .def(
           "_jit_onnx_log",
-          [](py::args args) -> void {
+          [](const py::args& args) -> void {
             if (::torch::jit::onnx::is_log_enabled()) {
               auto& out = ::torch::jit::onnx::_get_log_output_stream();
               for (auto arg : args) {
@@ -296,5 +295,4 @@ void initONNXBindings(PyObject* module) {
   onnx.attr("_CAFFE2_ATEN_FALLBACK") = false;
 #endif
 }
-} // namespace onnx
-} // namespace torch
+} // namespace torch::onnx
