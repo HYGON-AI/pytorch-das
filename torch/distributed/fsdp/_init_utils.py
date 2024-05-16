@@ -440,6 +440,14 @@ def _init_core_state(
                 "the world size is 1."
             )
         sharding_strategy = ShardingStrategy.NO_SHARD
+    elif sharding_strategy == ShardingStrategy.NO_SHARD:
+        warnings.warn(
+            "The `NO_SHARD` sharding strategy is deprecated. If having issues, "
+            "please use DistributedDataParallel instead.",
+            # Level 1 is here, level 2 is from `FullyShardedDataParallel`, and
+            # level 3 is from the true caller
+            stacklevel=3,
+        )
     state.sharding_strategy = sharding_strategy or ShardingStrategy.FULL_SHARD
     state.mixed_precision = mixed_precision or MixedPrecision()
     if mixed_precision is not None:
@@ -879,7 +887,7 @@ def _materialize_meta_module(
         warnings.warn(
             "Unable to call `reset_parameters()` for module on meta "
             f"device with error {str(e)}. Please ensure that your module of"
-            f"type {type(module)} implements a `reset_parameters()` method."
+            f"type {type(module)} implements a `reset_parameters()` method."  # type: ignore[possibly-undefined]
         )
         raise e
 
@@ -988,7 +996,7 @@ def _move_states_to_device(
                     param.grad.data = param.grad.to(device_from_device_id)
         for buffer in buffers:
             buffer.data = buffer.to(device_from_device_id)
-    elif current_device == cpu_device:
+    elif current_device == cpu_device:  # type: ignore[possibly-undefined]
         _warn_cpu_init()
 
 

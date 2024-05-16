@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+
 from typing import Any, Iterable
 from .version import __version__ as internal_version
 from .version import __dcu_version__ as dcu_version
