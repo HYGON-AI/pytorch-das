@@ -2,12 +2,10 @@
 import copy
 import sys
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from torch import distributed as dist
-from torch.distributed._shard.sharded_tensor.api import ShardedTensor
-from torch.distributed._shard.sharding_spec import ChunkShardingSpec
 from torch.distributed._tensor import (
     DeviceMesh,
     distribute_module,
@@ -34,7 +32,10 @@ from torch.testing._internal.common_utils import (
     run_tests,
     TEST_WITH_DEV_DBG_ASAN,
 )
-from torch.testing._internal.distributed._tensor.common_dtensor import MLPModule
+from torch.testing._internal.distributed._tensor.common_dtensor import (
+    MLPModule,
+    RMSNormPython,
+)
 
 if not dist.is_available():
     print("Distributed not available, skipping tests", file=sys.stderr)
@@ -46,15 +47,6 @@ if TEST_WITH_DEV_DBG_ASAN:
         file=sys.stderr,
     )
     sys.exit(0)
-
-
-def _is_nested_tensor(val: Any) -> bool:
-    if type(val) is ShardedTensor:
-        if len(val.local_shards()) == 0:
-            return False
-        if type(val.local_shards()[0].tensor) is ShardedTensor:
-            return True
-    return False
 
 
 class SimpleModel(torch.nn.Module):
@@ -77,27 +69,12 @@ class SimpleModel(torch.nn.Module):
         return ["net3.weight", "net3.bias"]
 
 
-# simple RMSNorm layer for testing
-class RMSNormPython(torch.nn.Module):
-    def __init__(self, dim: int, eps: float = 1e-6):
-        super().__init__()
-        self.eps = eps
-        self.weight = torch.nn.Parameter(torch.ones(dim))
-
-    def _norm(self, x):
-        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
-
-    def forward(self, x):
-        output = self._norm(x)
-        return output * self.weight
-
-
 def distribute_rmsnorm(module, device_mesh):
-    def prepare_input_fn(inputs, device_mesh):
+    def prepare_input_fn(mod, inputs, device_mesh):
         shard_tensor = DTensor.from_local(inputs[0], device_mesh, [Shard(0)])
         return shard_tensor
 
-    def prepare_output_fn(outputs, device_mesh):
+    def prepare_output_fn(mod, outputs, device_mesh):
         return outputs.to_local()
 
     return distribute_module(
@@ -148,17 +125,6 @@ class TestTPFSDPIntegration(FSDPTest):
         fsdp_pg = twod_mesh.get_group(mesh_dim=0)
         tp_pg = twod_mesh.get_group(mesh_dim=1)
         return twod_mesh, fsdp_pg, tp_pg
-
-    def _get_chunk_sharding_spec(self, tp_world_size: int, tp_pg: dist.ProcessGroup):
-        placements = [
-            f"rank:{idx}/cuda:{dist.distributed_c10d.get_global_rank(tp_pg, idx) % torch.cuda.device_count()}"
-            for idx in range(tp_world_size)
-        ]
-        # Rowwise and colwise sharding are specified with respect to the
-        # transposed linear weight
-        colwise_spec = ChunkShardingSpec(dim=0, placements=placements)
-        rowwise_spec = ChunkShardingSpec(dim=1, placements=placements)
-        return colwise_spec, rowwise_spec
 
     def _sync_tp_grads(
         self,

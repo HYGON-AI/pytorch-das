@@ -29,6 +29,7 @@ env:
 
 jobs:
   filter:
+    if: github.repository_owner == 'pytorch'
     runs-on: [self-hosted, linux.large]
     outputs:
       test-matrix: ${{ steps.filter.outputs.test-matrix }}
@@ -36,7 +37,7 @@ jobs:
       keep-going: ${{ steps.filter.outputs.keep-going }}
     steps:
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.2
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.3
         with:
           fetch-depth: 1
           submodules: false
@@ -58,25 +59,25 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Setup SSH (Click me for login details)
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.3
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
 
       # [see note: pytorch repo ref]
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.2
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.3
 
       - name: Setup Linux
         uses: ./.github/actions/setup-linux
 
       - name: Calculate docker image
         id: calculate-docker-image
-        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.2
+        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.3
         with:
           docker-image-name: ${{ inputs.docker-image-name }}
 
       - name: Pull docker image
-        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.2
+        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.3
         with:
           docker-image: ${{ steps.calculate-docker-image.outputs.docker-image }}
 
@@ -130,7 +131,7 @@ jobs:
 
           export COMMAND
           # shellcheck disable=SC2016
-          COMMAND='(echo "sudo chown -R jenkins workspace && cd workspace && ./.circleci/scripts/build_android_gradle.sh" | docker exec -u jenkins -e BUILD_LITE_INTERPRETER -e GRADLE_OFFLINE=1 -i "$id" bash) 2>&1'
+          COMMAND='(echo "sudo chown -R jenkins workspace && cd workspace && ./scripts/build_android_gradle.sh" | docker exec -u jenkins -e BUILD_LITE_INTERPRETER -e GRADLE_OFFLINE=1 -i "$id" bash) 2>&1'
           echo "${COMMAND}" > ./command.sh && bash ./command.sh
           # Skip docker push as this job is purely for size analysis purpose.
           # Result binaries are already in `/home/circleci/project/` as it's mounted instead of copied.
@@ -140,5 +141,5 @@ jobs:
         if: always()
 
       - name: Teardown Linux
-        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.2
+        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.3
         if: always()

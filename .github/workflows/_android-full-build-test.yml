@@ -29,6 +29,7 @@ env:
 
 jobs:
   filter:
+    if: github.repository_owner == 'pytorch'
     runs-on: [self-hosted, linux.large]
     outputs:
       test-matrix: ${{ steps.filter.outputs.test-matrix }}
@@ -36,7 +37,7 @@ jobs:
       keep-going: ${{ steps.filter.outputs.keep-going }}
     steps:
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.2
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.3
         with:
           fetch-depth: 1
           submodules: false
@@ -58,25 +59,25 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Setup SSH (Click me for login details)
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.3
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
 
       # [see note: pytorch repo ref]
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.2
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.3
 
       - name: Setup Linux
         uses: ./.github/actions/setup-linux
 
       - name: Calculate docker image
         id: calculate-docker-image
-        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.2
+        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.3
         with:
           docker-image-name: ${{ inputs.docker-image-name }}
 
       - name: Pull docker image
-        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.2
+        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.3
         with:
           docker-image: ${{ steps.calculate-docker-image.outputs.docker-image }}
 
@@ -156,7 +157,7 @@ jobs:
           docker cp "${GITHUB_WORKSPACE}/build_android_install_x86_32" "${ID_X86_32}:/var/lib/jenkins/workspace/build_android_install_x86_32"
 
           # run gradle buildRelease
-          (echo "./.circleci/scripts/build_android_gradle.sh" | docker exec \
+          (echo "./scripts/build_android_gradle.sh" | docker exec \
             -e BUILD_ENVIRONMENT="pytorch-linux-focal-py3-clang9-android-ndk-r21e-gradle-build" \
             -e MAX_JOBS="$(nproc --ignore=2)" \
             -e AWS_DEFAULT_REGION \
@@ -185,5 +186,5 @@ jobs:
         if: always()
 
       - name: Teardown Linux
-        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.2
+        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.3
         if: always()
