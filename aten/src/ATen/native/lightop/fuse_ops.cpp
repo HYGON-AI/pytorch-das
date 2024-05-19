@@ -8,6 +8,10 @@
 #include <ATen/ops/native_fuse_bias_swiglu_native.h>
 #include <ATen/ops/native_fuse_ln_dropout_native.h>
 #include <ATen/ops/native_fuse_ln_dropout.h>
+#include <ATen/ops/native_fuse_ln_add_dropout_native.h>
+#include <ATen/ops/native_fuse_ln_add_dropout.h>
+#include <ATen/ops/native_fuse_ln_add_dropout_bias_native.h>
+#include <ATen/ops/native_fuse_ln_add_dropout_bias.h>
 #include <array>
 #include <tuple>
 #include <vector>
@@ -44,6 +48,41 @@ Tensor fuse_ln_dropout(
   c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias_opt);
   const Tensor& bias = *bias_maybe_owned;
   return std::get<0>(at::native_fuse_ln_dropout(input, weight, bias, eps, p, training));
+}
+
+Tensor fuse_ln_add_dropout(
+    const Tensor& input,
+    const Tensor& other,
+    const c10::optional<Tensor>& weight_opt /* optional */,
+    const c10::optional<Tensor>& bias_opt /* optional */,
+    double eps,
+    double p,
+    bool training,
+    bool /* cudnn_enable, deprecated */) {
+    // See [Note: hacky wrapper removal for optional tensor]
+    c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight_opt);
+    const Tensor& weight = *weight_maybe_owned;
+    c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias_opt);
+    const Tensor& bias = *bias_maybe_owned;
+    return std::get<0>(at::native_fuse_ln_add_dropout(input, other, weight, bias, eps, p, training));
+}
+
+Tensor fuse_ln_add_dropout_bias(
+    const Tensor& input,
+    const Tensor& other,
+    const Tensor& attention_bias,
+    const c10::optional<Tensor>& weight_opt /* optional */,
+    const c10::optional<Tensor>& bias_opt /* optional */,
+    double eps,
+    double p,
+    bool training,
+    bool /* cudnn_enable, deprecated */) {
+    // See [Note: hacky wrapper removal for optional tensor]
+    c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight_opt);
+    const Tensor& weight = *weight_maybe_owned;
+    c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias_opt);
+    const Tensor& bias = *bias_maybe_owned;
+    return std::get<0>(at::native_fuse_ln_add_dropout_bias(input, other, attention_bias, weight, bias, eps, p, training));
 }
 
 DEFINE_DISPATCH(FuseLayerNormKernel);
