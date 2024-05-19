@@ -1236,6 +1236,26 @@
   weight: Tensor()
   bias: Tensor()
 
+- name: native_fuse_ln_add_dropout(Tensor input, Tensor other, Tensor? weight, Tensor? bias, float eps, float p, bool training) -> (Tensor, Tensor, Tensor, Tensor)
+  input, other, weight, bias: "grad.defined() ? native_fuse_ln_add_dropout_backward(grad, result1, result2, result3, weight) : std::tuple<Tensor, Tensor, Tensor, Tensor>()"
+
+- name: native_fuse_ln_add_dropout_backward(Tensor grad_out, Tensor input, Tensor mean, Tensor rstd, Tensor gamma) -> (Tensor, Tensor, Tensor, Tensor)
+  input: Tensor()
+  grad_out: Tensor()
+  mean: not_implemented("native_fuse_ln_add_dropout_backward mean")
+  rstd: not_implemented("native_fuse_ln_add_dropout_backward rstd")
+  gamma: Tensor()
+
+- name: native_fuse_ln_add_dropout_bias(Tensor input, Tensor other, Tensor attention_bias, Tensor? weight, Tensor? bias, float eps, float p, bool training) -> (Tensor, Tensor, Tensor, Tensor)
+  input, other, attention_bias, weight, bias: "grad.defined() ? native_fuse_ln_add_dropout_bias_backward(grad, result1, result2, result3, weight) : std::tuple<Tensor, Tensor, Tensor, Tensor, Tensor>()"
+
+- name: native_fuse_ln_add_dropout_bias_backward(Tensor grad_out, Tensor input, Tensor mean, Tensor rstd, Tensor gamma) -> (Tensor, Tensor, Tensor, Tensor, Tensor)
+  input: Tensor()
+  grad_out: Tensor()
+  mean: not_implemented("native_fuse_ln_add_dropout_bias_backward mean")
+  rstd: not_implemented("native_fuse_ln_add_dropout_bias_backward rstd")
+  gamma: Tensor()
+
 - name: native_layer_norm_backward(Tensor grad_out, Tensor input, SymInt[] normalized_shape, Tensor mean, Tensor rstd, Tensor? weight, Tensor? bias, bool[3] output_mask) -> (Tensor, Tensor, Tensor)
   input, weight, grad_out: layer_norm_double_backward(input, weight, grads[0], grads[1], grads[2], grad_out, mean, rstd, normalized_shape, grad_input_mask)
   bias: Tensor()

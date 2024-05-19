@@ -2590,6 +2590,45 @@ def fuse_ln_dropout(
         )
     return torch.fuse_ln_dropout(input, weight, bias, eps, p, training, torch.backends.cudnn.enabled)
 
+def fuse_ln_add_dropout(
+    input: Tensor,
+    other: Tensor,
+    weight: Optional[Tensor] = None,
+    bias: Optional[Tensor] = None,
+    eps: float = 1e-5,
+    p: float = 0.5,
+    training: bool = True,
+) -> Tensor:
+    r"""Applies Fuse Layer Normalization + Add + Dropout for last certain number of dimensions.
+
+    See :class:`~torch.nn.FuseLnAddDropout` for details.
+    """
+    if has_torch_function_variadic(input, weight, bias):
+        return handle_torch_function(
+            fuse_ln_add_dropout, (input, other, weight, bias), input, other, weight=weight, bias=bias, eps=eps, p=p, training=training
+        )
+    return torch.fuse_ln_add_dropout(input, other, weight, bias, eps, p, training, torch.backends.cudnn.enabled)
+
+def fuse_ln_add_dropout_bias(
+    input: Tensor,
+    other: Tensor,
+    attention_bias: Tensor,
+    weight: Optional[Tensor] = None,
+    bias: Optional[Tensor] = None,
+    eps: float = 1e-5,
+    p: float = 0.5,
+    training: bool = True,
+) -> Tensor:
+    r"""Applies Fuse Layer Normalization + Add + Dropout + Bias for last certain number of dimensions.
+
+    See :class:`~torch.nn.FuseLnAddDropoutBias` for details.
+    """
+    if has_torch_function_variadic(input, weight, bias):
+        return handle_torch_function(
+            fuse_ln_add_dropout_bias, (input, other, attention_bias, weight, bias), input, weight=weight, bias=bias, eps=eps, p=p, training=training
+        )
+    return torch.fuse_ln_add_dropout_bias(input, other, attention_bias,  weight, bias, eps, p, training, torch.backends.cudnn.enabled)
+
 def fuse_layer_norm(
     input: Tensor,
     weight: Optional[Tensor] = None,

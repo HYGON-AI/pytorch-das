@@ -9,7 +9,8 @@ from .. import init
 from torch import Tensor, Size
 from typing import Union, List, Tuple
 
-__all__ = ['LocalResponseNorm', 'CrossMapLRN2d', 'LayerNorm', 'FuseLayerNorm', 'GroupNorm', 'FuseLnDropout']
+__all__ = ['LocalResponseNorm', 'CrossMapLRN2d', 'LayerNorm', 'FuseLayerNorm', 'GroupNorm', 'FuseLnDropout', \
+           'FuseLnAddDropoutBias', 'FuseLnAddDropout']
 
 class LocalResponseNorm(Module):
     r"""Applies local response normalization over an input signal.
@@ -252,6 +253,56 @@ class FuseLnDropout(Module):
 
     def extra_repr(self):
         return f'p={round(self.p,3):0.3f},eps={round(self.eps,5):0.5f}'
+
+class FuseLnAddDropout(Module):
+    __constants__ = ['normalized_shape', 'eps', 'p']
+    p: float
+    eps: float
+    normalized_shape: Tuple[int, ...]
+
+    def __init__(self, normalized_shape: _shape_t, p: float = 0.5, eps: float = 1e-5, device=None, dtype=None ):
+        super(FuseLnAddDropout, self).__init__()
+        if isinstance(normalized_shape, numbers.Integral):
+            normalized_shape = (normalized_shape,)
+        self.normalized_shape = tuple(normalized_shape)
+        self.p = p
+        self.eps = eps
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        self.weight = torch.nn.Parameter(torch.empty(normalized_shape, **factory_kwargs))
+        self.bias = torch.nn.Parameter(torch.empty(normalized_shape, **factory_kwargs))
+        torch.nn.init.ones_(self.weight)
+        torch.nn.init.zeros_(self.bias)
+
+    def forward(self, input, other):
+        return F.fuse_ln_add_dropout(input, other, self.weight, self.bias, self.eps, self.p, self.training)
+
+    def extra_repr(self):
+        return f'rate={round(self.p,3):0.3f},eps={round(self.eps,5):0.5f}'
+
+class FuseLnAddDropoutBias(Module):
+    __constants__ = ['normalized_shape', 'p', 'eps']
+    eps: float
+    p: float
+    normalized_shape: Tuple[int, ...]
+    def __init__(self, normalized_shape: _shape_t, p: float = 0.5, eps: float = 1e-5, device=None, dtype=None ):
+        super(FuseLnAddDropoutBias, self).__init__()
+        if isinstance(normalized_shape, numbers.Integral):
+            normalized_shape = (normalized_shape,)
+        self.normalized_shape = tuple(normalized_shape)
+        self.p = p
+        self.eps = eps
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        self.weight = torch.nn.Parameter(torch.empty(normalized_shape, **factory_kwargs))
+        self.bias = torch.nn.Parameter(torch.empty(normalized_shape, **factory_kwargs))
+        torch.nn.init.ones_(self.weight)
+        torch.nn.init.zeros_(self.bias)
+
+    def forward(self, input, other, bias):
+        return F.fuse_ln_add_dropout_bias(input, other, bias, self.weight, self.bias, \
+                            self.eps, self.p, self.training)
+
+    def extra_repr(self):
+        return f'p={round(self.p,3):0.3f}, eps={round(self.eps,5):0.5f}'
 
 class GroupNorm(Module):
     r"""Applies Group Normalization over a mini-batch of inputs.
