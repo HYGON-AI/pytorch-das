@@ -3312,6 +3312,38 @@
   autogen: native_fuse_ln_dropout_backward.out
   tags: core
 
+- func: fuse_bias_dropout_add(Tensor input, Tensor bias, Tensor other, float p=0.5, bool training=True) -> Tensor
+  tags: nondeterministic_seeded
+
+- func: native_fuse_bias_dropout_add(Tensor input, Tensor bias, Tensor other, float p, bool training) -> (Tensor, Tensor)
+  variants: function
+  dispatch:
+    CUDA: fuse_bias_dropout_add_cuda
+  autogen: native_fuse_bias_dropout_add.out
+  tags: [nondeterministic_seeded, core]
+
+- func: native_fuse_bias_dropout_add_backward(Tensor grad_out, Tensor mask, float p) -> (Tensor, Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_bias_dropout_add_backward_cuda
+  autogen: native_fuse_bias_dropout_add_backward.out
+  tags: core
+
+- func: fuse_dropout_add(Tensor input, Tensor other, float p=0.5, bool training=True) -> Tensor
+  tags: nondeterministic_seeded
+
+- func: native_fuse_dropout_add(Tensor input, Tensor other, float p, bool training) -> (Tensor, Tensor)
+  variants: function
+  dispatch:
+    CUDA: fuse_dropout_add_cuda
+  autogen: native_fuse_dropout_add.out
+  tags: [nondeterministic_seeded, core]
+
+- func: native_fuse_dropout_add_backward(Tensor grad_out, Tensor mask, float p) -> (Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_dropout_add_backward_cuda
+  autogen: native_fuse_dropout_add_backward.out
+  tags: core
+
 - func: fuse_ln_add_dropout(Tensor input, Tensor other, Tensor? weight=None, Tensor? bias=None, float eps=1e-05, float p=0.5, bool training=True, bool cudnn_enable=True) -> Tensor
   tags: nondeterministic_seeded
 

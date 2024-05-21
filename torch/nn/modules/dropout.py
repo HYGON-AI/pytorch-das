@@ -3,7 +3,8 @@ from .. import functional as F
 
 from torch import Tensor
 
-__all__ = ['Dropout', 'Dropout1d', 'Dropout2d', 'Dropout3d', 'AlphaDropout', 'FeatureAlphaDropout']
+__all__ = ['Dropout', 'Dropout1d', 'Dropout2d', 'Dropout3d', 'AlphaDropout', 'FeatureAlphaDropout', \
+           'FuseBiasDropoutAdd', 'FuseDropoutAdd']
 
 class _DropoutNd(Module):
     __constants__ = ['p', 'inplace']
@@ -58,6 +59,30 @@ class Dropout(_DropoutNd):
     def forward(self, input: Tensor) -> Tensor:
         return F.dropout(input, self.p, self.training, self.inplace)
 
+class FuseBiasDropoutAdd(Module):
+
+    droprate: float
+    def __init__(self,droprate=0.5):
+        super(FuseBiasDropoutAdd, self).__init__()
+        self.droprate = droprate
+
+    def forward(self, input, bias, residual):
+        return F.fuse_bias_dropout_add(input, bias, residual, self.droprate, self.training)
+
+    def extra_repr(self):
+        return f'droprate={round(self.droprate,3):0.3f}'
+
+class FuseDropoutAdd(Module):
+    rate: float
+    def __init__(self, rate=0.5):
+        self.rate = rate
+        super(FuseDropoutAdd, self).__init__()
+
+    def forward(self, input, other):
+        return F.fuse_dropout_add(input, other, self.rate, self.training)
+
+    def extra_repr(self):
+        return f'rate={round(self.rate,3):0.3f}'
 
 class Dropout1d(_DropoutNd):
     r"""Randomly zero out entire channels.
