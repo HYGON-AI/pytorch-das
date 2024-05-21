@@ -1236,6 +1236,20 @@
   weight: Tensor()
   bias: Tensor()
 
+- name: native_fuse_bias_dropout_add(Tensor input, Tensor bias, Tensor other, float p, bool training) -> (Tensor, Tensor)
+  input, bias, other: "grad.defined() ? native_fuse_bias_dropout_add_backward(grad, result1, p) : std::tuple<Tensor, Tensor, Tensor>()"
+
+- name: native_fuse_bias_dropout_add_backward(Tensor grad_out, Tensor mask, float p) -> (Tensor, Tensor, Tensor)
+  mask: Tensor()
+  grad_out: Tensor()
+
+- name: native_fuse_dropout_add(Tensor input, Tensor other, float p, bool training) -> (Tensor, Tensor)
+  input, other: "grad.defined() ? native_fuse_dropout_add_backward(grad, result1, p) : std::tuple<Tensor, Tensor>()"
+
+- name: native_fuse_dropout_add_backward(Tensor grad_out, Tensor mask, float p) -> (Tensor, Tensor)
+  grad_out: Tensor()
+  mask: Tensor()
+
 - name: native_fuse_ln_add_dropout(Tensor input, Tensor other, Tensor? weight, Tensor? bias, float eps, float p, bool training) -> (Tensor, Tensor, Tensor, Tensor)
   input, other, weight, bias: "grad.defined() ? native_fuse_ln_add_dropout_backward(grad, result1, result2, result3, weight) : std::tuple<Tensor, Tensor, Tensor, Tensor>()"
 

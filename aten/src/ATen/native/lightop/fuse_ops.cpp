@@ -12,6 +12,10 @@
 #include <ATen/ops/native_fuse_ln_add_dropout.h>
 #include <ATen/ops/native_fuse_ln_add_dropout_bias_native.h>
 #include <ATen/ops/native_fuse_ln_add_dropout_bias.h>
+#include <ATen/ops/native_fuse_bias_dropout_add_native.h>
+#include <ATen/ops/native_fuse_bias_dropout_add.h>
+#include <ATen/ops/native_fuse_dropout_add_native.h>
+#include <ATen/ops/native_fuse_dropout_add.h>
 #include <array>
 #include <tuple>
 #include <vector>
@@ -83,6 +87,23 @@ Tensor fuse_ln_add_dropout_bias(
     c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias_opt);
     const Tensor& bias = *bias_maybe_owned;
     return std::get<0>(at::native_fuse_ln_add_dropout_bias(input, other, attention_bias, weight, bias, eps, p, training));
+}
+
+Tensor fuse_bias_dropout_add(
+    const Tensor& input,
+    const Tensor& bias,
+    const Tensor& other,
+    double p,
+    bool training) {
+  return std::get<0>(at::native_fuse_bias_dropout_add(input, bias, other, p, training));
+}
+
+Tensor fuse_dropout_add(
+    const Tensor& input,
+    const Tensor& other,
+    double p,
+    bool training) {
+  return std::get<0>(at::native_fuse_dropout_add(input, other, p, training));
 }
 
 DEFINE_DISPATCH(FuseLayerNormKernel);

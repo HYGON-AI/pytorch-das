@@ -1294,6 +1294,34 @@ def dropout(input: Tensor, p: float = 0.5, training: bool = True, inplace: bool 
         raise ValueError(f"dropout probability has to be between 0 and 1, but got {p}")
     return _VF.dropout_(input, p, training) if inplace else _VF.dropout(input, p, training)
 
+def fuse_bias_dropout_add(input: Tensor, other: Tensor, bias: Tensor, p: float = 0.5, training: bool = True):
+    r"""
+    See: class:`~torch.nn.FuseBiasDropoutAdd` for details.
+    Args:
+        p: probability of an element to be zeroed. Default: 0.5
+        training: apply dropout if is ``True``. Default: ``True``
+    """
+    if has_torch_function_variadic(input, other, bias):
+        return handle_torch_function(
+            fuse_bias_dropout_add, (input, other, bias), input, other, bias, p=p, training=training,
+        )
+    return torch.fuse_bias_dropout_add(input, other, bias, p, training)
+
+def fuse_dropout_add(
+    input: Tensor,
+    other: Tensor,
+    p: float = 0.5,
+    training: bool = True,
+) -> Tensor:
+    r"""Applies Fuse Dropout + Add for last certain number of dimensions.
+
+    See :class:`~torch.nn.FuseDropoutAdd` for details.
+    """
+    if has_torch_function_variadic(input, other):
+        return handle_torch_function(
+            fuse_dropout_add, (input, other), input, other, p=p, training=training,
+        )
+    return torch.fuse_dropout_add(input, other,  p, training)
 
 def alpha_dropout(input: Tensor, p: float = 0.5, training: bool = False, inplace: bool = False) -> Tensor:
     r"""Apply alpha dropout to the input.
