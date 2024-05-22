@@ -169,7 +169,8 @@ def tuned_int_mm(mat1, mat2, *, layout=None):
     if m * n != 0 and use_triton_template(layout, enable_int32=True):
         # TODO: Re-enable eager mode implementation once cuBLAS is fixed
         choices = []
-        for config in int8_mm_configs(m, n, k):
+        has_int8_tensor = _is_int8_mat(mat1) or _is_int8_mat(mat2)
+        for config in int8_mm_configs(m, n, k,has_int8_tensor=has_int8_tensor):
             mm_template.maybe_append_choice(
                 choices,
                 input_nodes=(mat1, mat2),
