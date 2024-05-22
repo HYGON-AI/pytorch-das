@@ -840,9 +840,9 @@ void gemm<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
   }
 }
 
-#if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 50700)
+#if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 50704)
 
-#if defined(USE_ROCM) && ROCM_VERSION >= 50700 && ROCM_VERSION < 60000
+#if defined(USE_ROCM) && ROCM_VERSION >= 50704 && ROCM_VERSION < 60000
 // only for rocm 5.7 where we first supported hipblaslt, it was difficult
 // to hipify correctly without this change.
 #define hipDataType hipblasDatatype_t
@@ -1440,7 +1440,7 @@ void int8_gemm(
   TORCH_CHECK(false, "int8_gemm is only supported for ROCm 6.0 and above");
 #endif // !defined(USE_ROCM) || (defined(USE_ROCM) && ROCM_VERSION >= 60000)
 }
-#endif // (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 50700)
+#endif // (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 50704)
 
 // ROCm 5.6 hipblas matches the const Dtype *A API, but prior hipblas does not.
 #if defined(USE_ROCM) && ROCM_VERSION < 50600
