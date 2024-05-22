@@ -30,7 +30,9 @@ endif()
 message("Building PyTorch for GPU arch: ${PYTORCH_ROCM_ARCH}")
 
 # Add HIP to the CMAKE Module Path
-set(CMAKE_MODULE_PATH ${ROCM_PATH}/lib/cmake/hip ${CMAKE_MODULE_PATH})
+#set(CMAKE_MODULE_PATH ${ROCM_PATH}/lib/cmake/hip ${CMAKE_MODULE_PATH})
+#dtk24.04 find hip tmp solution
+set(CMAKE_MODULE_PATH ${ROCM_PATH}/hip/cmake ${CMAKE_MODULE_PATH})
 
 macro(find_package_and_print_version PACKAGE_NAME)
   find_package("${PACKAGE_NAME}" ${ARGN})
