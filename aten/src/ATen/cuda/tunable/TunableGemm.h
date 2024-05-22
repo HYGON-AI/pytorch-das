@@ -23,6 +23,8 @@
 
 #ifdef USE_ROCM
 #include <rocm-core/rocm_version.h>
+//dtk24.04 tmp solution
+#define ROCM_BUILD_INFO "5.7.3.1-2-1ca35e72"
 #endif
 
 #define STRINGIFY(s) #s
