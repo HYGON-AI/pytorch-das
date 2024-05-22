@@ -6,8 +6,10 @@
 #include <ATen/cuda/CUDABlas.h>
 #include <ATen/cuda/Exceptions.h>
 #include <ATen/cuda/CUDADataType.h>
+#if ROCM_VERSION >= 50704
 #include <ATen/cuda/tunable/Tunable.h>
 #include <ATen/cuda/tunable/TunableGemm.h>
+#endif
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/macros/Export.h>
@@ -392,7 +394,7 @@ void bgemm_internal<at::BFloat16>(CUDABLAS_BGEMM_ARGTYPES(at::BFloat16)) {
                                   compute_type,
                                   CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 }
-
+#if ROCM_VERSION >= 50704
 template <typename DType>
 inline void bgemm_tunable(CUDABLAS_BGEMM_ARGTYPES(DType)) {
   tunable::GemmStridedBatchedParams<DType> params;
@@ -437,71 +439,72 @@ inline void bgemm_tunable(CUDABLAS_BGEMM_ARGTYPES(DType)) {
     TORCH_CHECK(false, "unreachable");
   }
 }
+#endif
 
 template <>
 void bgemm<double>(CUDABLAS_BGEMM_ARGTYPES(double)) {
-  auto tuning_ctx = at::cuda::tunable::getTuningContext();
-  if (tuning_ctx->IsTunableOpEnabled()) {
-    bgemm_tunable<double>(CUDABLAS_BGEMM_ARGS(double));
-  }
-  else {
+//  auto tuning_ctx = at::cuda::tunable::getTuningContext();
+//  if (tuning_ctx->IsTunableOpEnabled()) {
+//    bgemm_tunable<double>(CUDABLAS_BGEMM_ARGS(double));
+//  }
+//  else {
     bgemm_internal<double>(CUDABLAS_BGEMM_ARGS(double));
-  }
+//  }
 }
 
 template <>
 void bgemm<float>(CUDABLAS_BGEMM_ARGTYPES(float)) {
-  auto tuning_ctx = at::cuda::tunable::getTuningContext();
-  if (tuning_ctx->IsTunableOpEnabled()) {
-    bgemm_tunable<float>(CUDABLAS_BGEMM_ARGS(float));
-  }
-  else {
+//  auto tuning_ctx = at::cuda::tunable::getTuningContext();
+//  if (tuning_ctx->IsTunableOpEnabled()) {
+//    bgemm_tunable<float>(CUDABLAS_BGEMM_ARGS(float));
+// }
+//  else {
     bgemm_internal<float>(CUDABLAS_BGEMM_ARGS(float));
-  }
+//  }
 }
 
 template <>
 void bgemm<c10::complex<double>>(CUDABLAS_BGEMM_ARGTYPES(c10::complex<double>)) {
-  auto tuning_ctx = at::cuda::tunable::getTuningContext();
-  if (tuning_ctx->IsTunableOpEnabled()) {
-    bgemm_tunable<c10::complex<double>>(CUDABLAS_BGEMM_ARGS(c10::complex<double>));
-  }
-  else {
+//  auto tuning_ctx = at::cuda::tunable::getTuningContext();
+//  if (tuning_ctx->IsTunableOpEnabled()) {
+//    bgemm_tunable<c10::complex<double>>(CUDABLAS_BGEMM_ARGS(c10::complex<double>));
+//  }
+//  else {
     bgemm_internal<c10::complex<double>>(CUDABLAS_BGEMM_ARGS(c10::complex<double>));
-  }
+//  }
 }
 
 template <>
 void bgemm<c10::complex<float>>(CUDABLAS_BGEMM_ARGTYPES(c10::complex<float>)) {
-  auto tuning_ctx = at::cuda::tunable::getTuningContext();
-  if (tuning_ctx->IsTunableOpEnabled()) {
-    bgemm_tunable<c10::complex<float>>(CUDABLAS_BGEMM_ARGS(c10::complex<float>));
-  }
-  else {
+//  auto tuning_ctx = at::cuda::tunable::getTuningContext();
+//  if (tuning_ctx->IsTunableOpEnabled()) {
+//    bgemm_tunable<c10::complex<float>>(CUDABLAS_BGEMM_ARGS(c10::complex<float>));
+//  }
+//  else {
     bgemm_internal<c10::complex<float>>(CUDABLAS_BGEMM_ARGS(c10::complex<float>));
-  }
+//  }
 }
 
 template <>
 void bgemm<at::Half>(CUDABLAS_BGEMM_ARGTYPES(at::Half)) {
-  auto tuning_ctx = at::cuda::tunable::getTuningContext();
-  if (tuning_ctx->IsTunableOpEnabled()) {
-    bgemm_tunable<at::Half>(CUDABLAS_BGEMM_ARGS(at::Half));
-  }
-  else {
+//  auto tuning_ctx = at::cuda::tunable::getTuningContext();
+//  if (tuning_ctx->IsTunableOpEnabled()) {
+//    bgemm_tunable<at::Half>(CUDABLAS_BGEMM_ARGS(at::Half));
+//  }
+//  else {
     bgemm_internal<at::Half>(CUDABLAS_BGEMM_ARGS(at::Half));
-  }
+//  }
 }
 
 template <>
 void bgemm<at::BFloat16>(CUDABLAS_BGEMM_ARGTYPES(at::BFloat16)) {
-  auto tuning_ctx = at::cuda::tunable::getTuningContext();
-  if (tuning_ctx->IsTunableOpEnabled()) {
-    bgemm_tunable<at::BFloat16>(CUDABLAS_BGEMM_ARGS(at::BFloat16));
-  }
-  else {
+//  auto tuning_ctx = at::cuda::tunable::getTuningContext();
+//  if (tuning_ctx->IsTunableOpEnabled()) {
+//    bgemm_tunable<at::BFloat16>(CUDABLAS_BGEMM_ARGS(at::BFloat16));
+//  }
+//  else {
     bgemm_internal<at::BFloat16>(CUDABLAS_BGEMM_ARGS(at::BFloat16));
-  }
+//  }
 }
 
 template <>
@@ -732,7 +735,7 @@ void gemm_internal<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
       CUBLAS_GEMM_DEFAULT_TENSOR_OP));
   TORCH_CUDABLAS_CHECK(cublasSetMathMode(handle, CUBLAS_DEFAULT_MATH));
 }
-
+#if ROCM_VERSION >= 50704
 template <typename DType>
 inline void gemm_tunable(CUDABLAS_GEMM_ARGTYPES(DType)) {
   tunable::GemmParams<DType> params;
@@ -773,71 +776,72 @@ inline void gemm_tunable(CUDABLAS_GEMM_ARGTYPES(DType)) {
     TORCH_CHECK(false, "unreachable");
   }
 }
+#endif
 
 template <>
 void gemm<double>(CUDABLAS_GEMM_ARGTYPES(double)) {
-  auto tuning_ctx = at::cuda::tunable::getTuningContext();
-  if (tuning_ctx->IsTunableOpEnabled()) {
-    gemm_tunable<double>(CUDABLAS_GEMM_ARGS(double));
-  }
-  else {
+//  auto tuning_ctx = at::cuda::tunable::getTuningContext();
+//  if (tuning_ctx->IsTunableOpEnabled()) {
+//    gemm_tunable<double>(CUDABLAS_GEMM_ARGS(double));
+//  }
+//  else {
     gemm_internal<double>(CUDABLAS_GEMM_ARGS(double));
-  }
+//  }
 }
 
 template <>
 void gemm<float>(CUDABLAS_GEMM_ARGTYPES(float)) {
-  auto tuning_ctx = at::cuda::tunable::getTuningContext();
-  if (tuning_ctx->IsTunableOpEnabled()) {
-    gemm_tunable<float>(CUDABLAS_GEMM_ARGS(float));
-  }
-  else {
+//  auto tuning_ctx = at::cuda::tunable::getTuningContext();
+//  if (tuning_ctx->IsTunableOpEnabled()) {
+//    gemm_tunable<float>(CUDABLAS_GEMM_ARGS(float));
+//  }
+//  else {
     gemm_internal<float>(CUDABLAS_GEMM_ARGS(float));
-  }
+//  }
 }
 
 template <>
 void gemm<c10::complex<double>>(CUDABLAS_GEMM_ARGTYPES(c10::complex<double>)) {
-  auto tuning_ctx = at::cuda::tunable::getTuningContext();
-  if (tuning_ctx->IsTunableOpEnabled()) {
-    gemm_tunable<c10::complex<double>>(CUDABLAS_GEMM_ARGS(c10::complex<double>));
-  }
-  else {
+//  auto tuning_ctx = at::cuda::tunable::getTuningContext();
+//  if (tuning_ctx->IsTunableOpEnabled()) {
+//    gemm_tunable<c10::complex<double>>(CUDABLAS_GEMM_ARGS(c10::complex<double>));
+//  }
+//  else {
     gemm_internal<c10::complex<double>>(CUDABLAS_GEMM_ARGS(c10::complex<double>));
-  }
+//  }
 }
 
 template <>
 void gemm<c10::complex<float>>(CUDABLAS_GEMM_ARGTYPES(c10::complex<float>)) {
-  auto tuning_ctx = at::cuda::tunable::getTuningContext();
-  if (tuning_ctx->IsTunableOpEnabled()) {
-    gemm_tunable<c10::complex<float>>(CUDABLAS_GEMM_ARGS(c10::complex<float>));
-  }
-  else {
+//  auto tuning_ctx = at::cuda::tunable::getTuningContext();
+//  if (tuning_ctx->IsTunableOpEnabled()) {
+//    gemm_tunable<c10::complex<float>>(CUDABLAS_GEMM_ARGS(c10::complex<float>));
+//  }
+//  else {
     gemm_internal<c10::complex<float>>(CUDABLAS_GEMM_ARGS(c10::complex<float>));
-  }
+//  }
 }
 
 template <>
 void gemm<at::Half>(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
-  auto tuning_ctx = at::cuda::tunable::getTuningContext();
-  if (tuning_ctx->IsTunableOpEnabled()) {
-    gemm_tunable<at::Half>(CUDABLAS_GEMM_ARGS(at::Half));
-  }
-  else {
+//  auto tuning_ctx = at::cuda::tunable::getTuningContext();
+//  if (tuning_ctx->IsTunableOpEnabled()) {
+//    gemm_tunable<at::Half>(CUDABLAS_GEMM_ARGS(at::Half));
+//  }
+//  else {
     gemm_internal<at::Half>(CUDABLAS_GEMM_ARGS(at::Half));
-  }
+//  }
 }
 
 template <>
 void gemm<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
-  auto tuning_ctx = at::cuda::tunable::getTuningContext();
-  if (tuning_ctx->IsTunableOpEnabled()) {
-    gemm_tunable<at::BFloat16>(CUDABLAS_GEMM_ARGS(at::BFloat16));
-  }
-  else {
+//  auto tuning_ctx = at::cuda::tunable::getTuningContext();
+//  if (tuning_ctx->IsTunableOpEnabled()) {
+//    gemm_tunable<at::BFloat16>(CUDABLAS_GEMM_ARGS(at::BFloat16));
+//  }
+//  else {
     gemm_internal<at::BFloat16>(CUDABLAS_GEMM_ARGS(at::BFloat16));
-  }
+//  }
 }
 
 #if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 50704)
