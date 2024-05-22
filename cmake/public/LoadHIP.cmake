@@ -157,7 +157,7 @@ if(HIP_FOUND)
   find_package_and_print_version(hiprand REQUIRED)
   find_package_and_print_version(rocblas REQUIRED)
   find_package_and_print_version(hipblas REQUIRED)
-  if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "5.7.0")
+  if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "5.7.4")
     find_package_and_print_version(hipblaslt REQUIRED)
   endif()
   find_package_and_print_version(miopen REQUIRED)
@@ -193,7 +193,7 @@ if(HIP_FOUND)
   # roctx is part of roctracer
   find_library(ROCM_ROCTX_LIB roctx64 HINTS ${ROCM_PATH}/lib)
 
-  if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "5.7.0")
+  if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "5.7.4")
     # check whether hipblaslt is using its own datatype
     set(file "${PROJECT_BINARY_DIR}/hipblaslt_test_data_type.cc")
     file(WRITE ${file} ""
