@@ -51,6 +51,7 @@ from torch.testing._internal.common_dtype import (
     complex_types,
     floating_and_complex_types_and,
 )
+from torch.testing._internal.common_utils import TEST_WITH_ROCM    ###
 
 if TEST_SCIPY:
     import scipy
@@ -75,6 +76,20 @@ reference_filtered_ops = list(filter(lambda op: op.ref is not None, unary_ufuncs
 
 # TODO: port test_unary_out_op_mem_overlap
 # TODO: add test for inplace variants erroring on broadcasted inputs
+
+###
+def skip_helper_fp64_onE100(device, dtype):
+    device_type = torch.device(device).type
+    if dtype not in (torch.float64, torch.complex128,torch.double,torch.cdouble):
+        return
+
+    if TEST_WITH_ROCM:
+        if device_type == 'cuda':
+            device_name=torch.cuda.get_device_properties(torch.cuda.current_device()).name
+            if "K100_AI" in device_name: 
+                raise unittest.SkipTest("fp64 are not supported on K100_AI")
+###
+
 class TestUnaryUfuncs(TestCase):
     exact_dtype = True
 
@@ -289,6 +304,7 @@ class TestUnaryUfuncs(TestCase):
     @suppress_warnings
     @ops(reference_filtered_ops)
     def test_reference_numerics_large(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)         ###
         if dtype in (torch.bool, torch.uint8, torch.int8):
             raise self.skipTest("bool, uint8, and int8 dtypes have no large values")
 
@@ -303,6 +319,7 @@ class TestUnaryUfuncs(TestCase):
         allowed_dtypes=floating_and_complex_types_and(torch.bfloat16, torch.half),
     )
     def test_reference_numerics_extremal(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)      ###
         tensors = generate_elementwise_unary_extremal_value_tensors(
             op, device=device, dtype=dtype, requires_grad=False
         )

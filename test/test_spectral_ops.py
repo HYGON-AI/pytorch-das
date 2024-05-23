@@ -123,6 +123,18 @@ def skip_helper_for_fft(device, dtype):
     if not SM53OrLater:
         raise unittest.SkipTest("half and complex32 are only supported on CUDA device with SM>53")
 
+###
+def skip_helper_fp64_onE100(device, dtype):
+    device_type = torch.device(device).type
+    if dtype not in (torch.float64, torch.complex128,torch.double,torch.cdouble):
+        return
+
+    if TEST_WITH_ROCM:
+        if device_type == 'cuda':
+            device_name=torch.cuda.get_device_properties(torch.cuda.current_device()).name
+            if "K100_AI" in device_name: 
+                raise unittest.SkipTest("fp64 are not supported on K100_AI")
+###
 
 # Tests of functions related to Fourier analysis in the torch.fft namespace
 class TestFFT(TestCase):
@@ -178,6 +190,7 @@ class TestFFT(TestCase):
     @dtypes(torch.half, torch.float, torch.double, torch.complex32, torch.complex64, torch.complex128)
     def test_fft_round_trip(self, device, dtype):
         skip_helper_for_fft(device, dtype)
+        skip_helper_fp64_onE100(device, dtype)              ###
         # Test that round trip through ifft(fft(x)) is the identity
         if dtype not in (torch.half, torch.complex32):
             test_args = list(product(
@@ -269,6 +282,7 @@ class TestFFT(TestCase):
             torch.complex32, torch.complex64, torch.complex128)
     def test_fft_type_promotion(self, device, dtype):
         skip_helper_for_fft(device, dtype)
+        skip_helper_fp64_onE100(device, dtype)
 
         if dtype.is_complex or dtype.is_floating_point:
             t = torch.randn(64, device=device, dtype=dtype)
@@ -355,6 +369,7 @@ class TestFFT(TestCase):
     @ops([op for op in spectral_funcs if op.ndimensional == SpectralFuncType.ND],
          allowed_dtypes=(torch.cfloat, torch.cdouble))
     def test_reference_nd(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)
         if op.ref is None:
             raise unittest.SkipTest("No reference implementation")
 
@@ -392,6 +407,7 @@ class TestFFT(TestCase):
             torch.complex32, torch.complex64, torch.complex128)
     def test_fftn_round_trip(self, device, dtype):
         skip_helper_for_fft(device, dtype)
+        skip_helper_fp64_onE100(device, dtype)
 
         norm_modes = (None, "forward", "backward", "ortho")
 
@@ -493,6 +509,7 @@ class TestFFT(TestCase):
     @dtypes(torch.half, torch.float, torch.double)
     def test_hfftn(self, device, dtype):
         skip_helper_for_fft(device, dtype)
+        skip_helper_fp64_onE100(device, dtype)
 
         # input_ndim, dim
         transform_desc = [
@@ -532,6 +549,7 @@ class TestFFT(TestCase):
     @dtypes(torch.half, torch.float, torch.double)
     def test_ihfftn(self, device, dtype):
         skip_helper_for_fft(device, dtype)
+        skip_helper_fp64_onE100(device, dtype)
 
         # input_ndim, dim
         transform_desc = [
@@ -573,6 +591,7 @@ class TestFFT(TestCase):
     @onlyNativeDeviceTypes
     @dtypes(torch.double, torch.complex128)
     def test_fft2_numpy(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         norm_modes = REFERENCE_NORM_MODES
 
         # input_ndim, s
@@ -762,6 +781,7 @@ class TestFFT(TestCase):
 
     # Legacy fft tests
     def _test_fft_ifft_rfft_irfft(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         complex_dtype = corresponding_complex_dtype(dtype)
 
         def _test_complex(sizes, signal_ndim, prepro_fn=lambda x: x):
@@ -827,6 +847,8 @@ class TestFFT(TestCase):
     @onlyCUDA
     @dtypes(torch.double)
     def test_cufft_plan_cache(self, devices, dtype):
+        device = devices[0]  # 假设我们只对第一个设备感兴趣                ###
+        skip_helper_fp64_onE100(device, dtype)                      ###
         @contextmanager
         def plan_cache_max_size(device, n):
             if device is None:
@@ -919,6 +941,7 @@ class TestFFT(TestCase):
     @onlyNativeDeviceTypes
     @dtypes(torch.double)
     def test_stft(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         if not TEST_LIBROSA:
             raise unittest.SkipTest('librosa not found')
 
@@ -993,6 +1016,7 @@ class TestFFT(TestCase):
     @onlyNativeDeviceTypes
     @dtypes(torch.double)
     def test_istft_against_librosa(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         if not TEST_LIBROSA:
             raise unittest.SkipTest('librosa not found')
 
@@ -1039,6 +1063,7 @@ class TestFFT(TestCase):
     @skipCPUIfNoFFT
     @dtypes(torch.double, torch.cdouble)
     def test_complex_stft_roundtrip(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         test_args = list(product(
             # input
             (torch.randn(600, device=device, dtype=dtype),
@@ -1081,6 +1106,7 @@ class TestFFT(TestCase):
     @skipCPUIfNoFFT
     @dtypes(torch.double, torch.cdouble)
     def test_stft_roundtrip_complex_window(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         test_args = list(product(
             # input
             (torch.randn(600, device=device, dtype=dtype),
@@ -1121,6 +1147,7 @@ class TestFFT(TestCase):
     @skipCPUIfNoFFT
     @dtypes(torch.cdouble)
     def test_complex_stft_definition(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         test_args = list(product(
             # input
             (torch.randn(600, device=device, dtype=dtype),
@@ -1141,6 +1168,7 @@ class TestFFT(TestCase):
     @skipCPUIfNoFFT
     @dtypes(torch.cdouble)
     def test_complex_stft_real_equiv(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         test_args = list(product(
             # input
             (torch.rand(600, device=device, dtype=dtype),
@@ -1174,6 +1202,7 @@ class TestFFT(TestCase):
     @skipCPUIfNoFFT
     @dtypes(torch.cdouble)
     def test_complex_istft_real_equiv(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         test_args = list(product(
             # input
             (torch.rand(40, 20, device=device, dtype=dtype),
@@ -1201,6 +1230,7 @@ class TestFFT(TestCase):
     def test_complex_stft_onesided(self, device):
         # stft of complex input cannot be onesided
         for x_dtype, window_dtype in product((torch.double, torch.cdouble), repeat=2):
+            skip_helper_fp64_onE100(device, x_dtype)               ###
             x = torch.rand(100, device=device, dtype=x_dtype)
             window = torch.rand(10, device=device, dtype=window_dtype)
 
@@ -1261,9 +1291,11 @@ class TestFFT(TestCase):
         _ = torch.fft.irfftn(half_spectrum_copy, s=(2, 2), dim=(-2, -1))
         self.assertEqual(half_spectrum, half_spectrum_copy)
 
+    '''
     @onlyNativeDeviceTypes
     @skipCPUIfNoFFT
     def test_fft_plan_repeatable(self, device):
+        skip_helper_fp64_onE100(device, dtype)
         # Regression test for gh-58724 and gh-63152
         for n in [2048, 3199, 5999]:
             a = torch.randn(n, device=device, dtype=torch.complex64)
@@ -1275,11 +1307,31 @@ class TestFFT(TestCase):
             res1 = torch.fft.rfft(a)
             res2 = torch.fft.rfft(a.clone())
             self.assertEqual(res1, res2)
+    '''
+    ###
+    @onlyNativeDeviceTypes
+    @skipCPUIfNoFFT
+    def test_fft_plan_repeatable(self, device):
+        # Regression test for gh-58724 and gh-63152
+        for dtype in [torch.complex64, torch.float64]:  # 迭代数据类型
+            skip_helper_fp64_onE100(device, dtype)      # 检查是否应该跳过测试
+            for n in [2048, 3199, 5999]:
+                if dtype == torch.complex64:
+                    a = torch.randn(n, device=device, dtype=dtype)
+                    res1 = torch.fft.fftn(a)
+                    res2 = torch.fft.fftn(a.clone())
+                else:  # dtype == torch.float64
+                    a = torch.randn(n, device=device, dtype=dtype)
+                    res1 = torch.fft.rfft(a)
+                    res2 = torch.fft.rfft(a.clone())
+                self.assertEqual(res1, res2)
+    ###
 
     @onlyNativeDeviceTypes
     @skipCPUIfNoFFT
     @dtypes(torch.double)
     def test_istft_round_trip_simple_cases(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         """stft -> istft should recover the original signale"""
         def _test(input, n_fft, length):
             stft = torch.stft(input, n_fft=n_fft, return_complex=True)
@@ -1293,6 +1345,7 @@ class TestFFT(TestCase):
     @skipCPUIfNoFFT
     @dtypes(torch.double)
     def test_istft_round_trip_various_params(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         """stft -> istft should recover the original signale"""
         def _test_istft_is_inverse_of_stft(stft_kwargs):
             # generates a random sound signal for each tril and then does the stft/istft
@@ -1364,6 +1417,7 @@ class TestFFT(TestCase):
     @skipCPUIfNoFFT
     @dtypes(torch.double)
     def test_istft_round_trip_with_padding(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         """long hop_length or not centered may cause length mismatch in the inversed signal"""
         def _test_istft_is_inverse_of_stft_with_padding(stft_kwargs):
             # generates a random sound signal for each tril and then does the stft/istft
@@ -1448,6 +1502,7 @@ class TestFFT(TestCase):
     @skipCPUIfNoFFT
     @dtypes(torch.double)
     def test_istft_of_sine(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         complex_dtype = corresponding_complex_dtype(dtype)
 
         def _test(amplitude, L, n):
@@ -1484,6 +1539,7 @@ class TestFFT(TestCase):
     @skipCPUIfNoFFT
     @dtypes(torch.double)
     def test_istft_linearity(self, device, dtype):
+        skip_helper_fp64_onE100(device, dtype)
         num_trials = 100
         complex_dtype = corresponding_complex_dtype(dtype)
 

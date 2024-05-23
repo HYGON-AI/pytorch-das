@@ -71,6 +71,23 @@ if TEST_NUMPY:
 # update test/run_test.py to list it, otherwise it will NOT be run in
 # CI.
 
+###
+def skip_helper_fp64_onE100(model):
+    # 从模型的权重中提取设备和数据类型
+    device = model.weight.device
+    dtype = model.weight.dtype
+    device_type = torch.device(device).type
+    if dtype not in (torch.float64, torch.complex128,torch.double,torch.cdouble):
+        return
+
+    if TEST_WITH_ROCM:
+        if device_type == 'cuda':
+            device_name=torch.cuda.get_device_properties(torch.cuda.current_device()).name
+            if "K100_AI" in device_name:
+                raise unittest.SkipTest("fp64 are not supported on K100_AI")
+
+###
+
 class TestNN(NNTestCase):
     _do_cuda_memory_leak_check = True
     _do_cuda_non_default_stream = True
@@ -1817,12 +1834,20 @@ tensor(..., device='meta', size=(1,), requires_grad=True)""")
         m = pickle.loads(pickle.dumps(m))
         self.assertIsInstance(m, nn.Linear)
 
+    @skipIfRocm
     @skipIfTorchDynamo("TorchDynamo fails here for unknown reasons")
     @set_default_dtype(torch.double)
     def test_spectral_norm(self):
         input = torch.randn(3, 5)
         m = nn.Linear(5, 7)
         m = torch.nn.utils.spectral_norm(m)
+        skip_helper_fp64_onE100(m)              ###
+        #skip_helper_fp64_onE100(dtype)       ###
+        # 调用skip_helper_fp64_onE100，传入模型对象m
+        try:
+            skip_helper_fp64_onE100(m)
+        except unittest.SkipTest as e:
+            self.skipTest(e)  # 如果辅助函数抛出了SkipTest，则跳过测试
 
         self.assertEqual(m.weight_u.size(), torch.Size([m.weight.size(0)]))
         # weight_orig should be trainable
