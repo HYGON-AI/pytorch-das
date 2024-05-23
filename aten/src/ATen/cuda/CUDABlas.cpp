@@ -1483,7 +1483,7 @@ void trsm<c10::complex<float>>(CUDABLAS_TRSM_ARGTYPES(c10::complex<float>)) {
       m,
       n,
       reinterpret_cast<const cuComplex*>(alpha),
-      ROCM_CONST_BUG_CAST(cuComplex*, A),
+      reinterpret_cast<ROCM_CONST_BUG cuComplex*>(A),
       lda,
       reinterpret_cast<cuComplex*>(B),
       ldb));
@@ -1500,7 +1500,7 @@ void trsm<c10::complex<double>>(CUDABLAS_TRSM_ARGTYPES(c10::complex<double>)) {
       m,
       n,
       reinterpret_cast<const cuDoubleComplex*>(alpha),
-      ROCM_CONST_BUG_CAST(cuDoubleComplex*, A),
+      reinterpret_cast<ROCM_CONST_BUG cuDoubleComplex*>(A),
       lda,
       reinterpret_cast<cuDoubleComplex*>(B),
       ldb));
