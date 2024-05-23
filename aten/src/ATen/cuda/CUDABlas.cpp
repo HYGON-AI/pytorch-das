@@ -1447,10 +1447,17 @@ void int8_gemm(
 #endif // (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 50704)
 
 // ROCm 5.6 hipblas matches the const Dtype *A API, but prior hipblas does not.
+/*
 #if defined(USE_ROCM) && ROCM_VERSION < 50600
 #define ROCM_CONST_BUG_CAST(Type, Input) const_cast<Type>(reinterpret_cast<const Type>(Input))
 #else
 #define ROCM_CONST_BUG_CAST(Type, Input) reinterpret_cast<const Type>(Input)
+#endif
+*/
+#if defined(USE_ROCM) && ROCM_VERSION <= 50704
+#define ROCM_CONST_BUG
+#else
+#define ROCM_CONST_BUG const
 #endif
 
 template <>
