@@ -136,6 +136,7 @@ file(GLOB native_cuda_cpp "native/cuda/*.cpp")
 file(GLOB native_cuda_h "native/cuda/*.h" "native/cuda/*.cuh")
 file(GLOB native_cuda_linalg_cpp "native/cuda/linalg/*.cpp")
 file(GLOB native_hip_h "native/hip/*.h" "native/hip/*.cuh")
+file(GLOB native_lightop_h "native/lightop/*.h" "native/lightop/hip/*.h")
 file(GLOB native_cudnn_cpp "native/cudnn/*.cpp")
 file(GLOB native_sparse_cuda_cu "native/sparse/cuda/*.cu")
 file(GLOB native_sparse_cuda_cpp "native/sparse/cuda/*.cpp")
@@ -156,7 +157,7 @@ file(GLOB native_cudnn_hip_cpp "native/cudnn/hip/*.cpp")
 file(GLOB native_nested_hip_hip "native/nested/hip/*.hip")
 file(GLOB native_nested_hip_cpp "native/nested/hip/*.cpp")
 file(GLOB native_lightop_hip_hip "native/lightop/hip/*.hip")
-file(GLOB native_lightop_hip_cpp "native/lightop/hip/*.cpp")
+file(GLOB native_lightop_hip_cpp "native/lightop/hip/*.cpp" "native/lightop/*.cpp")
 file(GLOB native_sparse_hip_hip "native/sparse/hip/*.hip")
 file(GLOB native_sparse_hip_cpp "native/sparse/hip/*.cpp")
 file(GLOB native_quantized_hip_hip "native/quantized/hip/*.hip")
@@ -308,6 +309,7 @@ if(USE_ROCM)
     ${ATen_HIP_SRCS}
     ${hip_hip}
     ${native_hip_hip}
+    ${native_lightop_hip_hip}
     ${native_nested_hip_hip}
     ${native_sparse_hip_hip}
     ${native_quantized_hip_hip}
@@ -322,6 +324,7 @@ if(USE_ROCM)
     ${native_quantized_cudnn_hip_cpp}
     ${hip_cpp}
     ${native_hip_cpp}
+    ${native_lightop_hip_cpp}
     ${native_hip_linalg_cpp}
     ${cuda_generated_sources}
     ${ATen_HIP_SRCS}
@@ -583,7 +586,7 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/cmake-exports/ATenConfig.cmake"
 
 set(INSTALL_HEADERS ${base_h} ${ATen_CORE_HEADERS} ${native_nested_h})
 if(NOT INTERN_BUILD_MOBILE)
-  list(APPEND INSTALL_HEADERS ${native_h} ${native_cpu_h} ${native_ao_sparse_h} ${native_quantized_h} ${cuda_h} ${native_cuda_h} ${native_hip_h} ${cudnn_h} ${hip_h} ${xpu_h} ${mps_h} ${native_mps_h} ${native_utils_h} ${miopen_h})
+  list(APPEND INSTALL_HEADERS ${native_h} ${native_cpu_h} ${native_ao_sparse_h} ${native_quantized_h} ${cuda_h} ${native_cuda_h} ${native_hip_h} ${native_lightop_h} ${cudnn_h} ${hip_h} ${xpu_h} ${mps_h} ${native_mps_h} ${native_utils_h} ${miopen_h})
   # Metal
   if(USE_PYTORCH_METAL_EXPORT)
     # Add files needed from exporting metal models(optimized_for_mobile)
