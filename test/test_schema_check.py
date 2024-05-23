@@ -12,6 +12,7 @@ from torch._subclasses.schema_check_mode import SchemaCheckMode
 from torch.utils._python_dispatch import TorchDispatchMode
 from torch.testing._internal.common_methods_invocations import op_db
 from torch.testing._internal.jit_utils import JitTestCase
+from torch.testing._internal.common_utils import skipIfRocm,TEST_WITH_ROCM          ###
 from torch.testing._internal.common_device_type import ops, OpDTypes, instantiate_device_type_tests
 pytorch_test_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.append(pytorch_test_dir)
@@ -43,6 +44,19 @@ custom_lib_meta.impl("output_is_input", output_is_input)
 
 # This TorchDispatchTensor Subclass is used to simulate an incorrect schema
 # which is then used to test that SchemaCheckMode behaves as expected
+
+###
+def skip_helper_fp64_onE100(device, dtype):
+    device_type = torch.device(device).type
+    if dtype not in (torch.float64, torch.complex128,torch.double,torch.cdouble):
+        return
+
+    if TEST_WITH_ROCM:
+        if device_type == 'cuda':
+            device_name=torch.cuda.get_device_properties(torch.cuda.current_device()).name
+            if "K100_AI" in device_name:
+                raise unittest.SkipTest("fp64 are not supported on K100_AI")
+###
 
 class IncorrectAliasTensor(torch.Tensor):
     ALIAS_ARG_OUT = {"aten::add"}
@@ -489,12 +503,19 @@ class TestSchemaCheck(JitTestCase):
 
 
 class TestSchemaCheckModeOpInfo(JitTestCase):
+    #@skipIfRocm                                      ###
     @ops(op_db, dtypes=OpDTypes.supported)
     def test_schema_correctness(self, device, dtype, op):
         # Currently torch.equal isn't supported with torch.complex32
         # There's also errors with complex64 and complex128
-        if (dtype == torch.complex32):
-            return
+        # skip_helper_fp64_onE100(device, dtype)       ###
+        # 调用skip_helper_fp64_onE100
+        try:
+            skip_helper_fp64_onE100(device, dtype)
+        except unittest.SkipTest as e:
+            self.skipTest(e)  # 如果辅助函数抛出了SkipTest，则跳过测试
+        #if (dtype == torch.complex32):
+            #return
         for sample in op.sample_inputs(device, dtype, requires_grad=False):
             with SchemaCheckMode():
                 op(sample.input, *sample.args, **sample.kwargs)

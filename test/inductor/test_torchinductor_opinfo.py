@@ -98,6 +98,18 @@ else:
 seen_failed = defaultdict(set)
 failed_reasons = defaultdict(set)
 
+###
+def skip_helper_fp64_onE100(device, dtype):
+    device_type = torch.device(device).type
+    if dtype not in (torch.float64, torch.complex128,torch.double,torch.cdouble):
+        return
+
+    if TEST_WITH_ROCM:
+        if device_type == 'cuda':
+            device_name=torch.cuda.get_device_properties(torch.cuda.current_device()).name
+            if "K100_AI" in device_name: 
+                raise unittest.SkipTest("fp64 are not supported on K100_AI")
+###
 
 def print_seen():
     expected_failures = defaultdict(list)
@@ -450,6 +462,7 @@ class TestInductorOpInfo(TestCase):
     )
     @collection_decorator
     def test_comprehensive(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)         ###
         torch._dynamo.reset()
         with torch.no_grad():
             # TODO: should we move empty_cache to the common device interface

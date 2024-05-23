@@ -38,6 +38,7 @@ from torch.testing._internal.common_utils import (
     TEST_WITH_TORCHDYNAMO,
     TEST_WITH_TORCHINDUCTOR,
     TEST_WITH_UBSAN,
+    TEST_WITH_ROCM,
     IS_WINDOWS,
     IS_FBCODE,
     first_sample,
@@ -125,11 +126,35 @@ _ops_and_refs_with_no_numpy_ref = [op for op in ops_and_refs if op.ref is None]
 
 aten = torch.ops.aten
 
+###
+def skip_helper_fp64_onE100(device, dtype):
+    device_type = torch.device(device).type
+    if dtype not in (torch.float64, torch.complex128,torch.double,torch.cdouble):
+        return
+
+    if TEST_WITH_ROCM:
+        if device_type == 'cuda':
+            device_name=torch.cuda.get_device_properties(torch.cuda.current_device()).name
+            if "K100_AI" in device_name: 
+                raise unittest.SkipTest("fp64 are not supported on K100_AI")
+###
+
+def skip_refs_float_power(device, op):
+    skip_ref_ops_dcu = {'_refs.float_power', }  
+    if op.name in skip_ref_ops_dcu:
+        device_type = torch.device(device).type
+        if device_type == 'cuda':
+            device_name = torch.cuda.get_device_properties(torch.cuda.current_device()).name
+            if "K100_AI" in device_name:
+                raise unittest.SkipTest(f"{op.name} are not supported on DCU K100_AI.")
+###
+
 # Tests that apply to all operators and aren't related to any particular
 #   system
 @unMarkDynamoStrictTest
 class TestCommon(TestCase):
     exact_dtype = True
+    skip_ref_ops_dcu = {'_refs.float_power',}     ###
 
     # Verifies, on teardown, that no OpInfo is still using dynamic dtypes in CI
     @classmethod
@@ -271,6 +296,7 @@ class TestCommon(TestCase):
            ):   # noqa: E121
             raise unittest.SkipTest("XXX: raises tensor-likes are not close.")
 
+        skip_helper_fp64_onE100(device, dtype)
         # Sets the default dtype to NumPy's default dtype of double
         with set_default_dtype(torch.double):
             for sample_input in op.reference_inputs(device, dtype):
@@ -284,7 +310,7 @@ class TestCommon(TestCase):
     @slowTest
     @ops(_ops_and_refs_with_no_numpy_ref, dtypes=OpDTypes.any_common_cpu_cuda_one)
     def test_compare_cpu(self, device, dtype, op):
-
+        skip_helper_fp64_onE100(device, dtype)
         def to_cpu(arg):
             if isinstance(arg, torch.Tensor):
                 return arg.to(device='cpu')
@@ -320,6 +346,8 @@ class TestCommon(TestCase):
             torch._refs.linalg.svd,
         }
 
+        skip_helper_fp64_onE100(device, dtype)   ###
+        skip_refs_float_power(device, op)           ###
         with FakeTensorMode() as mode:
             pass
 
@@ -366,6 +394,12 @@ class TestCommon(TestCase):
     ):
         # NOTE: this test works by comparing the reference
         ex = None
+        if op.name in self.skip_ref_ops_dcu:                                                         # ###
+            device_type = torch.device(device).type
+            if device_type == 'cuda':
+                device_name = torch.cuda.get_device_properties(torch.cuda.current_device()).name
+                if "K100_AI" in device_name:
+                    raise unittest.SkipTest(f"{op.name} are not supported on K100_AI.")               ###
         for sample in op.reference_inputs(device, dtype, requires_grad=False):
             if isinstance(sample.input, torch.Tensor) and sample.input.numel() == 0 and skip_zero_numel:
                 continue
@@ -482,6 +516,7 @@ class TestCommon(TestCase):
     @ops(python_ref_db)
     @skipIfTorchInductor("Takes too long for inductor")
     def test_python_ref(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)
         # In this test, primTorch refs call into the refs namespace
         # For example, a ref with torch.foo in it will calls refs.foo instead
         # Direct calls to refs and prims are not affected
@@ -496,6 +531,8 @@ class TestCommon(TestCase):
     @ops(python_ref_db)
     @skipIfTorchInductor("Takes too long for inductor")
     def test_python_ref_torch_fallback(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)  ###
+        skip_refs_float_power(device, op)      ###
         # In this test, refs call into the torch namespace (after the initial invocation)
         # For example, a ref with torch.foo in it will call torch.foo instead of refs.foo
         # Direct calls to refs and prims are not translated
@@ -511,6 +548,7 @@ class TestCommon(TestCase):
     def test_python_ref_executor(self, device, dtype, op, executor):
         if TEST_WITH_ROCM and (op.name == "_refs.fft.ihfftn" or op.name == "_refs.fft.ihfft2") and dtype == torch.float16:
             self.skipTest("Skipped on ROCm")
+        skip_helper_fp64_onE100(device, dtype)
         # skip zero-dim tensors for some composites of reduction operations and view
         skip_zero_dim_ops = [
             "_refs.logsumexp",
@@ -559,6 +597,7 @@ class TestCommon(TestCase):
     @ops([op for op in python_ref_db if op.error_inputs_func is not None], dtypes=OpDTypes.none)
     @skipIfTorchInductor("Takes too long for inductor")
     def test_python_ref_errors(self, device, op):
+        skip_refs_float_power(device, op)           ###
         mode = FakeTensorMode()
         with mode:
             pass
@@ -584,6 +623,7 @@ class TestCommon(TestCase):
     @suppress_warnings
     @ops(op_db, allowed_dtypes=(torch.float32, torch.long, torch.complex64))
     def test_noncontiguous_samples(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)
         test_grad = dtype in op.supported_backward_dtypes(torch.device(device).type)
         sample_inputs = op.sample_inputs(device, dtype, requires_grad=test_grad)
         for sample_input in sample_inputs:
@@ -693,6 +733,8 @@ class TestCommon(TestCase):
             op.op = _maybe_remove_out_wrapper(op.op)
 
         samples = op.sample_inputs(device, dtype)
+        skip_helper_fp64_onE100(device, dtype)      ###
+        skip_refs_float_power(device, op)           ###
         for sample in samples:
             # calls it normally to get the expected result
             expected = op(sample.input, *sample.args, **sample.kwargs)
@@ -810,6 +852,8 @@ class TestCommon(TestCase):
     #   - if device, dtype are passed, device and dtype should match
     @ops(ops_and_refs, dtypes=OpDTypes.any_one)
     def test_out(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)      ###
+        skip_refs_float_power(device, op)           ###
         # Prefers running in float32 but has a fallback for the first listed supported dtype
         samples = op.sample_inputs(device, dtype)
 
@@ -1034,6 +1078,7 @@ class TestCommon(TestCase):
 
     @ops(filter(reduction_dtype_filter, ops_and_refs), dtypes=(torch.int16,))
     def test_out_integral_dtype(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)   ###
         def helper(with_out, expectFail, op_to_test, inputs, *args, **kwargs):
             out = None
             try:
@@ -1069,6 +1114,7 @@ class TestCommon(TestCase):
     #   against eager's gold standard op function variant
     @_variant_ops(op_db)
     def test_variant_consistency_eager(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)    ###
         # Acquires variants (method variant, inplace variant, operator variant, inplace_operator variant, aliases)
 
         method = op.method_variant
@@ -1250,6 +1296,7 @@ class TestCommon(TestCase):
     # NOTE: We test against complex64 as NumPy doesn't have a complex32 equivalent dtype.
     @ops(op_db, allowed_dtypes=(torch.complex32,))
     def test_complex_half_reference_testing(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)       ###
         if not op.supports_dtype(torch.complex32, device):
             unittest.skip("Does not support complex32")
 
@@ -1280,6 +1327,7 @@ class TestCommon(TestCase):
     @ops(op_db, allowed_dtypes=(torch.bool,))
     @unittest.skipIf(TEST_WITH_UBSAN, "Test uses undefined behavior")
     def test_non_standard_bool_values(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)      ###
         # Test boolean values other than 0x00 and 0x01 (gh-54789)
         def convert_boolean_tensors(x):
             if not isinstance(x, torch.Tensor) or x.dtype != torch.bool:
@@ -1338,6 +1386,7 @@ class TestCommon(TestCase):
         for dtype in all_types_and_complex_and(
             *((torch.half, torch.bfloat16, torch.bool) + include_complex32)
         ):
+            skip_helper_fp64_onE100(device, dtype)    ###
             # tries to acquire samples - failure indicates lack of support
             requires_grad = dtype in allowed_backward_dtypes
             try:
@@ -1525,6 +1574,7 @@ class TestCompositeCompliance(TestCase):
     )
     @ops(op_db, allowed_dtypes=(torch.float,))
     def test_operator(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)   ###
         samples = op.sample_inputs(device, dtype, requires_grad=False)
 
         for sample in samples:
@@ -1538,6 +1588,7 @@ class TestCompositeCompliance(TestCase):
     )
     @ops([op for op in op_db if op.supports_autograd], allowed_dtypes=(torch.float,))
     def test_backward(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)     ###
         samples = op.sample_inputs(device, dtype, requires_grad=True)
 
         for sample in samples:
@@ -1555,6 +1606,7 @@ class TestCompositeCompliance(TestCase):
     )
     @ops(op_db, allowed_dtypes=(torch.float,))
     def test_forward_ad(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)  ###
         if torch.float not in op.supported_backward_dtypes(device):
             raise unittest.SkipTest("Does not support autograd")
 
@@ -1779,6 +1831,8 @@ class TestMathBits(TestCase):
 
     @ops(ops_and_refs, allowed_dtypes=(torch.cfloat,))
     def test_conj_view(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)      ###
+        skip_refs_float_power(device, op)           ###
         if not op.test_conjugated_samples:
             self.skipTest("Operation doesn't support conjugated inputs.")
         math_op_physical = torch.conj_physical
@@ -1799,8 +1853,11 @@ class TestMathBits(TestCase):
             torch.is_complex,
         )
 
+
     @ops(ops_and_refs, allowed_dtypes=(torch.double,))
     def test_neg_view(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)   ###
+        skip_refs_float_power(device, op)  ###
         if not op.test_neg_view:
             self.skipTest("Operation not tested with tensors with negative bit.")
         math_op_physical = torch.neg
@@ -1820,6 +1877,8 @@ class TestMathBits(TestCase):
 
     @ops(ops_and_refs, allowed_dtypes=(torch.cdouble,))
     def test_neg_conj_view(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)      ###
+        skip_refs_float_power(device, op)           ###
         if not op.test_neg_view:
             self.skipTest("Operation not tested with tensors with negative bit.")
         if not op.test_conjugated_samples:
@@ -1887,9 +1946,19 @@ class TestTagsMode(TorchDispatchMode):
 # Test to verify the correctness for tags in `tags.yaml`, also available for access through `torch.Tags`
 @unMarkDynamoStrictTest
 class TestTags(TestCase):
+
     @onlyCPU
     @ops(ops_and_refs, dtypes=OpDTypes.any_one)
     def test_tags(self, device, dtype, op):
+        '''
+        if op.name in self.skip_ref_ops_dcu:  ###
+            device_type = torch.device(device).type
+            if device_type == 'cuda':
+                device_name = torch.cuda.get_device_properties(torch.cuda.current_device()).name
+                if "K100_AI" in device_name:
+                    raise unittest.SkipTest(f"{op.name} are not supported on K100_AI.")  ### 
+        '''
+        skip_refs_float_power(device,op)     ### 
         samples = op.sample_inputs(device, dtype, requires_grad=False)
         for sample in samples:
             # TODO: Test tags for ops that return a list of tensors
@@ -2273,6 +2342,7 @@ class TestFakeTensor(TestCase):
 
     @ops(op_db, dtypes=OpDTypes.any_one)
     def test_pointwise_ops(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)   ###
         name = op.name
         if op.variant_test_name:
             name += "." + op.variant_test_name
@@ -2326,10 +2396,12 @@ class TestFakeTensor(TestCase):
 
     @ops(op_db, dtypes=OpDTypes.any_one)
     def test_fake(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)   ###
         self._test_fake_helper(device, dtype, op, contextlib.nullcontext)
 
     @ops(op_db, dtypes=OpDTypes.any_one)
     def test_fake_autocast(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)     ###
         if op.name in fake_autocast_device_skips[device]:
             self.skipTest("Skip failing test")
         context = torch.cuda.amp.autocast if device == "cuda" else torch.cpu.amp.autocast
@@ -2365,12 +2437,14 @@ class TestFakeTensor(TestCase):
     @ops([op for op in op_db if op.supports_autograd], allowed_dtypes=(torch.float,))
     @skipOps('TestFakeTensor', 'test_fake_crossref_backward_no_amp', fake_backward_xfails)
     def test_fake_crossref_backward_no_amp(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)    ###
         self._test_fake_crossref_helper(device, dtype, op, contextlib.nullcontext)
 
     @onlyCUDA
     @ops([op for op in op_db if op.supports_autograd], allowed_dtypes=(torch.float,))
     @skipOps('TestFakeTensor', 'test_fake_crossref_backward_amp', fake_backward_xfails | fake_autocast_backward_xfails)
     def test_fake_crossref_backward_amp(self, device, dtype, op):
+        skip_helper_fp64_onE100(device, dtype)     ###
         self._test_fake_crossref_helper(device, dtype, op, torch.cuda.amp.autocast)
 
     @ops([op for op in ops_and_refs if op.is_factory_function])
