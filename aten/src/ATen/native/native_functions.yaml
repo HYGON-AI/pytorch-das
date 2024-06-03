@@ -2972,6 +2972,51 @@
   autogen: native_group_norm_backward.out
   tags: core
 
+- func: fuse_group_norm(Tensor input, Tensor weight, Tensor bias, int num_groups, int num_channels, float eps=1e-05, bool training=True, bool cudnn_enabled=True) -> Tensor
+
+- func: native_fuse_group_norm(Tensor input, Tensor weight, Tensor bias, int num_groups, int num_channels, float eps=1e-05, bool training=True) -> (Tensor, Tensor, Tensor)
+  variants: function
+  dispatch:
+    CUDA: fuse_group_norm_cuda
+  autogen: native_fuse_group_norm.out
+  tags: core
+
+- func: native_fuse_group_norm_backward(Tensor grad, Tensor X, Tensor mean, Tensor rstd, Tensor gamma) -> (Tensor, Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_group_norm_backward_cuda
+  autogen: native_fuse_group_norm_backward.out
+  tags: core
+
+- func: fuse_celu_gn(Tensor input, Tensor weight, Tensor bias, int num_groups, int num_channels, float gn_alpha, float eps=1e-05, bool training=True, bool cudnn_enabled=True) -> Tensor
+
+- func: native_fuse_celu_gn(Tensor input, Tensor weight, Tensor bias, int num_groups, int num_channels, float gn_alpha, float eps=1e-05, bool training=True) -> (Tensor, Tensor, Tensor)
+  variants: function
+  dispatch:
+    CUDA: fuse_celu_gn_cuda
+  autogen: native_fuse_celu_gn.out
+  tags: core
+
+- func: native_fuse_celu_gn_backward(Tensor grad, Tensor X, Tensor mean, Tensor rstd, Tensor gamma, float gn_alpha) -> (Tensor, Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_celu_gn_backward_cuda
+  autogen: native_fuse_celu_gn_backward.out
+  tags: core
+
+- func: fuse_gn_silu(Tensor input, Tensor weight, Tensor bias, int num_groups, int num_channels, float eps=1e-05, bool training=True, bool cudnn_enabled=True) -> Tensor
+
+- func: native_fuse_gn_silu(Tensor input, Tensor weight, Tensor bias, int num_groups, int num_channels, float eps=1e-05, bool training=True) -> (Tensor, Tensor, Tensor)
+  variants: function
+  dispatch:
+    CUDA: fuse_gn_silu_cuda
+  autogen: native_fuse_gn_silu.out
+  tags: core
+
+- func: native_fuse_gn_silu_backward(Tensor grad, Tensor X, Tensor mean, Tensor rstd, Tensor gamma, Tensor beta) -> (Tensor, Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_gn_silu_backward_cuda
+  autogen: native_fuse_gn_silu_backward.out
+  tags: core
+
 # Real to complex forward FFT
 - func: _fft_r2c(Tensor self, int[] dim, int normalization, bool onesided) -> Tensor
   variants: function

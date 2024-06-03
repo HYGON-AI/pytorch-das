@@ -19,8 +19,8 @@ from .batchnorm import BatchNorm1d, BatchNorm2d, BatchNorm3d, SyncBatchNorm, \
     LazyBatchNorm1d, LazyBatchNorm2d, LazyBatchNorm3d
 from .instancenorm import InstanceNorm1d, InstanceNorm2d, InstanceNorm3d, \
     LazyInstanceNorm1d, LazyInstanceNorm2d, LazyInstanceNorm3d
-from .normalization import LocalResponseNorm, CrossMapLRN2d, LayerNorm, FuseLayerNorm, GroupNorm, FuseLnDropout, \
-    FuseLnAddDropout, FuseLnAddDropoutBias
+from .normalization import LocalResponseNorm, CrossMapLRN2d, LayerNorm, FuseLayerNorm, GroupNorm, FuseGroupNorm, FuseCeluGroupNorm, FuseLnDropout, \
+    FuseLnAddDropout, FuseLnAddDropoutBias, FuseGroupNormSilu
 from .dropout import Dropout, Dropout1d, Dropout2d, Dropout3d, AlphaDropout, FeatureAlphaDropout, \
      FuseBiasDropoutAdd, FuseDropoutAdd
 from .padding import ReflectionPad1d, ReflectionPad2d, ReflectionPad3d, ReplicationPad1d, ReplicationPad2d, \
@@ -52,7 +52,7 @@ __all__ = [
     'MaxPool3d', 'MaxUnpool1d', 'MaxUnpool2d', 'MaxUnpool3d', 'FractionalMaxPool2d', "FractionalMaxPool3d",
     'LPPool1d', 'LPPool2d', 'LPPool3d', 'LocalResponseNorm', 'BatchNorm1d', 'BatchNorm2d', 'BatchNorm3d',
     'InstanceNorm1d', 'InstanceNorm2d', 'InstanceNorm3d', 'LayerNorm', 'FuseLayerNorm', "FuseLnDropout", 'GroupNorm', 'SyncBatchNorm',
-    'FuseLnAddDropout', 'FuseLnAddDropoutBias', 'FuseDropoutAdd',
+    'FuseLnAddDropout', 'FuseLnAddDropoutBias', 'FuseDropoutAdd', 'FuseGroupNorm', 'FuseCeluGroupNorm', 'FuseGroupNormSilu',
     'Dropout', 'Dropout1d', 'Dropout2d', 'Dropout3d', 'AlphaDropout', 'FeatureAlphaDropout', 'FuseBiasDropoutAdd',
     'ReflectionPad1d', 'ReflectionPad2d', 'ReflectionPad3d', 'ReplicationPad2d', 'ReplicationPad1d', 'ReplicationPad3d',
     'CrossMapLRN2d', 'Embedding', 'EmbeddingBag', 'RNNBase', 'RNN', 'LSTM', 'GRU', 'RNNCellBase', 'RNNCell',

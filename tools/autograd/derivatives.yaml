@@ -1303,6 +1303,37 @@
   mean: not_implemented("native_fuse_layer_norm_backward mean")
   rstd: not_implemented("native_fuse_layer_norm_backward rstd")
 
+- name: native_fuse_group_norm(Tensor input, Tensor weight, Tensor bias, int num_groups, int num_channels, float eps=1e-05, bool training=True) -> (Tensor, Tensor, Tensor)
+  input, weight, bias: "grad.defined() ? native_fuse_group_norm_backward(grad, input, result1, result2, weight) : std::tuple<Tensor, Tensor, Tensor>()"
+
+- name: native_fuse_group_norm_backward(Tensor grad, Tensor X, Tensor mean, Tensor rstd, Tensor gamma) -> (Tensor, Tensor, Tensor)
+  X: Tensor()
+  grad: Tensor()
+  mean: not_implemented("native_fuse_group_norm_backward mean")
+  rstd: not_implemented("native_fuse_group_norm_backward rstd")
+  gamma: Tensor()
+
+- name: native_fuse_celu_gn(Tensor input, Tensor weight, Tensor bias, int num_groups, int num_channels, float gn_alpha, float eps=1e-05, bool training=True) -> (Tensor, Tensor, Tensor)
+  input, weight, bias: "grad.defined() ? native_fuse_celu_gn_backward(grad, input, result1, result2, weight, gn_alpha) : std::tuple<Tensor, Tensor, Tensor>()"
+
+- name: native_fuse_celu_gn_backward(Tensor grad, Tensor X, Tensor mean, Tensor rstd, Tensor gamma, float gn_alpha) -> (Tensor, Tensor, Tensor)
+  grad: Tensor()
+  X: Tensor()
+  mean: not_implemented("native_fuse_celu_gn_backward mean")
+  rstd: not_implemented("native_fuse_celu_gn_backward rstd")
+  gamma: Tensor()
+
+- name: native_fuse_gn_silu(Tensor input, Tensor weight, Tensor bias, int num_groups, int num_channels, float eps=1e-05, bool training=True) -> (Tensor, Tensor, Tensor)
+  input, weight, bias: "grad.defined() ? native_fuse_gn_silu_backward(grad, input, result1, result2, weight, bias) : std::tuple<Tensor, Tensor, Tensor>()"
+
+- name: native_fuse_gn_silu_backward(Tensor grad, Tensor X, Tensor mean, Tensor rstd, Tensor gamma, Tensor beta) -> (Tensor, Tensor, Tensor)
+  X: Tensor()
+  grad: Tensor()
+  mean: not_implemented("native_fuse_gn_silu_backward mean")
+  rstd: not_implemented("native_fuse_gn_silu_backward rstd")
+  gamma: Tensor()
+  beta: Tensor()
+
 - name: native_group_norm(Tensor input, Tensor? weight, Tensor? bias, SymInt N, SymInt C, SymInt HxW, int group, float eps) -> (Tensor, Tensor, Tensor)
   input, weight, bias: "GradMode::is_enabled() || grads[1].defined() || grads[2].defined() ? infinitely_differentiable_native_group_norm_backward(grads[0], grads[1], grads[2], input, result1, result2, weight, N, C, HxW, group, eps, grad_input_mask) : (grads[0].defined() ? native_group_norm_backward_symint(grads[0].device().is_xpu() ? grads[0] : grads[0].contiguous(grads[0].device().is_cpu() ? input.suggest_memory_format() : c10::MemoryFormat::Contiguous), input.device().is_xpu() ? input : input.contiguous(input.device().is_cpu() ? input.suggest_memory_format() : c10::MemoryFormat::Contiguous), result1, result2, weight, N, C, HxW, group, grad_input_mask) : std::tuple<Tensor, Tensor, Tensor>())"
   result0: group_norm_jvp(input_p, input_t, weight_p, weight_t, bias_p, bias_t, result1, result2, group)
