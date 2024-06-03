@@ -16,6 +16,12 @@
 #include <ATen/ops/native_fuse_bias_dropout_add.h>
 #include <ATen/ops/native_fuse_dropout_add_native.h>
 #include <ATen/ops/native_fuse_dropout_add.h>
+#include <ATen/ops/native_fuse_group_norm_native.h>
+#include <ATen/ops/native_fuse_group_norm.h>
+#include <ATen/ops/native_fuse_celu_gn_native.h>
+#include <ATen/ops/native_fuse_celu_gn.h>
+#include <ATen/ops/native_fuse_gn_silu_native.h>
+#include <ATen/ops/native_fuse_gn_silu.h>
 #include <array>
 #include <tuple>
 #include <vector>
@@ -104,6 +110,43 @@ Tensor fuse_dropout_add(
     double p,
     bool training) {
   return std::get<0>(at::native_fuse_dropout_add(input, other, p, training));
+}
+
+Tensor fuse_celu_gn(
+    const Tensor& input,
+    const Tensor& weight,
+    const Tensor& bias,
+    int64_t num_groups,
+    int64_t num_channels,
+    double gn_alpha,
+    double ln_epsilon,
+    bool training,
+    bool /* cudnn_enable, deprecated */) {
+    return std::get<0>(at::native_fuse_celu_gn(input, weight, bias, num_groups, num_channels, gn_alpha, ln_epsilon, training));
+}
+
+Tensor fuse_group_norm(
+    const Tensor& input,
+    const Tensor& weight,
+    const Tensor& bias,
+    int64_t num_groups,
+    int64_t num_channels,
+    double eps,
+    bool training,
+    bool /* cudnn_enable, deprecated */) {
+    return std::get<0>(at::native_fuse_group_norm(input, weight, bias, num_groups, num_channels, eps, training));
+}
+
+Tensor fuse_gn_silu(
+    const Tensor& input,
+    const Tensor& weight,
+    const Tensor& bias,
+    int64_t num_groups,
+    int64_t num_channels,
+    double ln_epsilon,
+    bool training,
+    bool /* cudnn_enable, deprecated */) {
+    return std::get<0>(at::native_fuse_gn_silu(input, weight, bias, num_groups, num_channels, ln_epsilon,  training));
 }
 
 DEFINE_DISPATCH(FuseLayerNormKernel);

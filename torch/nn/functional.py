@@ -2688,6 +2688,50 @@ def group_norm(
     _verify_batch_size([input.size(0) * input.size(1) // num_groups, num_groups] + list(input.size()[2:]))
     return torch.group_norm(input, num_groups, weight, bias, eps, torch.backends.cudnn.enabled)
 
+def fuse_group_norm(
+    input: Tensor, weight: Tensor, bias: Tensor, num_groups: int, num_channels: int, eps: float = 1e-5, training: bool=True
+) -> Tensor:
+    r"""Applies Group Normalization for last certain number of dimensions.
+
+    See :class:`~torch.nn.FuseGroupNorm` for details.
+    """
+    if has_torch_function_variadic(input, weight, bias):
+        return handle_torch_function(fuse_group_norm, (input, weight, bias,), input, weight=weight, bias=bias, \
+                                     num_groups=num_groups, num_channels=num_channels, eps=eps, training=training)
+    if input.dim() < 2:
+        raise RuntimeError(f"Expected at least 2 dimensions for input tensor but received {input.dim()}")
+    _verify_batch_size([input.size(0) * input.size(1) // num_groups, num_groups] + list(input.size()[2:]))
+    return torch.fuse_group_norm(input, weight, bias, num_groups, num_channels, eps, training, torch.backends.cudnn.enabled)
+
+def fuse_celu_group_norm(
+    input: Tensor, weight: Tensor, bias: Tensor, num_groups: int, num_channels: int, gn_alpha: float, eps: float = 1e-5, training: bool = True
+) -> Tensor:
+    r"""Applies Celu + Group Normalization for last certain number of dimensions.
+
+    See :class:`~torch.nn.FuseCeluGroupNorm` for details.
+    """
+    if has_torch_function_variadic(input, weight, bias):
+        return handle_torch_function(fuse_celu_group_norm, (input, weight, bias,), input, weight=weight, bias=bias,\
+            num_groups=num_groups, num_channels=num_channels, gn_alpha=gn_alpha, eps=eps, training=training)
+    if input.dim() < 2:
+        raise RuntimeError(f"Expected at least 2 dimensions for input tensor but received {input.dim()}")
+    _verify_batch_size([input.size(0) * input.size(1) // num_groups, num_groups] + list(input.size()[2:]))
+    return torch.fuse_celu_gn(input, weight, bias, num_groups, num_channels, gn_alpha, eps, training, torch.backends.cudnn.enabled)
+
+def fuse_group_norm_silu(
+    input: Tensor, weight: Tensor, bias: Tensor, num_groups: int, num_channels: int, eps: float = 1e-5, training: bool=True
+) -> Tensor:
+    r"""Applies Group Normalization + Silu for last certain number of dimensions.
+
+    See :class:`~torch.nn.FuseGroupNormSilu` for details.
+    """
+    if has_torch_function_variadic(input, weight, bias):
+        return handle_torch_function(fuse_group_norm_silu, (input, weight, bias,), input, weight=weight, bias=bias, \
+                                     num_groups=num_groups, num_channels=num_channels, eps=eps, training=training)
+    if input.dim() < 2:
+        raise RuntimeError(f"Expected at least 2 dimensions for input tensor but received {input.dim()}")
+    _verify_batch_size([input.size(0) * input.size(1) // num_groups, num_groups] + list(input.size()[2:]))
+    return torch.fuse_gn_silu(input, weight, bias, num_groups, num_channels, eps, training, torch.backends.cudnn.enabled)
 
 def local_response_norm(input: Tensor, size: int, alpha: float = 1e-4, beta: float = 0.75, k: float = 1.0) -> Tensor:
     r"""Apply local response normalization over an input signal.

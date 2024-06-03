@@ -10,7 +10,7 @@ from torch import Tensor, Size
 from typing import Union, List, Tuple
 
 __all__ = ['LocalResponseNorm', 'CrossMapLRN2d', 'LayerNorm', 'FuseLayerNorm', 'GroupNorm', 'FuseLnDropout', \
-           'FuseLnAddDropoutBias', 'FuseLnAddDropout']
+           'FuseLnAddDropoutBias', 'FuseLnAddDropout' 'FuseGroupNorm', 'FuseCeluGroupNorm', 'FuseGroupNormSilu']
 
 class LocalResponseNorm(Module):
     r"""Applies local response normalization over an input signal.
@@ -303,6 +303,74 @@ class FuseLnAddDropoutBias(Module):
 
     def extra_repr(self):
         return f'p={round(self.p,3):0.3f}, eps={round(self.eps,5):0.5f}'
+
+class FuseGroupNorm(Module):
+    __constants__ = ['num_groups', 'num_channels', 'eps']
+    num_groups: int
+    num_channels: int
+    eps: float
+    def __init__(self, num_groups: int, num_channels: int, eps: float = 1e-5, device=None, dtype=None):
+        super(FuseGroupNorm, self).__init__()
+        self.eps = eps
+        self.num_groups = num_groups
+        self.num_channels = num_channels
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        self.weight = torch.nn.Parameter(torch.empty(num_channels, **factory_kwargs))
+        self.bias = torch.nn.Parameter(torch.empty(num_channels, **factory_kwargs))
+        torch.nn.init.ones_(self.weight)
+        torch.nn.init.zeros_(self.bias)
+
+    def forward(self, input):
+        return F.fuse_group_norm(input, self.weight, self.bias, self.num_groups, self.num_channels, self.eps, self.training)
+
+    def extra_repr(self):
+        return f'num_groups={self.num_groups},num_channels={self.num_channels},eps={round(self.eps,5):0.5f}'
+
+class FuseGroupNormSilu(Module):
+    __constants__ = ['num_groups', 'num_channels', 'eps']
+    num_groups: int
+    num_channels: int
+    eps: float
+    def __init__(self, num_groups: int, num_channels: int, eps: float = 1e-5, device=None, dtype=None):
+        super(FuseGroupNormSilu, self).__init__()
+        self.eps = eps
+        self.num_groups = num_groups
+        self.num_channels = num_channels
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        self.weight = torch.nn.Parameter(torch.empty(num_channels, **factory_kwargs))
+        self.bias = torch.nn.Parameter(torch.empty(num_channels, **factory_kwargs))
+        torch.nn.init.ones_(self.weight)
+        torch.nn.init.zeros_(self.bias)
+
+    def forward(self, input):
+        return F.fuse_group_norm_silu(input, self.weight, self.bias, self.num_groups, self.num_channels, self.eps, self.training)
+
+    def extra_repr(self):
+        return f'num_groups={self.num_groups},num_channels={self.num_channels},eps={round(self.eps,5):0.5f}'
+
+class FuseCeluGroupNorm(Module):
+    __constants__ = ['num_groups', 'num_channels', 'alpha', 'eps']
+    num_groups: int
+    num_channels: int
+    eps: float
+    alpha: float
+    def __init__(self, num_groups: int, num_channels: int, alpha: float = 1., eps: float = 1e-5, device=None, dtype=None):
+        super(FuseCeluGroupNorm, self).__init__()
+        self.eps = eps
+        self.num_groups = num_groups
+        self.num_channels = num_channels
+        self.alpha = alpha
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        self.weight = torch.nn.Parameter(torch.empty(num_channels, **factory_kwargs))
+        self.bias = torch.nn.Parameter(torch.empty(num_channels, **factory_kwargs))
+        torch.nn.init.ones_(self.weight)
+        torch.nn.init.zeros_(self.bias)
+
+    def forward(self, input):
+        return F.fuse_celu_group_norm(input, self.weight, self.bias, self.num_groups, self.num_channels, self.alpha, self.eps, self.training)
+
+    def extra_repr(self):
+        return f'num_groups={self.num_groups},num_channels={self.num_channels},eps={round(self.eps,5):0.5f},alpha={round(self.alpha,1):0.1f}'
 
 class GroupNorm(Module):
     r"""Applies Group Normalization over a mini-batch of inputs.
