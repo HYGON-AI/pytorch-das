@@ -538,6 +538,9 @@
 - name: _ctc_loss.Tensor(Tensor log_probs, Tensor targets, Tensor input_lengths, Tensor target_lengths, int blank=0, bool zero_infinity=False) -> (Tensor, Tensor)
   log_probs: _ctc_loss_backward(grad, log_probs, targets, input_lengths, target_lengths, result0, result1, blank, zero_infinity)
 
+- name: native_fuse_ctc_loss(Tensor logits, Tensor targets, Tensor logit_lengths, Tensor target_lengths, int blank, float clamp, bool logits_time_major, bool compute_sum, bool compute_mean, bool check_lengths) -> (Tensor, Tensor)
+  logits: native_fuse_ctc_loss_backward(grad, result1)
+
 - name: deg2rad(Tensor self) -> Tensor
   self: deg2rad_backward(grad)
   result: auto_element_wise
