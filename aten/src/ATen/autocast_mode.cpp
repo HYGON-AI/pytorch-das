@@ -319,6 +319,8 @@ TORCH_LIBRARY_IMPL(aten, Autocast, m) {
   KERNEL_CUDA(fuse_ln_add_dropout, fp32)
   KERNEL_CUDA(native_fuse_ln_add_dropout, fp32)
   KERNEL_CUDA(fuse_ln_add_dropout_bias, fp32)
+  KERNEL_CUDA(fuse_ctc_loss, fp32)
+  KERNEL_CUDA(native_fuse_ctc_loss, fp32)
   KERNEL_CUDA(native_fuse_ln_add_dropout_bias, fp32)
   KERNEL_CUDA(fuse_group_norm, fp32)
   KERNEL_CUDA(native_fuse_group_norm, fp32)

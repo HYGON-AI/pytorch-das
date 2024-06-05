@@ -22,6 +22,8 @@
 #include <ATen/ops/native_fuse_celu_gn.h>
 #include <ATen/ops/native_fuse_gn_silu_native.h>
 #include <ATen/ops/native_fuse_gn_silu.h>
+#include <ATen/ops/native_fuse_ctc_loss_native.h>
+#include <ATen/ops/native_fuse_ctc_loss.h>
 #include <array>
 #include <tuple>
 #include <vector>
@@ -147,6 +149,21 @@ Tensor fuse_gn_silu(
     bool training,
     bool /* cudnn_enable, deprecated */) {
     return std::get<0>(at::native_fuse_gn_silu(input, weight, bias, num_groups, num_channels, ln_epsilon,  training));
+}
+
+Tensor fuse_ctc_loss(
+    const Tensor& logits,
+    const Tensor& targets,
+    const Tensor& logit_lengths,
+    const Tensor& target_lengths,
+    int64_t blank,
+    double clamp,
+    bool logits_time_major,
+    bool compute_sum,
+    bool compute_mean,
+    bool check_lengths) {
+    // return logits;
+    return std::get<0>(at::native_fuse_ctc_loss(logits, targets, logit_lengths, target_lengths, blank, clamp, logits_time_major, compute_sum, compute_mean, check_lengths));
 }
 
 DEFINE_DISPATCH(FuseLayerNormKernel);

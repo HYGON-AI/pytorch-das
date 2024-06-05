@@ -2024,6 +2024,20 @@
 
 - func: cumulative_trapezoid.dx(Tensor y, *, Scalar dx=1, int dim=-1) -> Tensor
 
+- func: fuse_ctc_loss(Tensor logits, Tensor targets, Tensor logit_lengths, Tensor target_lengths, int blank, float clamp, bool logits_time_major, bool compute_sum, bool compute_mean, bool check_lengths) -> Tensor
+
+- func: native_fuse_ctc_loss(Tensor logits, Tensor targets, Tensor logit_lengths, Tensor target_lengths, int blank, float clamp, bool logits_time_major, bool compute_sum, bool compute_mean, bool check_lengths) -> (Tensor, Tensor)
+  variants: function
+  dispatch:
+    CUDA: fuse_ctc_loss_cuda
+  autogen: native_fuse_ctc_loss.out
+  tags: dynamic_output_shape
+
+- func: native_fuse_ctc_loss_backward(Tensor grad_out, Tensor input) -> Tensor
+  dispatch:
+    CUDA: fuse_ctc_loss_backward_cuda
+  autogen: native_fuse_ctc_loss_backward.out
+
 - func: ctc_loss.IntList(Tensor log_probs, Tensor targets, int[] input_lengths, int[] target_lengths, int blank=0, int reduction=Mean, bool zero_infinity=False) -> Tensor
 
 # convenience function that converts to intlists for you

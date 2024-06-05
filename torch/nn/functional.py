@@ -2838,6 +2838,34 @@ if ctc_loss.__doc__:
     ctc_loss.__doc__ = ctc_loss.__doc__.format(**reproducibility_notes)
 
 
+def fuse_ctc_loss(
+    logits: Tensor,
+    targets: Tensor,
+    logit_lengths: Tensor,
+    target_lengths: Tensor,
+    blank: int = 0,
+    clamp: float = -1.0,
+    logits_time_major: bool = True,
+    compute_sum: bool = False,
+    compute_mean: bool = True,
+    check_lengths: bool = True,
+) -> Tensor:
+    r"""The Connectionist Temporal Classification loss.
+
+    See :class:`~torch.nn.FuseCTCLoss` for details.
+
+    """
+    if has_torch_function_variadic(logits, targets, logit_lengths, target_lengths):
+        return handle_torch_function(
+            fuse_ctc_loss,
+            (logits, targets, logit_lengths, target_lengths),
+            logits, targets, logit_lengths, target_lengths,
+            blank=blank, clamp=clamp, logits_time_major=logits_time_major,
+            compute_sum=compute_sum, compute_mean=compute_mean, check_lengths=check_lengths
+        )
+    return torch.fuse_ctc_loss(
+        logits, targets, logit_lengths, target_lengths, blank, clamp, logits_time_major, compute_sum, compute_mean, check_lengths)
+
 def nll_loss(
     input: Tensor,
     target: Tensor,
