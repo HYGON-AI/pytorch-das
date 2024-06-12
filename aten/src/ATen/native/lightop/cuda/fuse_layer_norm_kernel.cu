@@ -217,24 +217,25 @@ std::tuple<Tensor,Tensor,Tensor> fuse_layer_norm_cuda(
     const Tensor& bias = *bias_maybe_owned;
 
     AT_ASSERTM(self.is_cuda(), "x must on dcu");
+    auto pself=self.expect_contiguous();
     const int cols=self.sizes().back();
     AT_ASSERT(cols>=64,"cols must >= 64");//torch layernorm don't support cols<=64 on dcu, so we too .
-    const int nelem = self.numel();
+    const int nelem = pself->numel();
     const int rows=nelem/cols;
-    Tensor ret = at::empty_like(self),mean,rstd;
+    Tensor ret = at::empty_like(*pself),mean,rstd;
     if(training){
-      mean = at::empty({rows},self.options());
-      rstd = at::empty({rows},self.options());
+      mean = at::empty({rows},pself->options());
+      rstd = at::empty({rows},pself->options());
     }
 
     AT_DISPATCH_FLOATING_TYPES_AND2(
       at::ScalarType::Half,
       at::ScalarType::BFloat16, 
-      self.scalar_type(),
+      pself->scalar_type(),
       "layernorm_forward",
       [&] {
         using T_ACC = acc_type<scalar_t, true>;
-        scalar_t* self_data = self.data_ptr<scalar_t>();
+        scalar_t* self_data = pself->data_ptr<scalar_t>();
         scalar_t* ret_data=ret.data_ptr<scalar_t>();
         scalar_t* weight_data=weight.data_ptr<scalar_t>();
         scalar_t* bias_data=bias.data_ptr<scalar_t>();
