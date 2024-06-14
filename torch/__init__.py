@@ -1727,6 +1727,9 @@ class _TorchCompileInductorWrapper:
 
     def __call__(self, model_, inputs_):
         from torch._inductor.compile_fx import compile_fx
+        from torch._dynamo.lightop_utils import lightop_replace
+        if os.environ.get("USE_LIGHTOP", "").lower() == "true" or os.environ.get("USE_LIGHTOP", "") == "1":
+            model_ = lightop_replace(model_)
 
         return compile_fx(model_, inputs_, config_patches=self.config)
 
@@ -1767,6 +1770,9 @@ class _TorchCompileWrapper:
                 self.dynamic == other.dynamic)
 
     def __call__(self, model_, inputs_):
+        from torch._dynamo.lightop_utils import lightop_replace
+        if os.environ.get("USE_LIGHTOP", "").lower() == "true" or os.environ.get("USE_LIGHTOP", "") == "1":
+            model_ = lightop_replace(model_)
         return self.compiler_fn(model_, inputs_, **self.kwargs)
 
     def reset(self):

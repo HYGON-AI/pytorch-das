@@ -104,7 +104,6 @@ from .variables.tensor import (
     TensorVariable,
     UnspecializedPythonVariable,
 )
-from torch._dynamo.lightop_utils import lightop_replace
 
 from .variables.torch_function import TensorWithTFOverrideVariable
 
@@ -1210,10 +1209,6 @@ class OutputGraph(Checkpointable[OutputGraphState]):
 
         gm._param_name_to_source = self.param_name_to_source  # type: ignore[assignment]
         gm._source_to_user_stacks = self.source_to_user_stacks  # type: ignore[assignment]
-
-        # lightop optimize
-        if os.environ.get("USE_LIGHTOP", False):
-            gm = lightop_replace(gm)    
 
         try:
             name = (
