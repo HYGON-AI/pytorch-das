@@ -40,6 +40,7 @@ std::tuple<Tensor,Tensor,Tensor>fuse_group_norm_backward_cuda(
   const Tensor& mean,
   const Tensor& rstd,
   const Tensor& gamma) {
+  AT_ASSERT(X.suggest_memory_format()!=at::MemoryFormat::ChannelsLast,"FuseGroupNorm backward doesn't support ChannelsLast now.If you need the function,please contact us.");
   Tensor dX = at::empty_like(X),dgamma = at::empty_like(gamma),dbeta = at::empty_like(gamma);
   AT_DISPATCH_FLOATING_TYPES_AND2(
     at::ScalarType::Half,
