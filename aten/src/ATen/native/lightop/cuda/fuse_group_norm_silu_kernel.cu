@@ -19,7 +19,12 @@ std::tuple<Tensor,Tensor,Tensor>fuse_gn_silu_cuda(
     "fuse_gn_silu_cuda",
     [&] {
       SILU<scalar_t> siluop;
-      groupnorm_act_forward_impl<scalar_t,SILU<scalar_t>>(self,weight,bias,num_groups,num_channels,eps,training,siluop,ret,mean,rstd);
+      if(self.suggest_memory_format()==at::MemoryFormat::ChannelsLast){
+        groupnorm_act_forward_impl<scalar_t,SILU<scalar_t>>(self,weight,bias,num_groups,num_channels,eps,training,siluop,ret,mean,rstd);
+      } else {
+        auto pself=self.expect_contiguous();
+        groupnorm_act_forward_impl<scalar_t,SILU<scalar_t>>(*pself,weight,bias,num_groups,num_channels,eps,training,siluop,ret,mean,rstd);
+        }
     });
   return std::tuple<Tensor,Tensor,Tensor>(ret,mean,rstd);
 }  
@@ -32,6 +37,7 @@ std::tuple<Tensor,Tensor,Tensor>fuse_gn_silu_backward_cuda(
   const Tensor& gamma,
   const Tensor& beta) { 
   Tensor dX = at::empty_like(X),dgamma = at::empty_like(gamma),dbeta = at::empty_like(gamma);
+  AT_ASSERT(X.suggest_memory_format()!=at::MemoryFormat::ChannelsLast,"Fuse GroupNorm_Silu backward doesn't support ChannelsLast now.If you need the function,please contact us.");
   AT_DISPATCH_FLOATING_TYPES_AND2(
     at::ScalarType::Half,
     at::ScalarType::BFloat16,
