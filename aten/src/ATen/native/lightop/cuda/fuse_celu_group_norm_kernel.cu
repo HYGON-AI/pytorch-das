@@ -21,7 +21,12 @@ std::tuple<Tensor,Tensor,Tensor>fuse_celu_gn_cuda(
     [&] {
       CELU<scalar_t> celuop;
       celuop.alpha=alpha;
-      act_groupnorm_forward_impl<scalar_t,CELU<scalar_t>>(self,weight,bias,num_groups,num_channels,eps,training,celuop,ret,mean,rstd);
+      if(self.suggest_memory_format()==at::MemoryFormat::ChannelsLast){
+        act_groupnorm_forward_impl<scalar_t,CELU<scalar_t>>(self,weight,bias,num_groups,num_channels,eps,training,celuop,ret,mean,rstd);
+      } else {
+        auto pself=self.expect_contiguous();
+        act_groupnorm_forward_impl<scalar_t,CELU<scalar_t>>(*pself,weight,bias,num_groups,num_channels,eps,training,celuop,ret,mean,rstd);
+      }
     });
     return std::tuple<Tensor,Tensor,Tensor>(ret,mean,rstd);
 }
@@ -34,6 +39,7 @@ std::tuple<Tensor,Tensor,Tensor>fuse_celu_gn_backward_cuda(
   const Tensor& gamma,
   double alpha)
 {
+  AT_ASSERT(X.suggest_memory_format()!=at::MemoryFormat::ChannelsLast,"Fuse GroupNorm backward doesn't support ChannelsLast now.If you need the function,please contact us.");
   Tensor dX = at::empty_like(X),dgamma = at::empty_like(gamma),dbeta = at::empty_like(gamma);
   AT_DISPATCH_FLOATING_TYPES_AND2(
     at::ScalarType::Half,
