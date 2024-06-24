@@ -1,7 +1,7 @@
 import functools
 import logging
 from typing import cast, List, Tuple
-
+import os
 import sympy
 
 import torch
@@ -128,6 +128,14 @@ mm_kernel_configs = [
     {"config": (64, 64, 16, 2, 4), "cond": True},
     {"config": (32, 32, 16, 1, 2), "cond": True},
 ]
+mm_static_kernel_configs = [
+    {"config" : (16, 16, 64, 0, 2),  "cond" : True},
+    {"config" : (128, 64, 32, 0, 4), "cond" : True},
+    {"config" : (64, 128, 64, 1, 4), "cond" : True},
+    {"config" : (128, 64, 32, 2, 4), "cond" : True},
+    {"config" : (64, 64, 64, 2, 4),  "cond" : True},
+    {"config" : (128, 32, 64, 0, 4), "cond" : True},
+]
 
 int8_mm_kernel_configs = [
     {"config": (64, 64, 32, 2, 4), "cond": True},
@@ -151,7 +159,7 @@ int8_mm_kernel_configs = [
 
 mm_platform_configs = tuple(
     cast(Tuple[int, int, int, int, int], config["config"])
-    for config in mm_kernel_configs
+    for config in mm_static_kernel_configs if os.environ.get("PARTTUNE",'0')=='1' else mm_kernel_configs
     if config["cond"]
 )
 int8_platform_configs = tuple(
@@ -163,7 +171,7 @@ int8_platform_configs = tuple(
 # On ROCm convert num_stages to 1 as pipelining provides no benefit
 if torch.version.hip:
     mm_platform_configs = tuple(
-        (config[0], config[1], config[2], 1, config[4])
+        (config[0], config[1], config[2], config[3] if os.environ.get("PARTTUNE",'0')=='1' else 1 , config[4])
         for config in mm_platform_configs
     )
     int8_platform_configs = tuple(

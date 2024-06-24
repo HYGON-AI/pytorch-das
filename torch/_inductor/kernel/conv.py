@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import os
 import functools
 import logging
 from typing import cast, List, Optional, Sequence, Tuple, TypedDict
@@ -43,31 +43,47 @@ def conv_grid(n, c, h, w, meta):
         meta["GROUPS"],
     )
 
+def config_gen():
+    import itertools
+    BLOCK_M = [16,32,64,128,256]
+    BLOCK_N = [16,32,64,128,256]
+    BLOCK_K = [16,32,64]
+    num_stages=[1,2]
+    num_warps=[1,2,4,8]
+    config_list = list(itertools.product(
+        BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps
+    ))
+    configs = [
+        {"config":(i[0], i[1], i[2], i[3], i[4]), "cond":True}
+        for i in config_list
+    ]
+    return configs
+
 
 # List of dictionaries to store the kernel configs. Configs that evaluate to true
 # will be utilised on the target platform
 kernel_configs = [
     # "BLOCK_M", "BLOCK_N", "BLOCK_K", "num_stages", "num_warps"
-    {"config": (64, 256, 16, 2, 4), "cond": True},
-    {"config": (256, 64, 16, 2, 4), "cond": True},
-    {"config": (1024, 16, 16, 1, 8), "cond": True},
-    {"config": (128, 128, 32, 2, 8), "cond": True},
-    {"config": (64, 64, 32, 2, 4), "cond": True},
-    {"config": (64, 256, 32, 2, 8), "cond": True},
-    {"config": (256, 64, 32, 2, 8), "cond": True},
+    {"config": (64, 64, 32, 1, 2), "cond": True},
+    {"config": (64, 32, 32, 1, 2), "cond": True},
+    {"config": (64, 32, 16, 1, 2), "cond": True},
+    {"config": (64, 32, 16, 1, 4), "cond": True},
+    {"config": (64, 32, 32, 1, 4), "cond": True},
+    {"config": (64, 64, 32, 1, 4), "cond": True},
+    {"config": (128, 32, 32, 1, 2), "cond": True},
 ]
 
 # Create filtered list of configs based on conv
 platform_configs = tuple(
     cast(Tuple[int, int, int, int, int], config["config"])
-    for config in kernel_configs
+    for config in kernel_configs if os.environ.get("PARTTUNE",'0')=='1' else config_gen()
     if config["cond"]
 )
 
 # On ROCm convert num_stages to 1 as pipelining provides no benefit
 if torch.version.hip:
     platform_configs = tuple(
-        (config[0], config[1], config[2], 1, config[4]) for config in platform_configs
+        (config[0], config[1], config[2], config[3], config[4]) for config in platform_configs
     )
 
 conv_configs = functools.partial(
