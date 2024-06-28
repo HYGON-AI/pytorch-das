@@ -157,9 +157,10 @@ int8_mm_kernel_configs = [
 # Create filtered list of configs based on cond evaluation
 
 
+mm_kernel_configs = mm_static_kernel_configs if os.environ.get("PARTTUNE", '0') == '1' else mm_kernel_configs
 mm_platform_configs = tuple(
     cast(Tuple[int, int, int, int, int], config["config"])
-    for config in mm_static_kernel_configs if os.environ.get("PARTTUNE",'0')=='1' else mm_kernel_configs
+    for config in mm_kernel_configs
     if config["cond"]
 )
 int8_platform_configs = tuple(

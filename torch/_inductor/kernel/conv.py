@@ -45,11 +45,11 @@ def conv_grid(n, c, h, w, meta):
 
 def config_gen():
     import itertools
-    BLOCK_M = [16,32,64,128,256]
-    BLOCK_N = [16,32,64,128,256]
+    BLOCK_M = [16,32,64,128]
+    BLOCK_N = [16,32,64,128]
     BLOCK_K = [16,32,64]
-    num_stages=[1,2]
-    num_warps=[1,2,4,8]
+    num_stages=[0,1,2]
+    num_warps=[1,2,4]
     config_list = list(itertools.product(
         BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps
     ))
@@ -72,11 +72,11 @@ kernel_configs = [
     {"config": (64, 64, 32, 1, 4), "cond": True},
     {"config": (128, 32, 32, 1, 2), "cond": True},
 ]
-
+kernel_configs = kernel_configs if os.environ.get("PARTTUNE",'0')=='1' else config_gen()
 # Create filtered list of configs based on conv
 platform_configs = tuple(
     cast(Tuple[int, int, int, int, int], config["config"])
-    for config in kernel_configs if os.environ.get("PARTTUNE",'0')=='1' else config_gen()
+    for config in kernel_configs
     if config["cond"]
 )
 
