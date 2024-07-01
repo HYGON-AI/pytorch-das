@@ -10,7 +10,8 @@ from torch import Tensor, Size
 from typing import Union, List, Tuple
 
 __all__ = ['LocalResponseNorm', 'CrossMapLRN2d', 'LayerNorm', 'FuseLayerNorm', 'GroupNorm', 'FuseLnDropout', \
-           'FuseLnAddDropoutBias', 'FuseLnAddDropout' 'FuseGroupNorm', 'FuseCeluGroupNorm', 'FuseGroupNormSilu']
+           'FuseLnAddDropoutBias', 'FuseLnAddDropout' 'FuseGroupNorm', 'FuseCeluGroupNorm', 'FuseGroupNormSilu', \
+           'FuseRMSNorm', 'FuseRNDropout', 'FuseRNAddDropout', 'FuseRNAddDropoutBias']
 
 class LocalResponseNorm(Module):
     r"""Applies local response normalization over an input signal.
@@ -300,6 +301,92 @@ class FuseLnAddDropoutBias(Module):
     def forward(self, input, other, bias):
         return F.fuse_ln_add_dropout_bias(input, other, bias, self.weight, self.bias, \
                             self.eps, self.p, self.training)
+
+    def extra_repr(self):
+        return f'p={round(self.p,3):0.3f}, eps={round(self.eps,5):0.5f}'
+
+class FuseRMSNorm(Module):
+    __constants__ = ["normalized_shape", 'eps']
+    normalized_shape: Tuple[int, ...]
+    eps: float
+    def __init__(self, normalized_shape: _shape_t, eps: float = 1e-5, device=None, dtype=None):
+        super(FuseRMSNorm, self).__init__()
+        if isinstance(normalized_shape, numbers.Integral):
+            normalized_shape = (normalized_shape,)
+        self.normalized_shape = tuple(normalized_shape)
+        self.eps = eps
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        self.weight = torch.nn.Parameter(torch.empty(self.normalized_shape, **factory_kwargs))
+        torch.nn.init.ones_(self.weight)
+
+    def forward(self, input):
+        return F.fuse_rmsnorm(input, self.weight, self.eps, self.training)
+
+    def extra_repr(self):
+        return f'eps={round(self.eps,5):0.5f}'
+
+class FuseRNDropout(Module):
+    __constants__ = ["normalized_shape", 'eps', 'p']
+    normalized_shape: Tuple[int, ...]
+    eps: float
+    p: float
+    def __init__(self, normalized_shape: _shape_t, p: float = 0.5, eps: float = 1e-5, device=None, dtype=None):
+        super(FuseRNDropout, self).__init__()
+        if isinstance(normalized_shape, numbers.Integral):
+            normalized_shape = (normalized_shape,)
+        self.normalized_shape = tuple(normalized_shape)
+        self.eps = eps
+        self.p = p
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        self.weight = torch.nn.Parameter(torch.empty(self.normalized_shape, **factory_kwargs))
+        torch.nn.init.ones_(self.weight)
+
+    def forward(self, input):
+        return F.fuse_rn_dropout(input, self.weight, self.p, self.eps, self.training)
+
+    def extra_repr(self):
+        return f'p={round(self.p,3):0.3f}, eps={round(self.eps,5):0.5f}'
+
+class FuseRNAddDropout(Module):
+    __constants__ = ["normalized_shape", 'eps', 'p']
+    normalized_shape: Tuple[int, ...]
+    eps: float
+    p: float
+    def __init__(self, normalized_shape: _shape_t, p: float = 0.5, eps: float = 1e-5, device=None, dtype=None):
+        super(FuseRNAddDropout, self).__init__()
+        if isinstance(normalized_shape, numbers.Integral):
+            normalized_shape = (normalized_shape,)
+        self.normalized_shape = tuple(normalized_shape)
+        self.eps = eps
+        self.p = p
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        self.weight = torch.nn.Parameter(torch.empty(self.normalized_shape, **factory_kwargs))
+        torch.nn.init.ones_(self.weight)
+
+    def forward(self, input, other):
+        return F.fuse_rn_add_dropout(input, other, self.weight, self.p, self.eps, self.training)
+
+    def extra_repr(self):
+        return f'p={round(self.p,3):0.3f}, eps={round(self.eps,5):0.5f}'
+
+class FuseRNAddDropoutBias(Module):
+    __constants__ = ["normalized_shape", 'eps', 'p']
+    normalized_shape: Tuple[int, ...]
+    eps: float
+    p: float
+    def __init__(self, normalized_shape: _shape_t, p: float = 0.5, eps: float = 1e-5, device=None, dtype=None):
+        super(FuseRNAddDropoutBias, self).__init__()
+        if isinstance(normalized_shape, numbers.Integral):
+            normalized_shape = (normalized_shape,)
+        self.normalized_shape = tuple(normalized_shape)
+        self.eps = eps
+        self.p = p
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        self.weight = torch.nn.Parameter(torch.empty(self.normalized_shape, **factory_kwargs))
+        torch.nn.init.ones_(self.weight)
+
+    def forward(self, input, other, bias):
+        return F.fuse_rn_add_dropout_bias(input, other, bias, self.weight, self.p, self.eps, self.training)
 
     def extra_repr(self):
         return f'p={round(self.p,3):0.3f}, eps={round(self.eps,5):0.5f}'

@@ -541,6 +541,18 @@
 - name: native_fuse_ctc_loss(Tensor logits, Tensor targets, Tensor logit_lengths, Tensor target_lengths, int blank, float clamp, bool logits_time_major, bool compute_sum, bool compute_mean, bool check_lengths) -> (Tensor, Tensor)
   logits: native_fuse_ctc_loss_backward(grad, result1)
 
+- name: native_fuse_rmsnorm(Tensor self, Tensor weight, float ln_epsilon, bool training) -> (Tensor, Tensor)
+  self, weight: "grad.defined() ? native_fuse_rmsnorm_backward(grad, self, result1, weight) : std::tuple<Tensor, Tensor>()"
+
+- name: native_fuse_rn_dropout(Tensor self, Tensor weight, float ln_epsilon, float p, bool training) -> (Tensor, Tensor, Tensor)
+  self, weight: "grad.defined() ? native_fuse_rn_dropout_backward(grad, result1, result2, weight) : std::tuple<Tensor, Tensor>()"
+
+- name: native_fuse_rn_add_dropout(Tensor self, Tensor other, Tensor weight, float ln_epsilon, float p, bool training) -> (Tensor, Tensor, Tensor)
+  self, other, weight: "grad.defined() ? native_fuse_rn_add_dropout_backward(grad, result1, result2, weight) : std::tuple<Tensor, Tensor, Tensor>()"
+
+- name: native_fuse_rn_add_dropout_bias(Tensor self, Tensor other, Tensor bias, Tensor weight, float ln_epsilon, float p, bool training) -> (Tensor, Tensor, Tensor)
+  self, other, bias, weight: "grad.defined() ? native_fuse_rn_add_dropout_bias_backward(grad, result1, result2, weight) : std::tuple<Tensor, Tensor, Tensor, Tensor>()"
+
 - name: deg2rad(Tensor self) -> Tensor
   self: deg2rad_backward(grad)
   result: auto_element_wise

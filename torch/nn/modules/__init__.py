@@ -20,7 +20,7 @@ from .batchnorm import BatchNorm1d, BatchNorm2d, BatchNorm3d, SyncBatchNorm, \
 from .instancenorm import InstanceNorm1d, InstanceNorm2d, InstanceNorm3d, \
     LazyInstanceNorm1d, LazyInstanceNorm2d, LazyInstanceNorm3d
 from .normalization import LocalResponseNorm, CrossMapLRN2d, LayerNorm, FuseLayerNorm, GroupNorm, FuseGroupNorm, FuseCeluGroupNorm, FuseLnDropout, \
-    FuseLnAddDropout, FuseLnAddDropoutBias, FuseGroupNormSilu
+    FuseLnAddDropout, FuseLnAddDropoutBias, FuseGroupNormSilu, FuseRMSNorm, FuseRNDropout, FuseRNAddDropout, FuseRNAddDropoutBias
 from .dropout import Dropout, Dropout1d, Dropout2d, Dropout3d, AlphaDropout, FeatureAlphaDropout, \
      FuseBiasDropoutAdd, FuseDropoutAdd
 from .padding import ReflectionPad1d, ReflectionPad2d, ReflectionPad3d, ReplicationPad1d, ReplicationPad2d, \
@@ -60,9 +60,9 @@ __all__ = [
     'PairwiseDistance', 'AdaptiveMaxPool1d', 'AdaptiveMaxPool2d', 'AdaptiveMaxPool3d', 'AdaptiveAvgPool1d',
     'AdaptiveAvgPool2d', 'AdaptiveAvgPool3d', 'TripletMarginLoss', 'ZeroPad1d', 'ZeroPad2d', 'ZeroPad3d',
     'ConstantPad1d', 'ConstantPad2d', 'ConstantPad3d', 'Bilinear', 'CosineSimilarity', 'Unfold', 'Fold',
-    'AdaptiveLogSoftmaxWithLoss', 'TransformerEncoder', 'TransformerDecoder',
-    'TransformerEncoderLayer', 'TransformerDecoderLayer', 'Transformer',
-    'LazyLinear', 'LazyConv1d', 'LazyConv2d', 'LazyConv3d',
+    'AdaptiveLogSoftmaxWithLoss', 'TransformerEncoder', 'TransformerDecoder', 'FuseRNDropout', 'FuseRNAddDropout',
+    'TransformerEncoderLayer', 'TransformerDecoderLayer', 'Transformer', 'FuseRNAddDropoutBias',
+    'LazyLinear', 'LazyConv1d', 'LazyConv2d', 'LazyConv3d', 'FuseRMSNorm',
     'LazyConvTranspose1d', 'LazyConvTranspose2d', 'LazyConvTranspose3d',
     'LazyBatchNorm1d', 'LazyBatchNorm2d', 'LazyBatchNorm3d',
     'LazyInstanceNorm1d', 'LazyInstanceNorm2d', 'LazyInstanceNorm3d',
