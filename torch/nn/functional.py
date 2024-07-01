@@ -2674,6 +2674,80 @@ def fuse_layer_norm(
         )
     return torch.fuse_layer_norm(input, weight, bias, eps, training, torch.backends.cudnn.enabled)
 
+def fuse_rmsnorm(
+    input: Tensor,
+    weight: Tensor,
+    eps: float = 1e-5,
+    training: bool = True
+) -> Tensor:
+    r"""Applies Fuse RMNorm for last certain number of dimensions.
+
+    See :class:`~torch.nn.FuseRMSNorm` for details.
+    """
+    if has_torch_function_variadic(input, weight):
+        return handle_torch_function(
+            fuse_rmsnorm, (input, weight), input, weight=weight, eps=eps, training=training,
+        )
+
+    return torch.fuse_rmsnorm(input, weight, eps, training)
+
+def fuse_rn_dropout(
+    input: Tensor,
+    weight: Tensor,
+    p: float = 0.5,
+    eps: float = 1e-5,
+    training: bool = True
+) -> Tensor:
+    r"""Applies Fuse RMNorm + Dropout for last certain number of dimensions.
+
+    See :class:`~torch.nn.FuseRNDropout` for details.
+    """
+    if has_torch_function_variadic(input, weight):
+        return handle_torch_function(
+            fuse_rn_dropout, (input, weight), input, weight=weight, eps=eps, p=p, training=training,
+        )
+
+    return torch.fuse_rn_dropout(input, weight, eps, p, training)
+
+def fuse_rn_add_dropout(
+    input: Tensor,
+    other: Tensor,
+    weight: Tensor,
+    p: float = 0.5,
+    eps: float = 1e-5,
+    training: bool = True
+) -> Tensor:
+    r"""Applies Fuse RMNorm + Add + Dropout for last certain number of dimensions.
+
+    See :class:`~torch.nn.FuseRNAddDropout` for details.
+    """
+    if has_torch_function_variadic(input, other, weight):
+        return handle_torch_function(
+            fuse_rn_add_dropout, (input, other, weight), input, other, weight=weight, eps=eps, p=p, training=training,
+        )
+
+    return torch.fuse_rn_add_dropout(input, other, weight, eps, p, training)
+
+def fuse_rn_add_dropout_bias(
+    input: Tensor,
+    other: Tensor,
+    bias: Tensor,
+    weight: Tensor,
+    p: float = 0.5,
+    eps: float = 1e-5,
+    training: bool = True
+) -> Tensor:
+    r"""Applies Fuse RMNorm + Add + Dropout + Bias for last certain number of dimensions.
+
+    See :class:`~torch.nn.FuseRNAddDropoutBias` for details.
+    """
+    if has_torch_function_variadic(input, other, bias, weight):
+        return handle_torch_function(
+            fuse_rn_add_dropout_bias, (input, other, bias, weight), input, other, bias=bias, weight=weight, eps=eps, p=p, training=training,
+        )
+
+    return torch.fuse_rn_add_dropout_bias(input, other, bias, weight, eps, p, training)
+
 def group_norm(
     input: Tensor, num_groups: int, weight: Optional[Tensor] = None, bias: Optional[Tensor] = None, eps: float = 1e-5
 ) -> Tensor:

@@ -2024,6 +2024,60 @@
 
 - func: cumulative_trapezoid.dx(Tensor y, *, Scalar dx=1, int dim=-1) -> Tensor
 
+- func: fuse_rmsnorm(Tensor self, Tensor weight, float ln_epsilon, bool training=True) -> Tensor
+
+- func: native_fuse_rmsnorm(Tensor self, Tensor weight, float ln_epsilon, bool training) -> (Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_rmsnorm_cuda
+  autogen: native_fuse_rmsnorm.out
+
+- func: native_fuse_rmsnorm_backward(Tensor grad_out, Tensor X, Tensor rstd, Tensor gamma) -> (Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_rmsnorm_backward_cuda
+  autogen: native_fuse_rmsnorm_backward.out
+
+- func: fuse_rn_dropout(Tensor self, Tensor weight, float ln_epsilon, float p, bool training=True) -> Tensor
+  tags: nondeterministic_seeded
+
+- func: native_fuse_rn_dropout(Tensor self, Tensor weight, float ln_epsilon, float p, bool training) -> (Tensor, Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_rn_dropout_cuda
+  autogen: native_fuse_rn_dropout.out
+  tags: nondeterministic_seeded
+
+- func: native_fuse_rn_dropout_backward(Tensor grad_out, Tensor X, Tensor rstd, Tensor gamma) -> (Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_rn_dropout_backward_cuda
+  autogen: native_fuse_rn_dropout_backward.out
+
+- func: fuse_rn_add_dropout(Tensor self, Tensor other, Tensor weight, float ln_epsilon, float p, bool training=True) -> Tensor
+  tags: nondeterministic_seeded
+
+- func: native_fuse_rn_add_dropout(Tensor self, Tensor other, Tensor weight, float ln_epsilon, float p, bool training) -> (Tensor, Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_rn_add_dropout_cuda
+  autogen: native_fuse_rn_add_dropout.out
+  tags: nondeterministic_seeded
+
+- func: native_fuse_rn_add_dropout_backward(Tensor grad_out, Tensor X, Tensor rstd, Tensor gamma) -> (Tensor, Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_rn_add_dropout_backward_cuda
+  autogen: native_fuse_rn_add_dropout_backward.out
+
+- func: fuse_rn_add_dropout_bias(Tensor self, Tensor other, Tensor bias, Tensor weight, float ln_epsilon, float p, bool training=True) -> Tensor
+  tags: nondeterministic_seeded
+
+- func: native_fuse_rn_add_dropout_bias(Tensor self, Tensor other, Tensor bias, Tensor weight, float ln_epsilon, float p, bool training) -> (Tensor, Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_rn_add_dropout_bias_cuda
+  autogen: native_fuse_rn_add_dropout_bias.out
+  tags: nondeterministic_seeded
+
+- func: native_fuse_rn_add_dropout_bias_backward(Tensor grad_out, Tensor X, Tensor rstd, Tensor gamma) -> (Tensor, Tensor, Tensor, Tensor)
+  dispatch:
+    CUDA: fuse_rn_add_dropout_bias_backward_cuda
+  autogen: native_fuse_rn_add_dropout_bias_backward.out
+
 - func: fuse_ctc_loss(Tensor logits, Tensor targets, Tensor logit_lengths, Tensor target_lengths, int blank, float clamp, bool logits_time_major, bool compute_sum, bool compute_mean, bool check_lengths) -> Tensor
 
 - func: native_fuse_ctc_loss(Tensor logits, Tensor targets, Tensor logit_lengths, Tensor target_lengths, int blank, float clamp, bool logits_time_major, bool compute_sum, bool compute_mean, bool check_lengths) -> (Tensor, Tensor)

@@ -24,6 +24,14 @@
 #include <ATen/ops/native_fuse_gn_silu.h>
 #include <ATen/ops/native_fuse_ctc_loss_native.h>
 #include <ATen/ops/native_fuse_ctc_loss.h>
+#include <ATen/ops/native_fuse_rmsnorm_native.h>
+#include <ATen/ops/native_fuse_rmsnorm.h>
+#include <ATen/ops/native_fuse_rn_dropout_native.h>
+#include <ATen/ops/native_fuse_rn_dropout.h>
+#include <ATen/ops/native_fuse_rn_add_dropout_native.h>
+#include <ATen/ops/native_fuse_rn_add_dropout.h>
+#include <ATen/ops/native_fuse_rn_add_dropout_bias_native.h>
+#include <ATen/ops/native_fuse_rn_add_dropout_bias.h>
 #include <array>
 #include <tuple>
 #include <vector>
@@ -149,6 +157,52 @@ Tensor fuse_gn_silu(
     bool training,
     bool /* cudnn_enable, deprecated */) {
     return std::get<0>(at::native_fuse_gn_silu(input, weight, bias, num_groups, num_channels, ln_epsilon,  training));
+}
+
+Tensor fuse_rmsnorm(
+    const Tensor& self,
+    const Tensor& weight,
+    double ln_epsilon,
+    bool training) {
+    return std::get<0>(at::native_fuse_rmsnorm(self, weight, ln_epsilon, training));
+}
+
+Tensor fuse_rn_dropout(
+    const Tensor& self,
+    const Tensor& weight,
+    double ln_epsilon,
+    double p,
+    bool training) {
+    auto pself = self.expect_contiguous();
+    auto pweight = weight.expect_contiguous();
+    return std::get<0>(at::native_fuse_rn_dropout(*pself, *pweight, ln_epsilon, p, training));
+}
+
+Tensor fuse_rn_add_dropout(
+    const Tensor& self,
+    const Tensor& other,
+    const Tensor& weight,
+    double ln_epsilon,
+    double p,
+    bool training) {
+    auto pself = self.expect_contiguous();
+    auto pother = other.expect_contiguous();
+    auto pweight = weight.expect_contiguous();
+    return std::get<0>(at::native_fuse_rn_add_dropout(*pself, *pother, *pweight, ln_epsilon, p, training));
+}
+
+Tensor fuse_rn_add_dropout_bias(
+    const Tensor& self,
+    const Tensor& other,
+    const Tensor& bias,
+    const Tensor& weight,
+    double ln_epsilon,
+    double p,
+    bool training) {
+    auto pself = self.expect_contiguous();
+    auto pother = other.expect_contiguous();
+    auto pweight = weight.expect_contiguous();
+    return std::get<0>(at::native_fuse_rn_add_dropout_bias(*pself, *pother, bias, *pweight, ln_epsilon, p, training));
 }
 
 Tensor fuse_ctc_loss(
