@@ -11,7 +11,7 @@ from typing import Union, List, Tuple
 
 __all__ = ['LocalResponseNorm', 'CrossMapLRN2d', 'LayerNorm', 'FuseLayerNorm', 'GroupNorm', 'FuseLnDropout', \
            'FuseLnAddDropoutBias', 'FuseLnAddDropout' 'FuseGroupNorm', 'FuseCeluGroupNorm', 'FuseGroupNormSilu', \
-           'FuseRMSNorm', 'FuseRNDropout', 'FuseRNAddDropout', 'FuseRNAddDropoutBias']
+           'RMSNorm', 'FuseRMSNorm', 'FuseRNDropout', 'FuseRNAddDropout', 'FuseRNAddDropoutBias']
 
 class LocalResponseNorm(Module):
     r"""Applies local response normalization over an input signal.
@@ -304,6 +304,19 @@ class FuseLnAddDropoutBias(Module):
 
     def extra_repr(self):
         return f'p={round(self.p,3):0.3f}, eps={round(self.eps,5):0.5f}'
+
+class RMSNorm(Module):
+    __constants__ = ['eps']
+    eps: float
+    def __init__(self, eps: float = 1e-5, device=None, dtype=None):
+        super(RMSNorm, self).__init__()
+        self.eps = eps
+
+    def forward(self, input, weight):
+        return F.fuse_rmsnorm(input, weight, self.eps, self.training)
+
+    def extra_repr(self):
+        return f'eps={round(self.eps,5):0.5f}'
 
 class FuseRMSNorm(Module):
     __constants__ = ["normalized_shape", 'eps']

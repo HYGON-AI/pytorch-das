@@ -20,7 +20,7 @@ from .batchnorm import BatchNorm1d, BatchNorm2d, BatchNorm3d, SyncBatchNorm, \
 from .instancenorm import InstanceNorm1d, InstanceNorm2d, InstanceNorm3d, \
     LazyInstanceNorm1d, LazyInstanceNorm2d, LazyInstanceNorm3d
 from .normalization import LocalResponseNorm, CrossMapLRN2d, LayerNorm, FuseLayerNorm, GroupNorm, FuseGroupNorm, FuseCeluGroupNorm, FuseLnDropout, \
-    FuseLnAddDropout, FuseLnAddDropoutBias, FuseGroupNormSilu, FuseRMSNorm, FuseRNDropout, FuseRNAddDropout, FuseRNAddDropoutBias
+    FuseLnAddDropout, FuseLnAddDropoutBias, FuseGroupNormSilu, FuseRMSNorm, RMSNorm, FuseRNDropout, FuseRNAddDropout, FuseRNAddDropoutBias
 from .dropout import Dropout, Dropout1d, Dropout2d, Dropout3d, AlphaDropout, FeatureAlphaDropout, \
      FuseBiasDropoutAdd, FuseDropoutAdd
 from .padding import ReflectionPad1d, ReflectionPad2d, ReflectionPad3d, ReplicationPad1d, ReplicationPad2d, \
@@ -62,7 +62,7 @@ __all__ = [
     'ConstantPad1d', 'ConstantPad2d', 'ConstantPad3d', 'Bilinear', 'CosineSimilarity', 'Unfold', 'Fold',
     'AdaptiveLogSoftmaxWithLoss', 'TransformerEncoder', 'TransformerDecoder', 'FuseRNDropout', 'FuseRNAddDropout',
     'TransformerEncoderLayer', 'TransformerDecoderLayer', 'Transformer', 'FuseRNAddDropoutBias',
-    'LazyLinear', 'LazyConv1d', 'LazyConv2d', 'LazyConv3d', 'FuseRMSNorm',
+    'LazyLinear', 'LazyConv1d', 'LazyConv2d', 'LazyConv3d', 'FuseRMSNorm', 'RMSNorm',
     'LazyConvTranspose1d', 'LazyConvTranspose2d', 'LazyConvTranspose3d',
     'LazyBatchNorm1d', 'LazyBatchNorm2d', 'LazyBatchNorm3d',
     'LazyInstanceNorm1d', 'LazyInstanceNorm2d', 'LazyInstanceNorm3d',

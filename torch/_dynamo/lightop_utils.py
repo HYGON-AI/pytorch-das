@@ -10,6 +10,7 @@ from torch._inductor.lightop import (patch_functions,
                                      fuse_groupnorm_silu_fusion,
                                      fuse_celu_groupnorm_fusion,
                                      fuse_groupnorm_fusion,
+                                     fuse_rmsnorm_fusion,
                                      fuselayernorm_replaces_layernorm)
 
 
@@ -26,4 +27,5 @@ def lightop_replace(gm: torch.fx.GraphModule):
         gm = fuse_celu_groupnorm_fusion(gm)
         gm = fuse_groupnorm_fusion(gm)
         gm = fuselayernorm_replaces_layernorm(gm)
+        gm = fuse_rmsnorm_fusion(gm)
     return gm
