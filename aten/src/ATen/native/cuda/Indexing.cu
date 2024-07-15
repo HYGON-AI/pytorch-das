@@ -914,11 +914,11 @@ void index_add_cuda_impl(const Tensor& self, int64_t dim, const Tensor& index, c
       selfAddDimSize, selfNumel, reduce_add, alpha_value);                  \
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
-  const dim3 smallIndexGrid(std::min(ceil_div(sliceSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
-  const dim3 smallIndexBlock(std::min(sliceSize, (ptrdiff_t)128));
+  const dim3 smallIndexGrid(std::min<ptrdiff_t>(ceil_div(sliceSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
+  const dim3 smallIndexBlock(std::min<ptrdiff_t>(sliceSize, (ptrdiff_t)128));
 
-  const dim3 largeIndexGrid(std::min(ceil_div(sourceTotalSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
-  const dim3 largeIndexBlock(std::min(sourceTotalSize, (ptrdiff_t)128));
+  const dim3 largeIndexGrid(std::min<ptrdiff_t>(ceil_div(sourceTotalSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
+  const dim3 largeIndexBlock(std::min<ptrdiff_t>(sourceTotalSize, (ptrdiff_t)128));
 
   if (cuda::detail::canUse32BitIndexMath(result) &&
       cuda::detail::canUse32BitIndexMath(source) &&
@@ -1087,11 +1087,11 @@ void index_reduce_func_cuda_impl(
       selfReduceDimSize, selfNumel, reduce_func, alpha_value);                           \
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
-  dim3 smallIndexGrid(std::min(ceil_div(sliceSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
-  dim3 smallIndexBlock(std::min(sliceSize, (ptrdiff_t)128));
+  dim3 smallIndexGrid(std::min<ptrdiff_t>(ceil_div(sliceSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
+  dim3 smallIndexBlock(std::min<ptrdiff_t>(sliceSize, (ptrdiff_t)128));
 
-  dim3 largeIndexGrid(std::min(ceil_div(sourceTotalSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
-  dim3 largeIndexBlock(std::min(sourceTotalSize, (ptrdiff_t)128));
+  dim3 largeIndexGrid(std::min<ptrdiff_t>(ceil_div(sourceTotalSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
+  dim3 largeIndexBlock(std::min<ptrdiff_t>(sourceTotalSize, (ptrdiff_t)128));
 
   if (cuda::detail::canUse32BitIndexMath(result) &&
       cuda::detail::canUse32BitIndexMath(source) &&
@@ -1381,11 +1381,11 @@ void index_select_out_cuda_impl(
       selfSelectDimSize);                                                      \
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
-  dim3 smallIndexGrid(std::min(ceil_div(sliceSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
-  dim3 smallIndexBlock(std::min(sliceSize, (ptrdiff_t)128));
+  dim3 smallIndexGrid(std::min<ptrdiff_t>(ceil_div(sliceSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
+  dim3 smallIndexBlock(std::min<ptrdiff_t>(sliceSize, (ptrdiff_t)128));
 
-  dim3 largeIndexGrid(std::min(ceil_div(outTotalSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
-  dim3 largeIndexBlock(outTotalSize > (ptrdiff_t)128 ? (ptrdiff_t)128 : outTotalSize);
+  dim3 largeIndexGrid(std::min(<ptrdiff_t>ceil_div(outTotalSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
+  dim3 largeIndexBlock(std::min<ptrdiff_t>(outTotalSize, (ptrdiff_t)128));
   if (cuda::detail::canUse32BitIndexMath(out) &&
       cuda::detail::canUse32BitIndexMath(self) &&
       cuda::detail::canUse32BitIndexMath(index)) {
