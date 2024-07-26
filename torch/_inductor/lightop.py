@@ -215,16 +215,12 @@ def rmsnorm_pattern(pattern: Iterable[Type], node: fx.Node, modules: Dict[str, A
        return False
     #rsqrt
     if node.args[0].args[1].op != "call_function":
-        print("1")
         return False
     if node.args[0].args[1].target is not pattern[3]:
-        print("2")
         return False
     if not isinstance(node.args[0].args[1], torch.fx.Node):
-        print("3")
         return False
     if len(node.args[0].args[1].users) > 1:
-        print("4")
         return False
     #add
     if node.args[0].args[1].args[0].op != "call_function":
@@ -252,6 +248,79 @@ def rmsnorm_pattern(pattern: Iterable[Type], node: fx.Node, modules: Dict[str, A
     if not isinstance(node.args[0].args[1].args[0].args[0].args[0], torch.fx.Node):
         return False
     if len(node.args[0].args[1].args[0].args[0].args[0].users) > 1:
+       return False
+    return True
+
+def rmsnorm_pattern_llama(pattern: Iterable[Type], node: fx.Node, modules: Dict[str, Any]):
+    if len(node.args) == 0:
+        return False
+    #mul
+    if node.op != "call_function":
+        return False
+    if node.target is not pattern[7]:
+        return False
+    if not isinstance(node, torch.fx.Node):
+        return False
+    #type_as()
+    if node.args[0].op != "call_method":
+        return False
+    if len(node.args[0].users) > 1:
+        return False
+    if node.args[0].target is not pattern[6]:
+        return False
+    #mul
+    if node.args[0].args[0].op != "call_function":
+        return False
+    if node.args[0].args[0].target is not pattern[5]:
+        return False
+    if not isinstance(node.args[0].args[0], torch.fx.Node):
+        return False
+    if len(node.args[0].args[0].users) > 1:
+       return False
+    #rsqrt
+    if node.args[0].args[0].args[1].op != "call_function":
+        return False
+    if node.args[0].args[0].args[1].target is not pattern[4]:
+        return False
+    if not isinstance(node.args[0].args[0].args[1], torch.fx.Node):
+        return False
+    if len(node.args[0].args[0].args[1].users) > 1:
+        return False
+    #add
+    if node.args[0].args[0].args[1].args[0].op != "call_function":
+        return False
+    if node.args[0].args[0].args[1].args[0].target is not pattern[3]:
+        return False
+    if not isinstance(node.args[0].args[0].args[1].args[0], torch.fx.Node):
+        return False
+    if len(node.args[0].args[0].args[1].args[0].users) > 1:
+       return False
+    #mean
+    if node.args[0].args[0].args[1].args[0].args[0].op != "call_method":
+        return False
+    if node.args[0].args[0].args[1].args[0].args[0].target is not pattern[2]:
+        return False
+    if not isinstance(node.args[0].args[0].args[1].args[0].args[0], torch.fx.Node):
+        return False
+    if len(node.args[0].args[0].args[1].args[0].args[0].users) > 1:
+       return False
+    #pow
+    if node.args[0].args[0].args[1].args[0].args[0].args[0].op != "call_method":
+        return False
+    if node.args[0].args[0].args[1].args[0].args[0].args[0].target is not pattern[1]:
+        return False
+    if not isinstance(node.args[0].args[0].args[1].args[0].args[0].args[0], torch.fx.Node):
+        return False
+    if len(node.args[0].args[0].args[1].args[0].args[0].args[0].users) > 1:
+       return False
+    #float
+    if node.args[0].args[0].args[1].args[0].args[0].args[0].args[0].op != "call_method":
+       return False
+    if node.args[0].args[0].args[1].args[0].args[0].args[0].args[0].target is not pattern[0]:
+       return False
+    if not isinstance(node.args[0].args[0].args[1].args[0].args[0].args[0].args[0], torch.fx.Node):
+       return False
+    if len(node.args[0].args[0].args[1].args[0].args[0].args[0].args[0].users) > 2:
        return False
     return True
 
@@ -541,6 +610,7 @@ def fuse_bias_silu_fusion(gm: torch.fx.GraphModule):
 
 def fuse_rmsnorm_fusion(gm: torch.fx.GraphModule):
     modules_patterns = [("pow", "mean", operator.add, torch.rsqrt, operator.mul, operator.mul),]
+    llama_patterns = [("float", "pow", "mean", operator.add, torch.rsqrt, operator.mul, "type_as", operator.mul),]
     modules = dict(gm.named_modules())
     for pattern in modules_patterns:
         for node in gm.graph.nodes:
@@ -569,7 +639,39 @@ def fuse_rmsnorm_fusion(gm: torch.fx.GraphModule):
                 gm.graph.erase_node(add_node)
                 gm.graph.erase_node(mean_node)
                 gm.graph.erase_node(pow_node)
-
+    gm.graph.lint()
+    for pattern in llama_patterns:
+        for node in gm.graph.nodes:
+            if rmsnorm_pattern_llama(pattern, node, modules):
+                mul_node = node
+                type_as_node = node.args[0]
+                mul_1_node = type_as_node.args[0]
+                rsqrt_node = mul_1_node.args[1]
+                add_node = rsqrt_node.args[0]
+                mean_node = add_node.args[0]
+                pow_node = mean_node.args[0]
+                float_node = pow_node.args[0]
+                if pow_node.args[0] != mul_1_node.args[0]:
+                    return gm
+                args_1 = list(float_node.args)[0]
+                eps = list(add_node.args)[1]
+                args_2 = list(mul_node.args)[1]
+                args = (args_1, args_2)
+                fuse_node = torch.nn.RMSNorm(eps=eps)
+                target_name = "rmsnorm_" + node.name.split("_")[-1]
+                print(f"target_name : {target_name}")
+                gm.add_submodule(target_name, fuse_node.to('cuda'))
+                with gm.graph.inserting_before(node):
+                    new_node = gm.graph.call_module(module_name=target_name, args=args)
+                node.replace_all_uses_with(new_node)
+                gm.graph.erase_node(mul_node)
+                gm.graph.erase_node(type_as_node)
+                gm.graph.erase_node(mul_1_node)
+                gm.graph.erase_node(rsqrt_node)
+                gm.graph.erase_node(add_node)
+                gm.graph.erase_node(mean_node)
+                gm.graph.erase_node(pow_node)
+                gm.graph.erase_node(float_node)
     gm.graph.lint()
     gm.recompile()
     return gm
