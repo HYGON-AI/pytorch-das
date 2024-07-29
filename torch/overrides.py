@@ -102,6 +102,18 @@ def get_ignored_functions() -> Set[Callable]:
     """
     Tensor = torch.Tensor
     return {
+        torch.fuse_bias_gelu,
+        torch.fuse_bias_swiglu,
+        torch.fuse_layer_norm,
+        torch.fuse_ln_dropout,
+        torch.native_fuse_bias_gelu,
+        torch.native_fuse_bias_swiglu,
+        torch.native_fuse_layer_norm,
+        torch.native_fuse_ln_dropout,
+        torch.nn.functional.fuse_bias_gelu,
+        torch.nn.functional.fuse_bias_swiglu,
+        torch.nn.functional.fuse_layer_norm,
+        torch.nn.functional.fuse_ln_dropout,
         torch.typename,
         torch.is_tensor,
         torch.is_storage,

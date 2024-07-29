@@ -4372,6 +4372,7 @@ class TestFunctionalTracing(JitTestCase):
     #                 internal exception above
     # Use the following map to override the expected exception for Python 3.8
     UNTRACEABLE_FUNCTIONALS_PY38 = {
+        "fuse_ln_dropout":ARG_TYPE_MISMATCH,
         "adaptive_max_pool1d": PROXY_ITERATED,
         "adaptive_max_pool2d": PROXY_ITERATED,
         "adaptive_max_pool3d": PROXY_ITERATED,
