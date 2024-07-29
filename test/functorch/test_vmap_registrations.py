@@ -31,6 +31,10 @@ xfail_functorch_batched_decomposition = {
 }
 
 xfail_not_implemented = {
+    "aten::fuse_bias_gelu",
+    "aten::fuse_bias_swiglu",
+    "aten::fuse_layer_norm",
+    "aten::fuse_ln_dropout",
     "aten::affine_grid_generator_backward",
     "aten::align_as",
     "aten::align_tensors",
