@@ -659,7 +659,6 @@ def fuse_rmsnorm_fusion(gm: torch.fx.GraphModule):
                 args = (args_1, args_2)
                 fuse_node = torch.nn.RMSNorm(eps=eps)
                 target_name = "rmsnorm_" + node.name.split("_")[-1]
-                print(f"target_name : {target_name}")
                 gm.add_submodule(target_name, fuse_node.to('cuda'))
                 with gm.graph.inserting_before(node):
                     new_node = gm.graph.call_module(module_name=target_name, args=args)
