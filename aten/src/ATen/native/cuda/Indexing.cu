@@ -1384,7 +1384,7 @@ void index_select_out_cuda_impl(
   dim3 smallIndexGrid(std::min<ptrdiff_t>(ceil_div(sliceSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
   dim3 smallIndexBlock(std::min<ptrdiff_t>(sliceSize, (ptrdiff_t)128));
 
-  dim3 largeIndexGrid(std::min(<ptrdiff_t>ceil_div(outTotalSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
+  dim3 largeIndexGrid(std::min<ptrdiff_t>(ceil_div(outTotalSize, (ptrdiff_t)128), (ptrdiff_t)(mpc * 8)));
   dim3 largeIndexBlock(std::min<ptrdiff_t>(outTotalSize, (ptrdiff_t)128));
   if (cuda::detail::canUse32BitIndexMath(out) &&
       cuda::detail::canUse32BitIndexMath(self) &&
