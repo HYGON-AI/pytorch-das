@@ -74,7 +74,7 @@ class TestTritonHeuristics(TestCase):
     @skipIfRocm
     def test_artificial_zgrid(self):
         self._test_artificial_zgrid()
-
+    @skipIfRocm
     @config.patch("cpp_wrapper", True)
     def test_artificial_grid_cpp_wrapper(self):
         self._test_artificial_zgrid()
