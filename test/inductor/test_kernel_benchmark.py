@@ -112,7 +112,7 @@ class TestKernelBenchmark(TestCase):
             return c
 
         f(a, b)
-        self.verify_compiled_kernels(GB_count=3)
+        self.verify_compiled_kernels(GB_count=1)
 
         # make sure we correctly generate the grid info
         compiled_module = self.get_compiled_module()
