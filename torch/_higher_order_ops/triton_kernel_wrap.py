@@ -95,7 +95,8 @@ def generate_ttir(kernel, kwargs):
     """
     Uses Triton's internal code generation to create TTIR
     """
-    from triton.compiler.compiler import ASTSource
+    from triton.compiler.code_generator import ast_to_ttir
+    from triton.common.backend import get_backend
     from triton.runtime.autotuner import Autotuner
     from triton.runtime.jit import JITFunction
 
@@ -144,21 +145,25 @@ def generate_ttir(kernel, kwargs):
         if i not in kernel.constexprs
     }
 
-    def get_backend():
-        from triton.compiler.backends.cuda import CUDABackend
-        from triton.runtime.driver import driver
+    # def get_backend():
+    #     from triton.compiler.backends.cuda import CUDABackend
+    #     from triton.runtime.driver import driver
 
-        target = driver.get_current_target()
-        return CUDABackend(target)
+    #     target = driver.get_current_target()
+    #     return CUDABackend(target)
 
-    backend = get_backend()
+    # backend = get_backend()
 
-    options = backend.parse_options(dict())
-    # triton._C.libtriton.triton.ir.load_dialects(context)
-    # backend.load_dialects(context)
+    # options = backend.parse_options(dict())
+    # # triton._C.libtriton.triton.ir.load_dialects(context)
+    # # backend.load_dialects(context)
 
-    src = ASTSource(kernel, signature, constants, specialization)
-    ttir_module = src.make_ir(options)
+    # src = ASTSource(kernel, signature, constants, specialization)
+    # ttir_module = src.make_ir(options)
+    _device_backend = get_backend("hip")
+    assert _device_backend
+    target = _device_backend.get_architecture_descriptor()
+    ttir_module = ast_to_ttir(kernel, signature, specialization, constants, debug=False, target=target)
     if not ttir_module.verify():
         raise Exception("Verification for TTIR module has failed")
 
@@ -344,15 +349,15 @@ def parse_ttir(ttir, kwargs):
 
         loc_line: "#loc" /.+/ NEWLINE
 
-        module_block: "module" "{" func_block+ "}" LOC
+        module_block: "module" "{" func_block+ "}" [LOC]
 
-        func_block: "tt.func" ("public"|"private") FN_NAME "(" /.+/ NEWLINE stmt* "}" LOC -> process_func
+        func_block: "tt.func" ("public"|"private") FN_NAME "(" /.+/ NEWLINE stmt* "}" [LOC] -> process_func
 
         ?stmt: op | if | for | while | condition_stmt | label_stmt | cf_stmt
 
-        if: [assign_lhs "="] "scf.if" args rest stmt* "}" "else" "{" stmt* "}" LOC -> process_if
-        for: [assign_lhs "="] "scf.for" args rest stmt* "}" divisibility_annot? LOC -> process_for
-        while: [assign_lhs "="] "scf.while" args rest stmt* "}" "do" "{" stmt* "}" LOC -> process_while
+        if: [assign_lhs "="] "scf.if" args rest stmt* "}" "else" "{" stmt* "}" [LOC] -> process_if
+        for: [assign_lhs "="] "scf.for" args rest stmt* "}" divisibility_annot? [LOC] -> process_for
+        while: [assign_lhs "="] "scf.while" args rest stmt* "}" "do" "{" stmt* "}" [LOC] -> process_while
 
         condition_stmt: "scf.condition" "(" arg ")" args rest
         label_stmt: LABEL ":" "// pred:" LABEL
