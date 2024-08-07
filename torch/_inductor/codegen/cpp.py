@@ -1345,8 +1345,8 @@ class CppVecOverrides(CppOverrides):
             torch.float16,
             torch.uint8,
             torch.int8,
-            #torch.int32,
-            #torch.int64,
+            torch.int32,
+            torch.int64,
         ], f"{__name__} does not support {dtype}"
         node: torch.fx.Node = V.interpreter.current_node
         assert node and isinstance(node, torch.fx.Node)
