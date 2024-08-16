@@ -72,14 +72,17 @@ def get_dcu_version(sha: Optional[str] = None) -> str:
     if sha != UNKNOWN:
         if sha is None:
             sha = get_sha(pytorch_root)
-        dcu_version += "+git" + sha[:7]
-    dcu_version += "." + get_abi()
+        #dcu_version += "+git" + sha[:7]
+    dcu_version += "+das.opt1"
+    #abi
+    #dcu_version += "." + get_abi()
     if os.getenv("ROCM_PATH"):
         rocm_path = os.getenv('ROCM_PATH', "")
         rocm_version_path = os.path.join(rocm_path, '.info', "rocm_version")
         with open(rocm_version_path, 'r',encoding='utf-8') as file:
             lines = file.readlines()
-        rocm_version=lines[0][:-2].replace(".", "")
+        rocm_version=lines[0].replace(".", "")
+        #rocm_version=lines[0][:-2].replace(".", "")
         dcu_version += ".dtk" + rocm_version
     if os.getenv('PYTORCH_CUSTOM_SUFFIX'):
         dcu_version += "." + str(os.getenv('PYTORCH_CUSTOM_SUFFIX'))
