@@ -29,7 +29,7 @@ PyTorch是一个基于Python的开源机器学习框架，以其强大的GPU加�
 
 ## 使用命令安装PyTorch
 
-工具安装使用 pip 方式，从光源社区 -DAS 中下载此工具的安装包。注意与 python 版本匹配
+工具安装使用 pip 方式，从[光源社区 -DAS](https://cancon.hpccube.com:65024/4/main/pytorch) 中下载此工具的安装包。注意与 python 版本匹配
 
 pip3 install torch-xxx.whl 
 
