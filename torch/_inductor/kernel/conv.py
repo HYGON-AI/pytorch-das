@@ -72,7 +72,7 @@ kernel_configs = [
     {"config": (64, 64, 32, 1, 4), "cond": True},
     {"config": (128, 32, 32, 1, 2), "cond": True},
 ]
-kernel_configs = kernel_configs if os.environ.get("PARTTUNE",'0')=='1' else config_gen()
+kernel_configs = kernel_configs if os.environ.get("PARTTUNE",'1')=='1' else config_gen()
 # Create filtered list of configs based on conv
 platform_configs = tuple(
     cast(Tuple[int, int, int, int, int], config["config"])
