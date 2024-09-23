@@ -1270,6 +1270,7 @@ def _reduction_configs(
         size_hints, 1, (rnumel if 256 <= rnumel < 2048 else 2048)
     )
     outer_config = triton_config_reduction(size_hints, 64, 8)
+    custom_config = triton_config_reduction(size_hints, 1, 4096)
     tiny_config = triton_config_reduction(
         size_hints, 2 * (256 // rnumel) if rnumel <= 256 else 1, min(rnumel, 2048)
     )
@@ -1287,6 +1288,7 @@ def _reduction_configs(
         contiguous_config,
         outer_config,
         tiny_config,
+        custom_config,
         triton_config_reduction(size_hints, 64, 64),
         triton_config_reduction(size_hints, 8, 512),
         # halve the XBLOCK/RBLOCK compared to outer_config
