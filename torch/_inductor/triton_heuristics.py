@@ -58,7 +58,7 @@ else:
     ASTSource = None
 
 
-_NUM_THREADS_PER_WARP = 32
+_NUM_THREADS_PER_WARP = 64
 
 
 class HeuristicType(Enum):
@@ -985,7 +985,7 @@ def check_config(cfg, *, xnumel=None, ynumel=None, znumel=None):
             f"TritonKernel.indexing assumes {label}BLOCK divides {max_block_str}"
             f" but {label}BLOCK={block} and {max_block_str}={max_block} (cfg={cfg})."
         )
-
+tune_pot_config = []
 
 def triton_config(
     size_hints,
@@ -993,7 +993,7 @@ def triton_config(
     y=None,
     z=None,
     num_stages=1,
-    num_elements_per_warp=256,
+    num_elements_per_warp=512,
     min_elem_per_thread=0,
 ) -> Config:
     """
@@ -1016,7 +1016,7 @@ def triton_config(
     # for a 2d size_hints [a, b], a should be mapped to YBLOCK rather than XBLOCK
     size_hints = list(reversed(size_hints))
 
-    maxGridSize = [2147483647, 65535, 65535]
+    maxGridSize = [2147483647, 2147483647, 2147483647]
 
     target = conditional_product(x, y, z)
     if conditional_product(*size_hints) < target:
@@ -1061,7 +1061,8 @@ def triton_config(
     # given that this is a rare situation, don't expect this to affect perf
     # in general
     # see https://github.com/pytorch/pytorch/pull/97950
-    num_warps = max(num_warps, 4) if conditional_product(x, y, z) >= 128 else num_warps
+    #num_warps = max(num_warps, 4) if conditional_product(x, y, z) >= 128 else num_warps
+    num_warps = max(num_warps, 8) if conditional_product(x, y, z) >= 128 else num_warps
     xnumel = size_hints[0]
     ynumel = size_hints[1] if y else None
     znumel = size_hints[2] if z else None
@@ -1079,6 +1080,8 @@ def triton_config(
     if z:
         cfg["ZBLOCK"] = z
     check_config(cfg, xnumel=xnumel, ynumel=ynumel, znumel=znumel)
+    if (num_warps == 4 and conditional_product(x, y, z) >= 128):
+        tune_pot_config.append(Config(cfg, num_warps=8, num_stages=num_stages))
     return Config(cfg, num_warps=num_warps, num_stages=num_stages)
 
 
@@ -1158,6 +1161,7 @@ def pointwise(
     """
     Construct @triton.heuristics() based on size_hints.
     """
+
     inductor_meta = {} if inductor_meta is None else inductor_meta
     assert not inductor_meta.get("no_x_dim")
 
@@ -1189,12 +1193,13 @@ def pointwise(
                 size_hints,
                 [
                     triton_config_with_settings(
-                        size_hints, bs, num_elements_per_warp=256
+                        size_hints, bs, num_elements_per_warp=512
                     ),
                     triton_config_with_settings(
-                        size_hints, bs // 2, num_elements_per_warp=64
+                        size_hints, bs // 2, num_elements_per_warp=128
                     ),
                     *hinted_configs,
+                    *tune_pot_config,
                 ],
                 triton_meta=triton_meta,
                 inductor_meta=inductor_meta,
@@ -1222,7 +1227,11 @@ def pointwise(
                 triton_config_with_settings(size_hints, 16, 256),
                 triton_config_with_settings(size_hints, bs, 1),
                 triton_config_with_settings(size_hints, 1, bs),
+
+                triton_config_with_settings(size_hints, 16, 64), # new
+                
                 *hinted_configs,
+                *tune_pot_config,
             ],
             triton_meta=triton_meta,
             inductor_meta=inductor_meta,
@@ -1250,6 +1259,7 @@ def pointwise(
                 triton_config_with_settings(size_hints, 1, bs, 1),
                 triton_config_with_settings(size_hints, 1, 1, bs),
                 *hinted_configs,
+                *tune_pot_config,
             ],
             triton_meta=triton_meta,
             inductor_meta=inductor_meta,
