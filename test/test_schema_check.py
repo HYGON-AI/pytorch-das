@@ -54,8 +54,8 @@ def skip_helper_fp64_onE100(device, dtype):
     if TEST_WITH_ROCM:
         if device_type == 'cuda':
             device_name=torch.cuda.get_device_properties(torch.cuda.current_device()).name
-            if "K100_AI" in device_name:
-                raise unittest.SkipTest("fp64 are not supported on K100_AI")
+            if "K100_AI" in device_name or "K500" in device_name:
+                raise unittest.SkipTest("fp64 are not supported on K100_AI or K500")
 ###
 
 class IncorrectAliasTensor(torch.Tensor):
