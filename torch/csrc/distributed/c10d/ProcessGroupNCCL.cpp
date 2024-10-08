@@ -400,6 +400,18 @@ const int64_t ProcessGroupNCCL::kWatchdogThreadSleepMillis = 100;
 constexpr int64_t kSynchronizeBusyWaitMillis = 10;
 thread_local uint64_t ProcessGroupNCCL::ncclActiveGroupCounter_ = 0;
 
+std::ostream& operator<<(std::ostream& os, const std::vector<uint64_t>& vec) {
+    os << "[";
+    for (size_t i = 0; i < vec.size(); ++i) {
+        os << vec[i];
+        if (i < vec.size() - 1) {
+            os << ", ";
+        }
+    }
+    os << "]";
+    return os;
+}
+
 std::ostream& operator<<(
     std::ostream& output,
     const ProcessGroupNCCL::WorkNCCL& workNCCL) {
@@ -699,7 +711,7 @@ void ProcessGroupNCCL::WorkNCCL::abort() {
 }
 
 static std::atomic<size_t> process_group_id = 0;
-
+char* nccl_group_info_enable_str = std::getenv("NCCL_GROUP_INFO");
 constexpr const char* MULTI_DEVICE_ERROR_MSG =
     "Expecting one tensor only but got multiple. You are probably using multiple "
     "devices under one thread. The support for such usage has been deprecated. "
@@ -2445,6 +2457,11 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::collective(
   } else {
     at::cuda::CUDAGraph::dec_pending_event_queries();
   }
+  if (nccl_group_info_enable_str != nullptr){
+    if(c10::stoi(nccl_group_info_enable_str) == 1){
+      std::cout <<"ProcessGroupNCCL collective info: "<< "PG: "<<uid_<<", global rank: "<<globalRank()<< ", group ranks: " << groupRanks() <<", OpType="<<opTypeToString(work->opType_) <<", size=" <<work->numelIn_<<", dtype="<<inputs[0].dtype()<<std::endl;
+    }
+  }
 
   return work;
 }
@@ -2803,6 +2820,12 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::pointToPoint(
 
   // Notify graphs before we check the capture status preemptively
   at::cuda::CUDAGraph::inc_pending_event_queries();
+
+  if (nccl_group_info_enable_str != nullptr){
+      if(c10::stoi(nccl_group_info_enable_str) == 1){
+        std::cout <<"ProcessGroupNCCL pointToPoint info: "<< "PG: "<<uid_<<", global rank: "<<globalRank()<< ", group ranks: " << groupRanks() <<", OpType="<<opTypeToString(work->opType_) <<", size=" <<work->numelIn_<<", dtype="<<tensor.dtype()<<std::endl;
+      }
+    }
 
   if (!coalescing_state_ && capture_status == c10::cuda::CaptureStatus::None) {
     workEnqueue(work);
