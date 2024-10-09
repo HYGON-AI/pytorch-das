@@ -73,7 +73,7 @@ def get_dcu_version(sha: Optional[str] = None) -> str:
         if sha is None:
             sha = get_sha(pytorch_root)
         #dcu_version += "+git" + sha[:7]
-    dcu_version += "+das.opt1"
+    dcu_version += "+das.opt2"
     #abi
     #dcu_version += "." + get_abi()
     if os.getenv("ROCM_PATH"):
