@@ -1146,6 +1146,40 @@ def hipify(
     hipify_extra_files_only: bool = False,
     clean_ctx: Optional[GeneratedFileCleaner] = None
 ) -> HipifyFinalResult:
+    use_fastpt = os.getenv("USE_FASTPT", "0")
+    if use_fastpt == "1":
+        try:
+            from fastpt import hipify
+            print("================================================================")
+            print("\033[1;32mUsing hipify from fastpt\033[0m")
+            print("================================================================")
+            return hipify(
+                project_directory=project_directory,
+                show_detailed=show_detailed,
+                extensions=extensions,
+                header_extensions=header_extensions,
+                output_directory=output_directory,
+                header_include_dirs=header_include_dirs,
+                includes=includes,
+                extra_files=extra_files,
+                out_of_place_only=out_of_place_only,
+                ignores=ignores,
+                show_progress=show_progress,
+                hip_clang_launch=hip_clang_launch,
+                is_pytorch_extension=is_pytorch_extension,
+                hipify_extra_files_only=hipify_extra_files_only,
+                clean_ctx=clean_ctx
+            )
+        except ImportError:
+            print("****************************************************************")
+            print("\033[1;31mFailed to import fastpt. Please install fastpt.\033[0m")
+            print("****************************************************************")
+            sys.exit(1)
+        except Exception as e:
+            print("****************************************************************")
+            print(f"\033[1;31mAn unexpected error occurred: {e}\033[0m")
+            print("****************************************************************")
+            sys.exit(1)
     if project_directory == "":
         project_directory = os.getcwd()
 
