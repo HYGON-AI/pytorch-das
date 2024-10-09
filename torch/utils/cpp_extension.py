@@ -959,6 +959,24 @@ def CppExtension(name, sources, *args, **kwargs):
         ...         'build_ext': BuildExtension
         ...     })
     """
+    use_fastpt_cppextension = os.getenv("USE_FASTPT_CPPEXTENSION", "0")
+    if use_fastpt_cppextension == "1":
+        try:
+            from fastpt import CppExtension
+            print("================================================================")
+            print("\033[1;32mUsing CppExtension from fastpt\033[0m")
+            print("================================================================")
+            return CppExtension(name, sources, *args, **kwargs)
+        except ImportError:
+            print("****************************************************************")
+            print("\033[1;31mFailed to import fastpt. Please install fastpt.\033[0m")
+            print("****************************************************************")
+            sys.exit(1)
+        except Exception as e:
+            print("****************************************************************")
+            print(f"\033[1;31mAn unexpected error occurred: {e}\033[0m")
+            print("****************************************************************")
+            sys.exit(1)
     include_dirs = kwargs.get('include_dirs', [])
     include_dirs += include_paths()
     kwargs['include_dirs'] = include_dirs
@@ -1080,6 +1098,24 @@ def CUDAExtension(name, sources, *args, **kwargs):
         ...        extra_compile_args={'cxx': ['-g'],
         ...                            'nvcc': ['-O2', '-rdc=true']})
     """
+    use_fastpt = os.getenv("USE_FASTPT", "0")
+    if use_fastpt == "1":
+        try:
+            from fastpt import CUDAExtension
+            print("================================================================")
+            print("\033[1;32mUsing CUDAExtension from fastpt\033[0m")
+            print("================================================================")
+            return CUDAExtension(name, sources, *args, **kwargs)
+        except ImportError:
+            print("****************************************************************")
+            print("\033[1;31mFailed to import fastpt. Please install fastpt.\033[0m")
+            print("****************************************************************")
+            sys.exit(1)
+        except Exception as e:
+            print("****************************************************************")
+            print(f"\033[1;31mAn unexpected error occurred: {e}\033[0m")
+            print("****************************************************************")
+            sys.exit(1)
     library_dirs = kwargs.get('library_dirs', [])
     library_dirs += library_paths(cuda=True)
     kwargs['library_dirs'] = library_dirs
