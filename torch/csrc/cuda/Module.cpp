@@ -157,6 +157,17 @@ PyObject* THCPModule_canDeviceAccessPeer_wrap(PyObject* self, PyObject* args) {
   END_HANDLE_TH_ERRORS
 }
 
+PyObject* THCPModule_getCurrentDeviceEcoInfo(PyObject* self, PyObject* arg){
+  HANDLE_TH_ERRORS
+  int device_index = static_cast<int64_t>(THPUtils_unpackLong(arg));
+  if (at::cuda::getCurrentDeviceEcoInfo(device_index)) {
+    Py_RETURN_TRUE;
+  } else {
+    Py_RETURN_FALSE;
+  }
+  END_HANDLE_TH_ERRORS
+}
+
 PyObject* THCPModule_getDeviceCount_wrap(PyObject* self, PyObject* noargs) {
   HANDLE_TH_ERRORS
   poison_fork();
@@ -1443,6 +1454,7 @@ static struct PyMethodDef _THCPModule_methods[] = {
      METH_VARARGS,
      nullptr},
     {"_cuda_getArchFlags", THCPModule_getArchFlags, METH_NOARGS, nullptr},
+    {"_getCurrentDeviceEcoInfo",THCPModule_getCurrentDeviceEcoInfo,METH_O,nullptr},
     {"_cuda_isInBadFork", THCPModule_isInBadFork, METH_NOARGS, nullptr},
     {"_cuda_getCurrentStream",
      THCPModule_getCurrentStream_wrap,

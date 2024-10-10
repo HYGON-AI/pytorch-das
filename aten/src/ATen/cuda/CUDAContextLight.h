@@ -92,4 +92,7 @@ TORCH_CUDA_CPP_API void clearCublasWorkspaces();
 TORCH_CUDA_CPP_API cusolverDnHandle_t getCurrentCUDASolverDnHandle();
 #endif
 
+#if defined(USE_ROCM)
+TORCH_CUDA_CPP_API bool getCurrentDeviceEcoInfo(int device);
+#endif
 } // namespace at::cuda

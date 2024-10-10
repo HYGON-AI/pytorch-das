@@ -459,6 +459,9 @@ def can_device_access_peer(device: _device_t, peer_device: _device_t) -> bool:
         raise AssertionError("Invalid peer device id")
     return torch._C._cuda_canDeviceAccessPeer(device, peer_device)
 
+def isCurrentDeviceEco(device: _device_t) -> bool:
+    device = _get_device_index(device, optional=True)
+    return torch._C._getCurrentDeviceEcoInfo(device)
 
 class StreamContext:
     r"""Context-manager that selects a given stream.

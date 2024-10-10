@@ -6,6 +6,9 @@
 #include <mutex>
 #include <deque>
 #include <vector>
+#ifdef USE_ROCM
+#include <rocm-core/rocm_version.h>
+#endif
 
 namespace at::cuda {
 
@@ -65,5 +68,18 @@ bool canDeviceAccessPeer(c10::DeviceIndex device, c10::DeviceIndex peer_device) 
 Allocator* getCUDADeviceAllocator() {
   return c10::cuda::CUDACachingAllocator::get();
 }
+
+bool getCurrentDeviceEcoInfo(int device){
+#if defined(USE_ROCM) && ROCM_VERSION_ECO==1
+  int eco_info;
+  hipDeviceAttribute_t attr = hipDeviceAttributeEcoInfo;
+  hipError_t result = hipGetDevice(&device);
+  result = hipDeviceGetAttribute(&eco_info, attr, device);
+  return eco_info ==1;
+#else
+TORCH_WARN("Please compile pytorch with dtk24.04.3 or later, the current version does not support eco info capture.");
+  return false;
+}
+#endif
 
 } // namespace at::cuda
