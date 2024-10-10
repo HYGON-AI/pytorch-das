@@ -1279,7 +1279,7 @@ def reduction_num_outputs(reduction_type):
 
 
 def get_max_y_grid():
-    return 65535
+    return 2147483647
 
 
 def is_linux() -> bool:
