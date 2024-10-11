@@ -719,6 +719,11 @@ constexpr const char* MULTI_DEVICE_ERROR_MSG =
     "https://pytorch.org/docs/stable/distributed.html#multi-gpu-collective-functions. "
     "ProcessGroupNCCL continues supporting multi-process and multi-thread modes.";
 
+bool isAllreduceStreamWithComputeEnabled() {
+    const char* env = std::getenv("ALLREDUCE_STREAM_WITH_COMPUTE");
+    return env && std::string(env) == "1";
+}
+
 ProcessGroupNCCL::ProcessGroupNCCL(
     const c10::intrusive_ptr<Store>& store,
     int rank,
@@ -2346,8 +2351,14 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::collective(
   // Used many times below, so we stash the unordered_map lookup
   auto ncclStream = ncclStreams_.at(key);
 
-  // First let NCCL streams wait for input tensors allocation streams
-  syncStream(device, ncclEvents_[key], ncclStream);
+  if (!(opType == c10d::OpType::ALLREDUCE && isAllreduceStreamWithComputeEnabled())){
+    // First let NCCL streams wait for input tensors allocation streams
+    syncStream(device, ncclEvents_[key], ncclStream);
+  } else {
+    // Enable ALLREDUCE and compute in the same stream using ALLREDUCE_STREAM_WITH_COMPUTE=1
+    ncclStream = at::cuda::getCurrentCUDAStream(input.device().index())
+  }
+
 
   std::vector<at::Tensor> inputs{input};
   std::vector<at::Tensor> outputs{output};
@@ -2948,7 +2959,33 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::allreduce_sparse(
 c10::intrusive_ptr<Work> ProcessGroupNCCL::allreduce_impl(
     at::Tensor& tensor,
     const AllreduceOptions& opts) {
-  return collective(
+  if (isAllreduceStreamWithComputeEnabled()){
+    return collective(
+      tensor,
+      tensor,
+      [&](at::Tensor& input,
+          at::Tensor& output,
+          ncclComm_t comm,
+          at::cuda::CUDAStream& stream) {
+        auto ncclDataType = getNcclDataType(input.scalar_type());
+        auto ncclReduceOp =
+            getNcclReduceOp(opts.reduceOp, input, ncclDataType, comm);
+	int device = input.device().index();
+	const auto localstream =at::cuda::getCurrentCUDAStream(device);
+        return ncclAllReduce(
+            input.data_ptr(),
+            output.data_ptr(),
+            input.numel(),
+            ncclDataType,
+            ncclReduceOp,
+            comm,
+            localstream.stream());
+      },
+      OpType::ALLREDUCE,
+      "nccl:all_reduce");
+
+  } else{
+    return collective(
       tensor,
       tensor,
       [&](at::Tensor& input,
@@ -2969,6 +3006,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::allreduce_impl(
       },
       OpType::ALLREDUCE,
       "nccl:all_reduce");
+  }
 }
 
 c10::intrusive_ptr<Work> ProcessGroupNCCL::allreduce(
