@@ -2356,7 +2356,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::collective(
     syncStream(device, ncclEvents_[key], ncclStream);
   } else {
     // Enable ALLREDUCE and compute in the same stream using ALLREDUCE_STREAM_WITH_COMPUTE=1
-    ncclStream = at::cuda::getCurrentCUDAStream(input.device().index())
+    ncclStream = at::cuda::getCurrentCUDAStream(input.device().index());
   }
 
 
