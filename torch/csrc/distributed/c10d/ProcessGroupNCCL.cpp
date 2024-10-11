@@ -2352,13 +2352,13 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::collective(
   auto ncclStream = ncclStreams_.at(key);
 
   if (!(opType == c10d::OpType::ALLREDUCE && isAllreduceStreamWithComputeEnabled())){
+    // First let NCCL streams wait for input tensors allocation streams
     syncStream(device, ncclEvents_[key], ncclStream);
   } else {
+    // Enable ALLREDUCE and compute in the same stream using ALLREDUCE_STREAM_WITH_COMPUTE=1
     auto ncclStream = at::cuda::getCurrentCUDAStream(input.device().index())
   }
 
-  // First let NCCL streams wait for input tensors allocation streams
-  syncStream(device, ncclEvents_[key], ncclStream);
 
   std::vector<at::Tensor> inputs{input};
   std::vector<at::Tensor> outputs{output};
