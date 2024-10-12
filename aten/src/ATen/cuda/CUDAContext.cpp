@@ -79,7 +79,7 @@ bool getCurrentDeviceEcoInfo(int device){
 #else
 TORCH_WARN("Please compile pytorch with dtk24.04.3 or later, the current version does not support eco info capture.");
   return false;
-}
 #endif
+}
 
 } // namespace at::cuda
