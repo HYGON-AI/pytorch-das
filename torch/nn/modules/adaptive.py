@@ -1,3 +1,4 @@
+# mypy: allow-untyped-defs
 
 from collections import namedtuple
 
@@ -16,13 +17,13 @@ _ASMoutput = namedtuple('_ASMoutput', ['output', 'loss'])
 
 
 class AdaptiveLogSoftmaxWithLoss(Module):
-    r"""Efficient softmax approximation.
+    """Efficient softmax approximation.
 
     As described in
     `Efficient softmax approximation for GPUs by Edouard Grave, Armand Joulin,
-    Moustapha Cissé, David Grangier, and Hervé Jégou
+    Moustapha Ciss\u00e9, David Grangier, and Herv\u00e9 J\u00e9gou
     <https://arxiv.org/abs/1609.04309>`__.
-
+""" r"""
     Adaptive softmax is an approximate strategy for training models with large
     output spaces. It is most effective when the label distribution is highly
     imbalanced, for example in natural language modelling, where the word

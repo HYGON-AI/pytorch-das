@@ -1,3 +1,4 @@
+# mypy: allow-untyped-defs
 import fnmatch
 import functools
 import inspect
@@ -18,6 +19,10 @@ __all__ = [
     "match_masks",
     "validate_pathname_binary_tuple",
 ]
+
+
+# BC for torchdata
+DILL_AVAILABLE = dill_available()
 
 
 def validate_input_col(fn: Callable, input_col: Optional[Union[int, tuple, list]]):

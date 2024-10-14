@@ -159,7 +159,7 @@ function install_torchvision() {
 }
 
 function install_tlparse() {
-  pip_install --user "tlparse==0.3.5"
+  pip_install --user "tlparse==0.3.7"
   PATH="$(python -m site --user-base)/bin:$PATH"
 }
 
@@ -178,7 +178,7 @@ function install_torchrec_and_fbgemm() {
 
 function clone_pytorch_xla() {
   if [[ ! -d ./xla ]]; then
-    git clone --recursive -b r2.3 https://github.com/pytorch/xla.git
+    git clone --recursive -b r2.4 https://github.com/pytorch/xla.git
     pushd xla
     # pin the xla hash so that we don't get broken by changes to xla
     git checkout "$(cat ../.github/ci_commit_pins/xla.txt)"

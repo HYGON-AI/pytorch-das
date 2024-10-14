@@ -13,7 +13,6 @@ from torch.testing._internal.common_utils import (
     skipIfRocm,
     slowTest,
     TEST_WITH_ASAN,
-    TestCase as TorchTestCase,
 )
 
 from torch.testing._internal.inductor_utils import HAS_CPU, HAS_CUDA
@@ -41,7 +40,7 @@ if IS_WINDOWS and IS_CI:
 from inductor.test_torchinductor import check_model, check_model_cuda, copy_tests
 
 
-class TestCase(TorchTestCase):
+class TestCase(InductorTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -204,7 +203,7 @@ if HAS_CUDA and not TEST_WITH_ASAN:
                     {
                         "benchmark_kernel": True,
                         "benchmark_fusion": True,
-                        "benchmark_multi_templates": True,
+                        "benchmark_epilogue_fusion": True,
                     }
                 )
             )
@@ -232,7 +231,7 @@ if HAS_CUDA and not TEST_WITH_ASAN:
 
             torch._dynamo.reset()
             with unittest.mock.patch.object(
-                torch._inductor.config, "benchmark_multi_templates", False
+                torch._inductor.config, "benchmark_epilogue_fusion", False
             ):
                 foo_c = torch.compile(mode="max-autotune-no-cudagraphs")(foo)
                 with torch.no_grad():
@@ -305,7 +304,7 @@ if HAS_CPU and not torch.backends.mps.is_available():
     copy_tests(BenchmarkFusionTestTemplate, BenchmarkFusionCpuTest, "cpu")
 
 if __name__ == "__main__":
-    from torch._dynamo.test_case import run_tests
+    from torch._inductor.test_case import run_tests
 
     if HAS_CPU or HAS_CUDA:
         run_tests()

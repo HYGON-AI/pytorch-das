@@ -29,27 +29,6 @@ def check_and_replace(inp: str, src: str, dst: str) -> str:
     return inp.replace(src, dst)
 
 
-def patch_setup_py(
-    path: Path,
-    *,
-    version: str,
-    name: str = "triton",
-    expected_version: Optional[str] = None,
-) -> None:
-    with open(path) as f:
-        orig = f.read()
-    # Replace name
-    orig = check_and_replace(orig, 'name="triton",', f'name="{name}",')
-    # Replace version
-    if not expected_version:
-        expected_version = read_triton_version()
-    orig = check_and_replace(
-        orig, f'version="{expected_version}",', f'version="{version}",'
-    )
-    with open(path, "w") as f:
-        f.write(orig)
-
-
 def patch_init_py(
     path: Path, *, version: str, expected_version: Optional[str] = None
 ) -> None:
@@ -89,11 +68,10 @@ def build_triton(
     with TemporaryDirectory() as tmpdir:
         triton_basedir = Path(tmpdir) / "triton"
         triton_pythondir = triton_basedir / "python"
+        triton_repo = "https://github.com/openai/triton"
         if build_rocm:
-            triton_repo = "https://github.com/ROCmSoftwarePlatform/triton"
             triton_pkg_name = "pytorch-triton-rocm"
         else:
-            triton_repo = "https://github.com/openai/triton"
             triton_pkg_name = "pytorch-triton"
         check_call(["git", "clone", triton_repo], cwd=tmpdir)
         if release:
@@ -163,14 +141,11 @@ def build_triton(
         )
 
         if build_rocm:
-            # TODO: Remove me when ROCM triton is updated
-            patch_setup_py(
-                triton_pythondir / "setup.py",
-                name=triton_pkg_name,
-                version=f"{version}",
-                expected_version=None,
+            check_call(
+                [f"{SCRIPT_DIR}/amd/package_triton_wheel.sh"],
+                cwd=triton_basedir,
+                shell=True,
             )
-            check_call("scripts/amd/setup_rocm_libs.sh", cwd=triton_basedir, shell=True)
             print("ROCm libraries setup for triton installation...")
 
         check_call(
@@ -181,7 +156,10 @@ def build_triton(
         shutil.copy(whl_path, Path.cwd())
 
         if build_rocm:
-            check_call("scripts/amd/fix_so.sh", cwd=triton_basedir, shell=True)
+            check_call(
+                [f"{SCRIPT_DIR}/amd/patch_triton_wheel.sh", Path.cwd()],
+                cwd=triton_basedir,
+            )
 
         return Path.cwd() / whl_path.name
 
