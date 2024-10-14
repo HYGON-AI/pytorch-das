@@ -2,15 +2,15 @@ name,accuracy,graph_breaks
 
 
 
+torchrec_dlrm,fail_to_run,3
+
+
+
 BERT_pytorch,pass,6
 
 
 
 Background_Matting,pass_due_to_skip,0
-
-
-
-DALLE2_pytorch,eager_fail_to_run,0
 
 
 
@@ -162,10 +162,6 @@ moco,pass,11
 
 
 
-moondream,model_fail_to_load,0
-
-
-
 nanogpt,pass,7
 
 
@@ -194,7 +190,7 @@ pytorch_stargan,pass,6
 
 
 
-pytorch_unet,pass,7
+pytorch_unet,pass_due_to_skip,7
 
 
 
@@ -278,7 +274,7 @@ vgg16,pass,6
 
 
 
-vision_maskrcnn,pass,33
+vision_maskrcnn,pass,34
 
 
 

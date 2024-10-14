@@ -51,7 +51,7 @@ __all__ = [
     'ParameterList', 'ParameterDict', 'AvgPool1d', 'AvgPool2d', 'AvgPool3d', 'MaxPool1d', 'MaxPool2d',
     'MaxPool3d', 'MaxUnpool1d', 'MaxUnpool2d', 'MaxUnpool3d', 'FractionalMaxPool2d', "FractionalMaxPool3d",
     'LPPool1d', 'LPPool2d', 'LPPool3d', 'LocalResponseNorm', 'BatchNorm1d', 'BatchNorm2d', 'BatchNorm3d',
-    'InstanceNorm1d', 'InstanceNorm2d', 'InstanceNorm3d', 'LayerNorm', 'FuseLayerNorm', "FuseLnDropout", 'GroupNorm', 'SyncBatchNorm',
+    'InstanceNorm1d', 'InstanceNorm2d', 'InstanceNorm3d', 'LayerNorm', 'FuseLayerNorm', "FuseLnDropout", 'GroupNorm', 'RMSNorm', 'SyncBatchNorm',
     'FuseLnAddDropout', 'FuseLnAddDropoutBias', 'FuseDropoutAdd', 'FuseGroupNorm', 'FuseCeluGroupNorm', 'FuseGroupNormSilu',
     'Dropout', 'Dropout1d', 'Dropout2d', 'Dropout3d', 'AlphaDropout', 'FeatureAlphaDropout', 'FuseBiasDropoutAdd',
     'ReflectionPad1d', 'ReflectionPad2d', 'ReflectionPad3d', 'ReplicationPad2d', 'ReplicationPad1d', 'ReplicationPad3d',

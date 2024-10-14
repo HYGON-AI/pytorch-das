@@ -27,6 +27,7 @@ struct CUDAHooks : public at::CUDAHooksInterface {
   bool hasMAGMA() const override;
   bool hasCuDNN() const override;
   bool hasCuSOLVER() const override;
+  bool hasCuBLASLt() const override;
   bool hasROCM() const override;
   const at::cuda::NVRTC& nvrtc() const override;
   DeviceIndex current_device() const override;
@@ -48,6 +49,9 @@ struct CUDAHooks : public at::CUDAHooksInterface {
   int64_t cuFFTGetPlanCacheSize(DeviceIndex device_index) const override;
   void cuFFTClearPlanCache(DeviceIndex device_index) const override;
   int getNumGPUs() const override;
+#ifdef USE_ROCM
+  bool isGPUArch(DeviceIndex device_index, const std::vector<std::string>& archs) const override;
+#endif
   void deviceSynchronize(DeviceIndex device_index) const override;
 };
 

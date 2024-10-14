@@ -38,15 +38,19 @@ jobs:
       matrix:
         runner: [linux.12xlarge]
         docker-image-name: [
-          pytorch-linux-focal-cuda12.1-cudnn8-py3-gcc9,
-          pytorch-linux-focal-cuda12.1-cudnn8-py3-gcc9-inductor-benchmarks,
-          pytorch-linux-focal-cuda11.8-cudnn8-py3-gcc9,
+          pytorch-linux-focal-cuda12.4-cudnn9-py3-gcc9,
+          pytorch-linux-focal-cuda12.4-cudnn9-py3-gcc9-inductor-benchmarks,
+          pytorch-linux-focal-cuda12.4-cudnn9-py3.12-gcc9-inductor-benchmarks,
+          pytorch-linux-focal-cuda12.1-cudnn9-py3-gcc9,
+          pytorch-linux-focal-cuda12.1-cudnn9-py3-gcc9-inductor-benchmarks,
+          pytorch-linux-focal-cuda12.1-cudnn9-py3.12-gcc9-inductor-benchmarks,
+          pytorch-linux-focal-cuda11.8-cudnn9-py3-gcc9,
           pytorch-linux-focal-py3.8-clang10,
           pytorch-linux-focal-py3.11-clang10,
           pytorch-linux-focal-py3.12-clang10,
           pytorch-linux-focal-rocm-n-1-py3,
           pytorch-linux-focal-rocm-n-py3,
-          pytorch-linux-jammy-cuda11.8-cudnn8-py3.8-clang12,
+          pytorch-linux-jammy-cuda11.8-cudnn9-py3.8-clang12,
           pytorch-linux-focal-py3-clang9-android-ndk-r21e,
           pytorch-linux-jammy-py3.8-gcc11,
           pytorch-linux-jammy-py3.8-gcc11-inductor-benchmarks,
@@ -54,7 +58,7 @@ jobs:
           pytorch-linux-jammy-py3-clang15-asan,
           pytorch-linux-focal-py3-clang10-onnx,
           pytorch-linux-focal-linter,
-          pytorch-linux-jammy-cuda11.8-cudnn8-py3.9-linter,
+          pytorch-linux-jammy-cuda11.8-cudnn9-py3.9-linter,
           pytorch-linux-jammy-py3-clang12-executorch
           ]
         include:
@@ -74,21 +78,21 @@ jobs:
       # [see note: pytorch repo ref]
       # deep clone (fetch-depth 0) required for git merge-base
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.3
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.4
 
       - name: Setup Linux
         uses: ./.github/actions/setup-linux
 
       - name: Build docker image
         id: build-docker-image
-        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.3
+        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.4
         with:
           docker-image-name: ${{ matrix.docker-image-name }}
           always-rebuild: true
           push: true
 
       - name: Pull docker image
-        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.3
+        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.4
         with:
           docker-image: ${{ steps.build-docker-image.outputs.docker-image }}
 
@@ -120,5 +124,5 @@ jobs:
         if: always()
 
       - name: Teardown Linux
-        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.3
+        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.4
         if: always()

@@ -3,7 +3,6 @@
 #include <c10/util/CallOnce.h>
 
 #include <ATen/cuda/CUDAConfig.h>
-#include <mutex>
 #include <deque>
 #include <vector>
 #ifdef USE_ROCM
@@ -26,7 +25,7 @@ void initCUDAContextVectors() {
 }
 
 void initDeviceProperty(DeviceIndex device_index) {
-  cudaDeviceProp device_prop;
+  cudaDeviceProp device_prop{};
   AT_CUDA_CHECK(cudaGetDeviceProperties(&device_prop, device_index));
   device_properties[device_index] = device_prop;
 }
