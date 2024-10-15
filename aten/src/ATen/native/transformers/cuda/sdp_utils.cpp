@@ -218,7 +218,8 @@ bool check_mem_efficient_hardware_support(sdp_params const& params, bool debug) 
   using sm50 = SMVersion<5, 0>;
   using sm90 = SMVersion<9, 0>;
 #if USE_ROCM
-  auto stream = at::cuda::getCurrentCUDAStream().stream();
+  return false;
+  /*auto stream = at::cuda::getCurrentCUDAStream().stream();
   if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
       auto dprops = at::cuda::getCurrentDeviceProperties();
       if (debug) {
@@ -226,7 +227,7 @@ bool check_mem_efficient_hardware_support(sdp_params const& params, bool debug) 
                   "Mem Efficient attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
       }
       return false;
-  }
+  }*/
 #else
   auto dprops = at::cuda::getCurrentDeviceProperties();
   if (!check_sm_version<sm50, sm90>(dprops)) {
