@@ -68,7 +68,7 @@ def create_bandwidth_info_str(ms, num_gb, gb_per_s, prefix="", suffix="", color=
 
 
 def get_max_y_grid():
-    return 2147483647
+    return 65535
 
 
 def do_bench(fn, fn_args, fn_kwargs, **kwargs):

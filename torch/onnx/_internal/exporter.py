@@ -966,7 +966,6 @@ class ONNXProgram:
         This method replays the adapting steps recorded during export.
 
         Args:
-            model: The PyTorch model to get extra state from.
             model_outputs: The PyTorch model outputs.
             model_with_state_dict: The PyTorch model to get extra state from.
                 If not specified, the model used during export is used.
