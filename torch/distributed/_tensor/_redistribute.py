@@ -6,6 +6,7 @@ from typing import cast, Dict, List, NamedTuple, Tuple
 import torch
 import torch.distributed._functional_collectives as funcol
 import torch.distributed._tensor.api as dtensor
+from torch.distributed._tensor.device_mesh import DeviceMesh
 from torch.distributed._tensor.placement_types import (
     DTensorSpec,
     Partial,
@@ -14,7 +15,6 @@ from torch.distributed._tensor.placement_types import (
     Shard,
     TensorMeta,
 )
-from torch.distributed.device_mesh import DeviceMesh
 
 
 class _TransformInfo(NamedTuple):

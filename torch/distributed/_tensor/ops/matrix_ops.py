@@ -22,8 +22,6 @@ from torch.distributed._tensor.placement_types import (
 
 from torch.distributed.device_mesh import DeviceMesh
 
-from torch.distributed.device_mesh import DeviceMesh
-
 aten = torch.ops.aten
 
 

@@ -468,8 +468,7 @@ else:
                     if i != j:
                         raise KeyError(error_msg)
 
-            mesh_dim = _mesh_resources.get_mesh_dim_by_name(self, mesh_dim_name)
-            submesh = _mesh_resources.create_child_mesh(self, mesh_dim, mesh_dim_name)
+            submesh = _mesh_resources.create_child_mesh(self, mesh_dim_names)
             return submesh
 
         def get_group(self, mesh_dim: Optional[Union[int, str]] = None) -> ProcessGroup:
