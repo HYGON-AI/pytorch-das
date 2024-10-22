@@ -481,6 +481,10 @@ if(NOT EMSCRIPTEN AND NOT INTERN_BUILD_MOBILE)
   endif()
 endif()
 
+if(USE_ROCM AND USE_FLASH_ATTENTION)
+  list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/cutlass/include)
+endif()
+
 if(USE_CUDA AND NOT USE_ROCM)
   list(APPEND ATen_CUDA_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/cutlass/include)
   if($ENV{ATEN_STATIC_CUDA})

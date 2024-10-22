@@ -19,11 +19,11 @@
 #include <c10/core/SymInt.h>
 #include <c10/util/string_view.h>
 
-//#if USE_ROCM
-#if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION)
+/*if USE_ROCM
+/*if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION)
 #include <aotriton/flash.h>
 #endif
-
+*/
 /**
 * Note [SDPA Runtime Dispatch]
 * SDPA relies on a runtime dispatch mechanism to select the appropriate
@@ -186,7 +186,7 @@ bool check_flash_attention_hardware_support(sdp_params const& params, bool debug
   using sm80 = SMVersion<8, 0>;
   using sm90 = SMVersion<9, 0>;
 #if USE_ROCM
-  return false;
+  return true;
   /*auto stream = at::cuda::getCurrentCUDAStream().stream();
   if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
       auto dprops = at::cuda::getCurrentDeviceProperties();
