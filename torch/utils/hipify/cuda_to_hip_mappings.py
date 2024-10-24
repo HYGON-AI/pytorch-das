@@ -1,5 +1,6 @@
 import collections
-
+import os
+import subprocess
 from .constants import (API_BLAS, API_C10, API_CAFFE2, API_DRIVER, API_FFT,
                         API_PYTORCH, API_RAND, API_ROCTX, API_RTC, API_RUNTIME,
                         API_SPECIAL, API_ROCMSMI, CONV_CACHE, CONV_CONTEXT, CONV_D3D9,
@@ -23,6 +24,19 @@ Each of the entries in these maps translates a CUDA string to a tuple containing
 ROCm/HIP string, a type and API annotation and - optionally - an annotation if it is not
 supported in ROCm/HIP yet.
 """
+rocm_path = os.environ.get('ROCM_HOME') or os.environ.get('ROCM_PATH') or "/opt/rocm"
+try:
+    rocm_path = subprocess.check_output(["hipconfig", "--rocmpath"]).decode("utf-8")
+except subprocess.CalledProcessError:
+    print(f"Warning: hipconfig --rocmpath failed, assuming {rocm_path}")
+except (FileNotFoundError, PermissionError, NotADirectoryError):
+    # Do not print warning. This is okay. This file can also be imported for non-ROCm builds.
+    pass
+
+rocm_version = (0, 0, 0)
+rocm_version_h = f"{rocm_path}/include/rocm-core/rocm_version.h"
+if not os.path.isfile(rocm_version_h):
+    rocm_version_h = f"{rocm_path}/include/rocm_version.h"
 
 # List of math functions that should be replaced inside device code only.
 MATH_TRANSPILATIONS = collections.OrderedDict(
@@ -7742,8 +7756,8 @@ CUDA_IDENTIFIER_MAP = collections.OrderedDict(
                 HIP_UNSUPPORTED,
             ),
         ),
-        ("cuComplex", ("hipComplex", CONV_TYPE, API_BLAS)),
-        ("cuDoubleComplex", ("hipDoubleComplex", CONV_TYPE, API_BLAS)),
+        ("cuComplex", ("hipComplex" if rocm_version >= (6, 0, 0) else "hipblasComplex", CONV_TYPE, API_BLAS)),
+        ("cuDoubleComplex", ("hipDoubleComplex" if rocm_version >= (6, 0, 0) else "hipblasDoubleComplex", CONV_TYPE, API_BLAS)),
         ("cufftResult_t", ("hipfftResult_t", CONV_TYPE, API_FFT)),
         ("cufftResult", ("hipfftResult", CONV_TYPE, API_FFT)),
         ("CUFFT_SUCCESS", ("HIPFFT_SUCCESS", CONV_NUMERIC_LITERAL, API_FFT)),

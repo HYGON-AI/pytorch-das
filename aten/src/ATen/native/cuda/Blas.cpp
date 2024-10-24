@@ -6,8 +6,10 @@
 #include <ATen/OpMathType.h>
 #include <ATen/TensorUtils.h>
 #include <ATen/cuda/CUDABlas.h>
+#if ROCM_VERSION >= 50704
 #include <ATen/cuda/tunable/Tunable.h>
 #include <ATen/cuda/tunable/TunableGemm.h>
+#endif
 #include <ATen/native/Resize.h>
 #include <c10/util/MaybeOwned.h>
 
@@ -177,6 +179,8 @@ cuda::blas::GEMMAndBiasActivationEpilogue activation_to_gemm_and_blas_arg(Activa
 static bool getDisableAddmmCudaLt() {
     static const char* env_value = std::getenv("DISABLE_ADDMM_CUDA_LT");
 #ifdef USE_ROCM
+    return false;
+    /*
     // if we enable tunable op, it'll take priority over just hipblaslt (heuristics)
     // note the current tunable op is not the hipblaslt path (gemm_and_bias)
     auto tuning_ctx = at::cuda::tunable::getTuningContext();
@@ -191,7 +195,7 @@ static bool getDisableAddmmCudaLt() {
     if (env_value != nullptr && strcmp(env_value, "0") == 0) {
       return false;
     }
-    return true;
+    return true;*/
 #else
     if (env_value != nullptr && strcmp(env_value, "1") == 0) {
       return true;
@@ -771,7 +775,7 @@ Tensor& _int_mm_out_cuda(const Tensor& self, const Tensor& mat2, Tensor& result)
 
   TORCH_CHECK(result.is_contiguous(), "Expected result to be contiguous.");
 
-#if (defined(CUDA_VERSION) && (CUDA_VERSION >= 11070)) || defined(USE_ROCM)
+#if (defined(CUDA_VERSION) && (CUDA_VERSION >= 11070)) || (defined(USE_ROCM) && ROCM_VERSION >= 60000)
   cublasCommonArgs args(self, mat2, result);
 
   at::cuda::blas::int8_gemm(
@@ -915,6 +919,9 @@ _scaled_mm_out_cuda(const Tensor& mat1, const Tensor& mat2,
   const auto out_dtype_ = args.result->scalar_type();
   TORCH_CHECK(args.transa == 't' && args.transb == 'n', "Only multiplication of row-major and column-major matrices is supported by cuBLASLt");
 #ifdef USE_ROCM
+  TORCH_CHECK(false, "_scaled_mm_out_cuda is not compiled for this platform.");
+#endif
+  /*
   auto tuning_ctx = at::cuda::tunable::getTuningContext();
   if (tuning_ctx->IsTunableOpEnabled()) {
 #define TUNABLE_DISPATCH(BLASOP_A, BLASOP_B)                            \
@@ -1031,7 +1038,7 @@ _scaled_mm_out_cuda(const Tensor& mat1, const Tensor& mat2,
   amax = at::max(at::abs(out.to(kFloat)));
 #endif
 
-  return {out, amax};
+  return {out, amax};*/
 }
 
 std::tuple<Tensor, Tensor>

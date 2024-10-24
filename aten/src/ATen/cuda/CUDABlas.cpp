@@ -248,7 +248,7 @@ int computetypeFp16rAllowed() {
 }
 
 
-
+/*
 namespace {
 // Following the pattern of CuSparseDescriptor
 // Defined here for now because this is the only place cublas_lt interface is
@@ -466,7 +466,7 @@ inline void bgemm_internal_cublaslt(CUDABLAS_BGEMM_ARGTYPES(Dtype)) {
       " scaleType ",
       scaleType);
 }
-
+*/
 
 template <typename Dtype>
 inline void bgemm_internal_cublas(CUDABLAS_BGEMM_ARGTYPES(Dtype)) {
@@ -603,7 +603,7 @@ void bgemm_internal_cublas<at::BFloat16>(CUDABLAS_BGEMM_ARGTYPES(at::BFloat16)) 
   const float fbeta = beta;
   _cublasAdjustLdLevel3(transa, transb, m, n, k, &lda, &ldb, &ldc);
 
-#if defined(USE_ROCM)
+#if defined(USE_ROCM) && ROCM_VERSION >= 60000
   auto compute_type = CUBLAS_COMPUTE_32F;
 #else
   auto compute_type = CUDA_R_32F;
@@ -637,12 +637,14 @@ void bgemm_internal<double>(CUDABLAS_BGEMM_ARGTYPES(double))
 template <>
 void bgemm_internal<float>(CUDABLAS_BGEMM_ARGTYPES(float))
 {
+/*
   if (at::globalContext().blasPreferredBackend() == BlasBackend::Cublaslt) {
     bgemm_internal_cublaslt<float>(CUDABLAS_BGEMM_ARGS(float));
   }
   else {
     bgemm_internal_cublas<float>(CUDABLAS_BGEMM_ARGS(float));
-  }
+  }*/
+  bgemm_internal_cublas<float>(CUDABLAS_BGEMM_ARGS(float));
 }
 
 template <>
@@ -680,25 +682,29 @@ void bgemm_internal<c10::complex<float>>(CUDABLAS_BGEMM_ARGTYPES(c10::complex<fl
 template <>
 void bgemm_internal<at::Half>(CUDABLAS_BGEMM_ARGTYPES(at::Half))
 {
+/*
   if (at::globalContext().blasPreferredBackend() == BlasBackend::Cublaslt) {
     bgemm_internal_cublaslt<at::Half>(CUDABLAS_BGEMM_ARGS(at::Half));
   }
   else {
     bgemm_internal_cublas<at::Half>(CUDABLAS_BGEMM_ARGS(at::Half));
-  }
+  }*/
+  bgemm_internal_cublas<at::Half>(CUDABLAS_BGEMM_ARGS(at::Half));
 }
 
 template <>
 void bgemm_internal<at::BFloat16>(CUDABLAS_BGEMM_ARGTYPES(at::BFloat16))
 {
+/*
   if (at::globalContext().blasPreferredBackend() == BlasBackend::Cublaslt) {
     bgemm_internal_cublaslt<at::BFloat16>(CUDABLAS_BGEMM_ARGS(at::BFloat16));
   }
   else {
     bgemm_internal_cublas<at::BFloat16>(CUDABLAS_BGEMM_ARGS(at::BFloat16));
-  }
+  }*/
+  bgemm_internal_cublas<at::BFloat16>(CUDABLAS_BGEMM_ARGS(at::BFloat16));
 }
-
+#if ROCM_VERSION >= 50704
 template <typename DType>
 inline void bgemm_tunable(CUDABLAS_BGEMM_ARGTYPES(DType)) {
   tunable::GemmStridedBatchedParams<DType> params;
@@ -1022,7 +1028,7 @@ void gemm_internal_cublas<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
     cublas_flags = static_cast<cublasMath_t>(cublas_flags | CUBLAS_MATH_DISALLOW_REDUCED_PRECISION_REDUCTION);
   }
 #endif
-#if defined(USE_ROCM)
+#if defined(USE_ROCM) && ROCM_VERSION >= 60000
   auto compute_type = CUBLAS_COMPUTE_32F;
 #else
   auto compute_type = CUDA_R_32F;
@@ -1070,12 +1076,14 @@ void gemm_internal<double>(CUDABLAS_GEMM_ARGTYPES(double))
 template <>
 void gemm_internal<float>(CUDABLAS_GEMM_ARGTYPES(float))
 {
+/*
   if (at::globalContext().blasPreferredBackend() == BlasBackend::Cublaslt) {
     gemm_internal_cublaslt<float>(CUDABLAS_GEMM_ARGS(float));
   }
   else {
     gemm_internal_cublas<float>(CUDABLAS_GEMM_ARGS(float));
-  }
+  }*/
+  gemm_internal_cublas<float>(CUDABLAS_GEMM_ARGS(float));
 }
 
 template <>
@@ -1113,25 +1121,29 @@ void gemm_internal<c10::complex<float>>(CUDABLAS_GEMM_ARGTYPES(c10::complex<floa
 template <>
 void gemm_internal<at::Half>(CUDABLAS_GEMM_ARGTYPES(at::Half))
 {
+/*
   if (at::globalContext().blasPreferredBackend() == BlasBackend::Cublaslt) {
     gemm_internal_cublaslt<at::Half>(CUDABLAS_GEMM_ARGS(at::Half));
   }
   else {
     gemm_internal_cublas<at::Half>(CUDABLAS_GEMM_ARGS(at::Half));
-  }
+  }*/
+  gemm_internal_cublas<at::Half>(CUDABLAS_GEMM_ARGS(at::Half));
 }
 
 template <>
 void gemm_internal<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16))
 {
+/*
   if (at::globalContext().blasPreferredBackend() == BlasBackend::Cublaslt) {
     gemm_internal_cublaslt<at::BFloat16>(CUDABLAS_GEMM_ARGS(at::BFloat16));
   }
   else {
     gemm_internal_cublas<at::BFloat16>(CUDABLAS_GEMM_ARGS(at::BFloat16));
-  }
+  }*/
+  gemm_internal_cublas<at::BFloat16>(CUDABLAS_GEMM_ARGS(at::BFloat16));
 }
-
+#if ROCM_VERSION >= 50704
 template <typename DType>
 inline void gemm_tunable(CUDABLAS_GEMM_ARGTYPES(DType)) {
   tunable::GemmParams<DType> params;
@@ -1240,7 +1252,7 @@ void gemm<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
 //  }
 }
 
-
+/*
 template <typename Dtype>
 void gemm_and_bias(
     bool transpose_mat1,
@@ -1743,7 +1755,7 @@ void int8_gemm(
       computeType,
       " scaleType ",
       scaleType);
-}
+}*/
 
 template <>
 void trsm<float>(CUDABLAS_TRSM_ARGTYPES(float)) {
@@ -1768,7 +1780,7 @@ void trsm<c10::complex<float>>(CUDABLAS_TRSM_ARGTYPES(c10::complex<float>)) {
       m,
       n,
       reinterpret_cast<const cuComplex*>(alpha),
-      reinterpret_cast<const cuComplex*>(A),
+      reinterpret_cast<cuComplex*>(A),
       lda,
       reinterpret_cast<cuComplex*>(B),
       ldb));
@@ -1785,7 +1797,7 @@ void trsm<c10::complex<double>>(CUDABLAS_TRSM_ARGTYPES(c10::complex<double>)) {
       m,
       n,
       reinterpret_cast<const cuDoubleComplex*>(alpha),
-      reinterpret_cast<const cuDoubleComplex*>(A),
+      reinterpret_cast<cuDoubleComplex*>(A),
       lda,
       reinterpret_cast<cuDoubleComplex*>(B),
       ldb));
