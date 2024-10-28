@@ -171,6 +171,7 @@ def generate_ttir(kernel, kwargs):
     options = backend.parse_options(dict())
     triton._C.libtriton.ir.load_dialects(context)
     backend.load_dialects(context)
+    module_map = backend.get_module_map()
 
     src = ASTSource(kernel, signature, constants, specialization)
 
@@ -180,7 +181,7 @@ def generate_ttir(kernel, kwargs):
         ttir_module = src.make_ir(options, context)
     else:
         codegen_fns = backend.get_codegen_implementation()
-        ttir_module = src.make_ir(options, codegen_fns, context)
+        ttir_module = src.make_ir(options, codegen_fns, module_map, context)
     if not ttir_module.verify():
         raise RuntimeError("Verification for TTIR module has failed")
 
