@@ -117,15 +117,15 @@ struct Mask {
             查看acc的指令格式
             */
             // 0_15 = 0 16_31 = 1 32_47=2 48~63=4
-            const int lane_id = threadIdx.x % 64;
-            const int col_idx_offset = col_idx_offset_ + lane_id / 16;
+            const int lane_id = threadIdx.x & 63;
+            const int col_idx_offset = col_idx_offset_ + (lane_id >> 4);
             const int stride_between_each_repeat = 16;
             const int stride_between_each_thread = 4;
             if constexpr (Col_idx_only) {
                 #pragma unroll
                 for (int nj = 0; nj < size<1, 1>(tensor); ++nj) {
                     // 沿着N方向重复，间隔为16
-                    const int col_idx_base = col_idx_offset + nj * stride_between_each_repeat;
+                    const int col_idx_base = col_idx_offset + (nj << 4);
                     #pragma unroll
                     for (int j = 0; j < size<1, 0>(tensor); ++j) {
                         /*
@@ -133,7 +133,7 @@ struct Mask {
                         因为格式是
                         t0 t16 t32 t48 | t0 t16 t32 t48
                         */
-                        const int col_idx = col_idx_base + j * stride_between_each_thread;
+                        const int col_idx = col_idx_base + (j << 2) ;
                         #pragma unroll
                         for (int mi = 0; mi < size<0>(tensor); ++mi) {
                             // No causal, no local
@@ -153,12 +153,12 @@ struct Mask {
                     const int col_idx_limit_left = std::max(0, row_idx + max_seqlen_k - max_seqlen_q - window_size_left);
                     const int col_idx_limit_right = std::min(max_seqlen_k, row_idx + 1 + max_seqlen_k - max_seqlen_q + window_size_right);
                     #pragma unroll
-                    for (int nj = size<1, 1>(tensor) - 1; nj >= 0; --nj) {
-                        const int col_idx_base = col_idx_offset + nj * stride_between_each_repeat;
+                    for (int nj = 0; nj < size<1, 1>(tensor); ++nj) {
+                        const int col_idx_base = col_idx_offset + (nj << 4);
                         #pragma unroll
-                        for (int j = size<1, 0>(tensor) - 1; j >= 0 ; --j) {
+                        for (int j = 0; j < size<1, 0>(tensor); ++j) {
                             // t0的第0个元素与t0的第1个元素间隔4
-                            const int col_idx = col_idx_base + j * stride_between_each_thread;
+                            const int col_idx = col_idx_base + (j << 2);
                             if constexpr (Has_alibi) {
                                 if constexpr (Is_causal) {
                                     tensor(mi, make_coord(j, nj)) += alibi_slope * col_idx;
@@ -171,11 +171,11 @@ struct Mask {
                                 if (col_idx >= col_idx_limit_right) {
                                     tensor(mi, make_coord(j, nj)) = -INFINITY;
                                 }
-                                else {
-                                    if constexpr (!Has_alibi && !Is_local) {
-                                        return;
-                                    }
-                                }
+                                // else {
+                                //     if constexpr (!Has_alibi && !Is_local) {
+                                //         return;
+                                //     }
+                                // }
                             }
                             if constexpr (Is_local) {
                                 if (col_idx >= col_idx_limit_right || col_idx < col_idx_limit_left) {

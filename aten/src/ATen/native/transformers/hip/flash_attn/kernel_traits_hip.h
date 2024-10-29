@@ -135,10 +135,10 @@ struct Flash_fwd_kernel_traits : public Base {
     using SmemLayoutVtransposedNoSwizzle = decltype(get_nonswizzle_portion(SmemLayoutVtransposed{}));
 #else
     using SmemLayoutAtomV = decltype(
-        composition(Swizzle<3, 2, 4>{},
+        composition(Swizzle<kHeadDim == 64 ? 2 : 3, kHeadDim==64 ? 4 : 3, kHeadDim == 64 ? 2 : 3>{},
             // This has to be kBlockKSmem, using kHeadDim gives wrong results for d=128
-            Layout<Shape<_8, Int<4>>,
-                    Stride<Int<4>, _1>>{}));
+            Layout<Shape<_8, Int<kHeadDim == 128 ? kHeadDim : kBlockKSmem>>,
+                    Stride<Int<kHeadDim == 128 ? kHeadDim : kBlockKSmem>, _1>>{}));
     using SmemLayoutV = decltype(tile_to_shape(
         SmemLayoutAtomV{},
         Shape<Int<kBlockN>, Int<kHeadDim>>{}));

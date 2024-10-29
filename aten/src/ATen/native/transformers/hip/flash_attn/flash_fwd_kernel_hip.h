@@ -48,12 +48,12 @@ __forceinline__ __device__ auto get_lse_tile(const Params &params, const int bid
 }
 
 
-template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, typename Params>
-inline __device__ void compute_attn_1rowblock(const Params &params, const int bidb, const int bidh, const int m_block) {
+template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, typename Params,  typename index_t, typename Binfo>
+inline __device__ void compute_attn_1rowblock(const Params &params, const int bidb, const int bidh, const int m_block, index_t binfo_q_offset, index_t binfo_k_offset, index_t binfo_v_offset, index_t binfo_o_offset, const Binfo& binfo) {
 
     using Element = typename Kernel_traits::Element;
     using ElementAccum = typename Kernel_traits::ElementAccum;
-    using index_t = typename Kernel_traits::index_t;
+    // using index_t = typename Kernel_traits::index_t;
 
     // Shared memory.
     extern __shared__ char smem_[];
@@ -77,12 +77,12 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         params.rng_state[1] = std::get<1>(seed_offset);
     }
 
-    const BlockInfo</*Varlen=*/!Is_even_MN> binfo(params, bidb);
+    // const BlockInfo</*Varlen=*/!Is_even_MN> binfo(params, bidb);
     if (m_block * kBlockM >= binfo.actual_seqlen_q) return;
 
     const int n_block_min = !Is_local ? 0 : std::max(0, (m_block * kBlockM + binfo.actual_seqlen_k - binfo.actual_seqlen_q - params.window_size_left) / kBlockN);
     int n_block_max = cute::ceil_div(binfo.actual_seqlen_k, kBlockN);
-    if (Is_causal || Is_local) {
+    if constexpr (Is_causal || Is_local) {
         n_block_max = std::min(n_block_max,
                                cute::ceil_div((m_block + 1) * kBlockM + binfo.actual_seqlen_k - binfo.actual_seqlen_q + params.window_size_right, kBlockN));
         // if (threadIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0) {
@@ -93,7 +93,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     // Otherwise we might read OOB elements from gK and gV.
     if ((Is_causal || Is_local || !Is_even_MN) && n_block_max <= n_block_min) {
         Tensor mO = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.o_ptr)
-                                              + binfo.q_offset(params.o_batch_stride, params.o_row_stride, bidb)),
+                                              + binfo_o_offset),
                                 make_shape(binfo.actual_seqlen_q, params.h, params.d),
                                 make_stride(params.o_row_stride, params.o_head_stride, _1{}));
         Tensor gO = local_tile(mO(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
@@ -136,19 +136,19 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         + m_block * kBlockM) * params.seqlen_k_rounded + (n_block_max - 1) * kBlockN;
 
     Tensor mQ = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.q_ptr)
-                                          + binfo.q_offset(params.q_batch_stride, params.q_row_stride, bidb)),
+                                          + binfo_q_offset),
                             make_shape(binfo.actual_seqlen_q, params.h, params.d),
                             make_stride(params.q_row_stride, params.q_head_stride, _1{}));
     Tensor gQ = local_tile(mQ(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
                            make_coord(m_block, 0));  // (kBlockM, kHeadDim)
     Tensor mK = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.k_ptr)
-                                          + binfo.k_offset(params.k_batch_stride, params.k_row_stride, bidb)),
+                                          + binfo_k_offset),
                             make_shape(binfo.actual_seqlen_k, params.h_k, params.d),
                             make_stride(params.k_row_stride, params.k_head_stride, _1{}));
     Tensor gK = local_tile(mK(_, bidh / params.h_h_k_ratio, _), Shape<Int<kBlockN>, Int<kHeadDim>>{},
                            make_coord(_, 0));  // (kBlockN, kHeadDim, nblocksN)
     Tensor mV = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.v_ptr)
-                                          + binfo.k_offset(params.v_batch_stride, params.v_row_stride, bidb)),
+                                          + binfo_v_offset),
                             make_shape(binfo.actual_seqlen_k, params.h_k, params.d),
                             make_stride(params.v_row_stride, params.v_head_stride, _1{}));
     Tensor gV = local_tile(mV(_, bidh / params.h_h_k_ratio, _), Shape<Int<kBlockN>, Int<kHeadDim>>{},
@@ -265,7 +265,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     Tensor tKVpKV = make_tensor<bool>(make_shape(size<2>(tKsK)));
 
     // Set predicates for k bounds
-    if (!Is_even_K) {
+    if constexpr (!Is_even_K) {
         #pragma unroll
         for (int k = 0; k < size(tQpQ); ++k) { tQpQ(k) = get<1>(tQcQ(0, 0, k)) < params.d; }
         #pragma unroll
@@ -277,7 +277,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     // We don't need to clear the sQ smem tiles since we'll only write out the valid outputs
     pytorch_flash::copy<Is_even_MN, Is_even_K>(gmem_tiled_copy_QKV, tQgQ, tQsQ, tQcQ, tQpQ,
                                        binfo.actual_seqlen_q - m_block * kBlockM);
-    if (Kernel_traits::Is_Q_in_regs) { cute::cp_async_fence(); }
+    if constexpr (Kernel_traits::Is_Q_in_regs) { cute::cp_async_fence(); }
 
     // // if (cute::thread(1, 0)) { print(tQsQ); }
     // // Tensor sQNoSwizzle = make_tensor(make_smem_ptr(reinterpret_cast<Element *>(smem_)), typename Kernel_traits::SmemLayoutQNoSwizzle{});
@@ -364,13 +364,13 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         }
         
         {
-            const int wave_id = tidx / 64;
+            const int wave_id = (tidx >> 6);
             const int wave_id_to_row_block_id = wave_id;
             const int warp_row_stride = 16;
-            const int row_idx_offset_in_block = (tidx % 16) + wave_id_to_row_block_id * warp_row_stride;
+            const int row_idx_offset_in_block = (tidx & (warp_row_stride - 1)) + (wave_id_to_row_block_id << 4);
             const int row_idx_offset_ = m_block * kBlockM + row_idx_offset_in_block;
             mask.template apply_mask<Is_causal, Is_even_MN>(
-                acc_s, n_block * kBlockN, row_idx_offset_, warp_row_stride * kNWarps
+                acc_s, n_block * kBlockN, row_idx_offset_, (kNWarps << 4)
             );
         }
 
@@ -391,12 +391,12 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         Tensor rP = pytorch_flash::convert_type<Element>(acc_s);
 
         {   // dropout
-            const int wave_id = tidx / 64;
+            const int wave_id = (tidx >> 6);
             const int warp_row_stride = 16;
 
-            int block_row_idx = m_block * (kBlockM / 16) + wave_id;
-            int block_col_idx = n_block * (kBlockN / 16);
-            if (Return_softmax) {
+            const int block_row_idx = m_block * (kBlockM >> 4) + wave_id;
+            const int block_col_idx = n_block * (kBlockN >> 4);
+            if constexpr (Return_softmax) {
                 Tensor rP_drop = make_fragment_like(rP);
                 cute::copy(rP, rP_drop);
                 dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
@@ -405,7 +405,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
                 cute::copy(rP_drop, tSgS);
                 tSgS.data() = tSgS.data() + (-kBlockN);
             }
-            if (Is_dropout) {
+            if constexpr (Is_dropout) {
                 dropout.apply_dropout(rP, block_row_idx, block_col_idx, kNWarps);
             }
         }
@@ -458,13 +458,13 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         }
         
         { 
-            const int wave_id = tidx / 64;
+            const int wave_id = (tidx >> 6);
             const int wave_id_to_row_block_id = wave_id;
             const int warp_row_stride = 16;
-            const int row_idx_offset_in_block = (tidx % warp_row_stride) + wave_id_to_row_block_id * warp_row_stride;
+            const int row_idx_offset_in_block = (tidx & (warp_row_stride - 1)) + (wave_id_to_row_block_id << 4);
             const int row_idx_offset_ = m_block * kBlockM + row_idx_offset_in_block;
             mask.template apply_mask<false>(
-                acc_s, n_block * kBlockN, row_idx_offset_, warp_row_stride * kNWarps
+                acc_s, n_block * kBlockN, row_idx_offset_,  (kNWarps << 4)
             );
         }
 
@@ -479,11 +479,11 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         Tensor rP = pytorch_flash::convert_type<Element>(acc_s);
 
         {   // dropout
-            const int wave_id = tidx / 64;
+            const int wave_id = (tidx >> 6);
             const int warp_row_stride = 16;
-            int block_row_idx = m_block * (kBlockM / 16) + wave_id;
-            int block_col_idx = n_block * (kBlockN / 16);
-            if (Return_softmax) {
+            const int block_row_idx = m_block * (kBlockM >> 4) + wave_id;
+            const int block_col_idx = n_block * (kBlockN >> 4);
+            if constexpr (Return_softmax) {
                 Tensor rP_drop = make_fragment_like(rP);
                 cute::copy(rP, rP_drop);
                 dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
@@ -492,7 +492,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
                 cute::copy(rP_drop, tSgS);
                 tSgS.data() = tSgS.data() + (-kBlockN);
             }
-            if (Is_dropout) {
+            if constexpr (Is_dropout) {
                 dropout.apply_dropout(rP, block_row_idx, block_col_idx, kNWarps);
             }
         }
@@ -533,7 +533,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     cute::copy(smem_tiled_copy_O, taccOrO, taccOsO);
 
     Tensor mO = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.o_ptr)
-                                          + binfo.q_offset(params.o_batch_stride, params.o_row_stride, bidb)),
+                                          + binfo_o_offset),
                             make_shape(binfo.actual_seqlen_q, params.h, params.d),
                             make_stride(params.o_row_stride, params.o_head_stride, _1{}));
     Tensor gO = local_tile(mO(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
@@ -569,7 +569,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     // Repeat the partitioning with identity layouts
     Tensor tOcO = gmem_thr_copy_O.partition_D(cO);                           // (ACPY,ACPY_M,ACPY_K) -> (blk_m,blk_k)
     Tensor tOpO = make_tensor<bool>(make_shape(size<2>(tOgO)));
-    if (!Is_even_K) {
+    if constexpr (!Is_even_K) {
         #pragma unroll
         for (int k = 0; k < size(tOpO); ++k) { tOpO(k) = get<1>(tOcO(0, 0, k)) < params.d; }
     }
@@ -1331,9 +1331,16 @@ template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local,
 inline __device__ void compute_attn(const Params &params) {
     const int m_block = blockIdx.x;
     // The block index for the batch.
-    const int bidb = blockIdx.y;
+    const int bidb = blockIdx.z;
     // The block index for the head.
-    const int bidh = blockIdx.z;
+    const int bidh = blockIdx.y;
+
+    const BlockInfo</*Varlen=*/!Is_even_MN> binfo(params, bidb);
+    using index_t = typename Kernel_traits::index_t;
+    index_t binfo_q_offset = binfo.q_offset(params.q_batch_stride, params.q_row_stride, bidb);
+    index_t binfo_k_offset = binfo.k_offset(params.k_batch_stride, params.k_row_stride, bidb);
+    index_t binfo_v_offset = binfo.k_offset(params.v_batch_stride, params.v_row_stride, bidb);
+    index_t binfo_o_offset =  binfo.q_offset(params.o_batch_stride, params.o_row_stride, bidb);
 
     // We want the fwd and bwd to generate the same dropout pattern (RNG), without restricting
     // them to have the same number of threads or have to traverse the attention matrix
@@ -1343,7 +1350,8 @@ inline __device__ void compute_attn(const Params &params) {
     // the attention matrix. This way, as long as we have the batch, head, and the location of
     // the 16 x 32 block within the attention matrix, we can generate the exact same dropout pattern.
 
-    pytorch_flash::compute_attn_1rowblock<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Return_softmax>(params, bidb, bidh, m_block);
+    pytorch_flash::compute_attn_1rowblock<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Return_softmax>(params, bidb, bidh, m_block,
+        binfo_q_offset, binfo_k_offset, binfo_v_offset, binfo_o_offset, binfo);
 #ifndef NO_CAUSAL_OPT
     if constexpr (Is_causal)
     {
@@ -1351,7 +1359,8 @@ inline __device__ void compute_attn(const Params &params) {
         // 处理奇数个block的情况
         if (num_blocks - m_block - 1 != m_block)
         {
-            pytorch_flash::compute_attn_1rowblock<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Return_softmax>(params, bidb, bidh, num_blocks - m_block - 1);
+            pytorch_flash::compute_attn_1rowblock<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Return_softmax>(params, bidb, bidh, num_blocks - m_block - 1,
+                binfo_q_offset, binfo_k_offset, binfo_v_offset, binfo_o_offset, binfo);
         }
     }
 #endif

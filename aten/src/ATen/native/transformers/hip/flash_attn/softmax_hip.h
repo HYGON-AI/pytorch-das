@@ -83,11 +83,15 @@ __forceinline__ __device__ void scale_apply_exp2(Tensor<Engine0, Layout0> &tenso
             // The following macro will disable the use of fma.
             // See: https://github.com/pytorch/pytorch/issues/121558 for more details
             // This macro is set in PyTorch and not FlashAttention
+        #if 0
             #ifdef UNFUSE_FMA
                 tensor(mi, ni) = exp2f(__fmul_rn(tensor(mi, ni), scale) - max_scaled);
             #else
                 tensor(mi, ni) = exp2f(tensor(mi, ni) * scale - max_scaled);
             #endif
+        #else
+            tensor(mi, ni) = __llvm_exp2_f32(tensor(mi, ni) * scale - max_scaled);
+        #endif
         }
     }
 }
@@ -155,7 +159,11 @@ struct Softmax {
                 float scores_max_cur = !Check_inf
                     ? row_max(mi)
                     : (row_max(mi) == -INFINITY ? 0.0f : row_max(mi));
+            #if 0
                 float scores_scale = exp2f((scores_max_prev(mi) - scores_max_cur) * softmax_scale_log2);
+            #else
+                float scores_scale = __llvm_exp2_f32((scores_max_prev(mi) - scores_max_cur) * softmax_scale_log2);
+            #endif
                 row_sum(mi) *= scores_scale;
                 #pragma unroll
                 for (int ni = 0; ni < size<1>(acc_o_rowcol); ++ni) { acc_o_rowcol(mi, ni) *= scores_scale; }
