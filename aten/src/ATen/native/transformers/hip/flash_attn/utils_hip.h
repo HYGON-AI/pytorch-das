@@ -543,5 +543,11 @@ __forceinline__ __device__ void calculate_dtanh(Tensor<Engine0, Layout0> &src_te
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+/*
+    原来的 exp2f 对于极小数有特殊处理, 对于小于 -126 的输入 x , exp2f 计算方式是 2^(x + 64) * 2^{-64}
+    但是对于深度学习来说, 2^-126 的数字其实没那么重要了, 因此只需要保留 v_exp_f32 直接暴力计算即可
+*/
+extern __device__ __attribute__((const)) float __llvm_exp2_f32(float) __asm("llvm.exp2.f32");
+
 
 }  // namespace flash

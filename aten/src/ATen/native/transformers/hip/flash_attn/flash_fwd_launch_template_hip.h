@@ -72,7 +72,7 @@ void run_flash_fwd(Flash_fwd_params &params, hipStream_t stream) {
         non_causal_num_m_block;
 #endif
 
-    dim3 grid(num_m_block, params.b, params.h);
+    dim3 grid(num_m_block, params.h, params.b);
     const bool is_even_MN = params.cu_seqlens_q == nullptr && params.cu_seqlens_k == nullptr && params.seqlen_k % Kernel_traits::kBlockN == 0 && params.seqlen_q % Kernel_traits::kBlockM == 0;
     const bool is_even_K = params.d == Kernel_traits::kHeadDim;
     const bool return_softmax = params.p_ptr != nullptr;
@@ -220,7 +220,7 @@ void run_mha_fwd_hdim64(Flash_fwd_params &params, hipStream_t stream) {
         //     // run_flash_fwd<Flash_fwd_kernel_traits<Headdim, 128, 64, 4, true, false, T>, Is_dropout, Is_causal>(params, stream);
         //     // run_flash_fwd<Flash_fwd_kernel_traits<Headdim, 128, 128, 4, false, false, T>, Is_dropout, Is_causal>(params, stream);
         // }
-        run_flash_fwd<Flash_fwd_kernel_traits<Headdim, 64, 64, 4, false, /*Share_Q_K_smem_=*/true, T>, Is_dropout, Is_causal>(params, stream);
+        run_flash_fwd<Flash_fwd_kernel_traits<Headdim, 128, 64, 4, false, /*Share_Q_K_smem_=*/true, T>, Is_dropout, Is_causal>(params, stream);
 
     });
 #endif
