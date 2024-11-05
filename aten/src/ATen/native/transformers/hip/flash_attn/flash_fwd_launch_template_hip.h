@@ -31,7 +31,7 @@ namespace pytorch_flash {
 // Use a macro to clean up kernel definitions
 #define DEFINE_FLASH_FORWARD_KERNEL(kernelName, ...) \
 template<typename Kernel_traits, __VA_ARGS__> \
-__global__ void __launch_bounds__(256, 2) kernelName(KERNEL_PARAM_MODIFIER const Flash_fwd_params params)
+__global__ void __launch_bounds__(256, 1) kernelName(KERNEL_PARAM_MODIFIER const Flash_fwd_params params)
 
 DEFINE_FLASH_FORWARD_KERNEL(flash_fwd_kernel, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax) {
     #if defined(ARCH_SUPPORTS_FLASH)
@@ -294,7 +294,7 @@ void run_mha_fwd_hdim128(Flash_fwd_params &params, hipStream_t stream) {
             run_flash_fwd<Flash_fwd_kernel_traits<Headdim, 64, 32, 4, false, /*Share_Q_K_smem_=*/true, T>, Is_dropout, Is_causal>(params, stream);
         }
         else {
-            run_flash_fwd<Flash_fwd_kernel_traits<Headdim, 128, 32, 4, false, /*Share_Q_K_smem_=*/true, T>, Is_dropout, Is_causal>(params, stream);
+            run_flash_fwd<Flash_fwd_kernel_traits<Headdim, 128, 64, 4, false, /*Share_Q_K_smem_=*/true, T>, Is_dropout, Is_causal>(params, stream);
         }
 #endif    
     });
