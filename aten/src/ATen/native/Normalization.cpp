@@ -532,7 +532,7 @@ BatchNormBackend _select_batch_norm_backend(
       && (input.dim() >= 3)
       && detail::getCUDAHooks().compiledWithMIOpen()
       && cudnn_enabled
-      && input.suggest_memory_format() != MemoryFormat::ChannelsLast
+      //&& input.suggest_memory_format() != MemoryFormat::ChannelsLast
       && input.suggest_memory_format() != MemoryFormat::ChannelsLast3d
       && bn_miopen_enable()
   ) {
@@ -612,6 +612,18 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, int64_t> _batch_norm_impl_index(
   Tensor reserve = at::empty({0}, input.options().dtype(kByte));
 
   if (backend == BatchNormBackend::Miopen) {
+    // NHWC
+    if (input.suggest_memory_format() == MemoryFormat::ChannelsLast) {
+      return std::tuple_cat(
+             at::miopen_batch_norm(
+               input, weight, bias,
+               running_mean,
+               running_var,
+               training, momentum, eps),
+             std::tuple<Tensor>(reserve),
+             std::make_tuple(2));
+
+    }
     return std::tuple_cat(
              at::miopen_batch_norm(
                input.contiguous(), weight.contiguous(), bias.contiguous(),
