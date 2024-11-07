@@ -12,7 +12,6 @@
 
 #include <cutlass/numeric_types.h>
 
-#include <ATen/native/transformers/hip/aotriton_adapter.h>
 #include <ATen/native/transformers/hip/flash_attn/flash_api.h>
 #include <ATen/native/transformers/hip/flash_attn/flash_hip.h>
 #include <ATen/native/transformers/hip/flash_attn/static_switch.h>

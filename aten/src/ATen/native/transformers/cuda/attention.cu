@@ -79,9 +79,9 @@
 #include <ATen/native/transformers/cuda/mem_eff_attention/pytorch_utils.h>
 #else
 // MemoryEfficient Attention Specific Imports for ROCM
-#include <ATen/native/transformers/hip/aotriton_adapter.h>
-#include <aotriton/flash.h>
-#include <aotriton/runtime.h>
+// #include <ATen/native/transformers/hip/aotriton_adapter.h>
+// #include <aotriton/flash.h>
+// #include <aotriton/runtime.h>
 #endif
 #endif
 
