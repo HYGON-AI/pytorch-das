@@ -156,9 +156,9 @@ class ForeachKernel(Kernel):
     def jit_lines(self):
         can_use_32bit = all(k.index_dtype == "tl.int32" for k in self.sub_kernels)
         size_dtype = "tl.int32" if can_use_32bit else "tl.int64"
-        _, _, signature, _ = self.args.python_argdefs()
+        argdefs, _, signature, _ = self.args.python_argdefs()
         triton_meta = {
-            "signature": signature_to_meta(signature, size_dtype=size_dtype),
+            "signature": signature_to_meta(signature, size_dtype=size_dtype, argdefs=argdefs),
             "device": DeviceProperties.create(
                 V.graph.scheduler.get_current_device_or_throw()
             ),
