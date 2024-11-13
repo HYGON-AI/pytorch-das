@@ -103,7 +103,7 @@ inline __device__ void compute_dot_do_o(const Params &params) {
     // we do atomicAdds, we use type float. The layouts are different. Check this.
     typename Kernel_traits::GmemTiledCopydQaccum gmem_tiled_copy_dQaccum;
     auto gmem_thr_copy_dQaccum = gmem_tiled_copy_dQaccum.get_thread_slice(tidx);
-
+  #if 1
     Tensor tdOgdO = gmem_thr_copy_dO.partition_S(gdO);
     Tensor tdOgO = gmem_thr_copy_dO.partition_S(gO);
     Tensor tdQgdQaccum = gmem_thr_copy_dQaccum.partition_D(gdQaccum);
@@ -137,6 +137,7 @@ inline __device__ void compute_dot_do_o(const Params &params) {
         clear(zero);
         cute::copy(gmem_tiled_copy_dQaccum, zero, tdQgdQaccum);
     }
+  #endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
