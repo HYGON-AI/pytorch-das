@@ -1059,7 +1059,8 @@ if(USE_ROCM)
 
     list(APPEND HIP_CXX_FLAGS -DHIP_ENABLE_WARP_SYNC_BUILTINS)
     list(APPEND HIP_CXX_FLAGS -mno-fma)
-    list(APPEND HIP_CXX_FLAGS -ffast-math)
+    #TODO: extreme performance?
+    # list(APPEND HIP_CXX_FLAGS -ffast-math)
     list(APPEND HIP_CXX_FLAGS -DDCU_ASM)
     if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "6.0.0")
       list(APPEND HIP_CXX_FLAGS -DHIPBLAS_V2)

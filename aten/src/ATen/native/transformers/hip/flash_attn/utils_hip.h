@@ -180,16 +180,14 @@ __forceinline__ __device__ void gemm(Tensor0 &acc, Tensor1 &tCrA, Tensor2 &tCrB,
     CUTE_STATIC_ASSERT_V(size<1>(tCsA) == size<1>(tCrA_copy_view));            // M
     Tensor tCrB_copy_view = smem_thr_copy_B.retile_D(tCrB);
     CUTE_STATIC_ASSERT_V(size<1>(tCsB) == size<1>(tCrB_copy_view));            // N
-    // if(!A_in_regs) { cute::copy(smem_tiled_copy_A, tCsA(_, _, _0{}), tCrA_copy_view(_, _, _0{})); }
-    // if(!B_in_regs) { cute::copy(smem_tiled_copy_B, tCsB(_, _, _0{}), tCrB_copy_view(_, _, _0{})); }
+    if(!A_in_regs) { cute::copy(smem_tiled_copy_A, tCsA(_, _, _0{}), tCrA_copy_view(_, _, _0{})); }
+    if(!B_in_regs) { cute::copy(smem_tiled_copy_B, tCsB(_, _, _0{}), tCrB_copy_view(_, _, _0{})); }
 #pragma unroll
     for(int i = 0; i < size<2>(tCrA); ++i) {
-        // if(i < size<2>(tCrA) - 1) {
-        //     if(!A_in_regs) { cute::copy(smem_tiled_copy_A, tCsA(_, _, i + 1), tCrA_copy_view(_, _, i + 1)); }
-        //     if(!B_in_regs) { cute::copy(smem_tiled_copy_B, tCsB(_, _, i + 1), tCrB_copy_view(_, _, i + 1)); }
-        // }
-        cute::copy(smem_tiled_copy_A, tCsA(_, _, i), tCrA_copy_view(_, _, i));
-        cute::copy(smem_tiled_copy_B, tCsB(_, _, i), tCrB_copy_view(_, _, i));
+        if(i < size<2>(tCrA) - 1) {
+            if(!A_in_regs) { cute::copy(smem_tiled_copy_A, tCsA(_, _, i + 1), tCrA_copy_view(_, _, i + 1)); }
+            if(!B_in_regs) { cute::copy(smem_tiled_copy_B, tCsB(_, _, i + 1), tCrB_copy_view(_, _, i + 1)); }
+        }
 
         cute::gemm(tiled_mma, tCrA(_, _, i), tCrB(_, _, i), acc);
     }
@@ -207,13 +205,12 @@ __forceinline__ __device__ void gemm_rs(Tensor0 &acc, Tensor1 &tCrA, Tensor2 &tC
     CUTE_STATIC_ASSERT_V(size<2>(tCrA) == size<2>(tCrB));                     // MMA_K
     Tensor tCrB_copy_view = smem_thr_copy_B.retile_D(tCrB);
     CUTE_STATIC_ASSERT_V(size<1>(tCsB) == size<1>(tCrB_copy_view));            // N
-    // cute::copy(smem_tiled_copy_B, tCsB(_, _, _0{}), tCrB_copy_view(_, _, _0{}));
+    cute::copy(smem_tiled_copy_B, tCsB(_, _, _0{}), tCrB_copy_view(_, _, _0{}));
     #pragma unroll
     for (int i = 0; i < size<2>(tCrA); ++i) {
-        // if (i < size<2>(tCrA) - 1) {
-        //     cute::copy(smem_tiled_copy_B, tCsB(_, _, i + 1), tCrB_copy_view(_, _, i + 1));
-        // }
-        cute::copy(smem_tiled_copy_B, tCsB(_, _, i), tCrB_copy_view(_, _, i));
+        if (i < size<2>(tCrA) - 1) {
+            cute::copy(smem_tiled_copy_B, tCsB(_, _, i + 1), tCrB_copy_view(_, _, i + 1));
+        }
 
         cute::gemm(tiled_mma, tCrA(_, _, i), tCrB(_, _, i), acc);
     }
@@ -229,6 +226,16 @@ __forceinline__ __device__ auto convert_layout_acc_rowcol(Layout acc_layout) {
     auto l = logical_divide(acc_layout, Shape<_1>{});   // (_4,_1,_2):(_1,_0,_4) -> ((_1,_4),_1,_2):((_0,_1),_0,_4)
 
     return make_layout(make_layout(get<1>(l)), make_layout(get<1>(get<0>(l)), get<2>(l)));  // (1, (4, 2)):((_0),(_1,_4))
+};
+
+template<typename Layout>
+__forceinline__ __device__ auto convert_trans_layout_acc_rowcol(Layout acc_layout) {
+    static_assert(decltype(size<0>(acc_layout))::value == 4);
+    static_assert(decltype(rank(acc_layout))::value == 3);
+    
+    return make_layout(
+        make_layout(get<0>(acc_layout), get<2>(acc_layout)), 
+        make_layout(get<1>(acc_layout)));
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -263,7 +270,7 @@ __forceinline__ __device__ auto convert_layout_acc_Aregs(const TiledMma& tiled_m
     auto smem_tiled_copy_ACC = make_tiled_copy_C(Copy_Atom<DefaultCopy, cute::half_t>{}, tiled_mma);
     auto smem_thr_copy_ACC = smem_tiled_copy_ACC.get_thread_slice(tidx);
     Tensor taccOr = smem_thr_copy_ACC.retile_S(tOrP);
-    Tensor taccOs = smem_thr_copy_ACC.partition_D(sAcc); 
+    Tensor taccOs = smem_thr_copy_ACC.partition_D(sAcc);
     // if (cute::thread0())
     // { taccOr
         // raw_ptr_16b(0x2000000000010) o ((_1,_4),_1,_4):((_0,_1),_0,_4)
