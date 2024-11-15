@@ -79,9 +79,9 @@
 #include <ATen/native/transformers/cuda/mem_eff_attention/pytorch_utils.h>
 #else
 // MemoryEfficient Attention Specific Imports for ROCM
-// #include <ATen/native/transformers/hip/aotriton_adapter.h>
-// #include <aotriton/flash.h>
-// #include <aotriton/runtime.h>
+#include <ATen/native/transformers/hip/aotriton_adapter.h>
+#include <aotriton/flash.h>
+#include <aotriton/runtime.h>
 #endif
 #endif
 
@@ -876,6 +876,7 @@ _flash_attention_forward(
       "cumulative_sequence_length_q and cumulative_sequence_length_k must be both set or both not set");
   Tensor output, q_padded, k_padded, v_padded, logsumexp, output_shape,
       philox_seed, philox_offset, debug_attn_mask;
+  #ifdef USE_ROCM
   if (cumulative_sequence_length_q.has_value()) {
     std::tie(
         output,
@@ -885,8 +886,27 @@ _flash_attention_forward(
         logsumexp,
         philox_seed,
         philox_offset,
-        debug_attn_mask) =
-        pytorch_flash::mha_varlen_fwd(
+        debug_attn_mask) = sdp::switch_aotriton_fa_enable() ? 
+        pytorch_flash::mha_aot_varlen_fwd(
+            query,
+            key,
+            value,
+            out,
+            cumulative_sequence_length_q.value(),
+            cumulative_sequence_length_k.value(),
+            seqused_k, /*seqused_k*/
+            alibi_slopes, /*alibi_slopes*/
+            max_seqlen_batch_q,
+            max_seqlen_batch_k,
+            dropout_p,
+            softmax_scale,
+            false /*zero_tensors*/,
+            is_causal,
+            non_null_window_left,
+            non_null_window_right,
+            return_debug_mask,
+            c10::nullopt /*gen_*/) : 
+            pytorch_flash::mha_varlen_fwd(
             query,
             key,
             value,
@@ -914,8 +934,21 @@ _flash_attention_forward(
         logsumexp,
         philox_seed,
         philox_offset,
-        debug_attn_mask) =
-        pytorch_flash::mha_fwd(
+        debug_attn_mask) = sdp::switch_aotriton_fa_enable() ? 
+        pytorch_flash::mha_aot_fwd(
+            query,
+            key,
+            value,
+            out,
+            alibi_slopes,
+            dropout_p,
+            softmax_scale,
+            is_causal,
+            non_null_window_left,
+            non_null_window_right,
+            return_debug_mask, /*return_softmax (this is used for testing)*/
+            c10::nullopt) : 
+            pytorch_flash::mha_fwd(
             query,
             key,
             value,
@@ -929,6 +962,60 @@ _flash_attention_forward(
             return_debug_mask, /*return_softmax (this is used for testing)*/
             c10::nullopt);
   }
+  #else
+  if (cumulative_sequence_length_q.has_value()) {
+    std::tie(
+        output,
+        q_padded,
+        k_padded,
+        v_padded,
+        logsumexp,
+        philox_seed,
+        philox_offset,
+        debug_attn_mask) = pytorch_flash::mha_varlen_fwd(
+            query,
+            key,
+            value,
+            out,
+            cumulative_sequence_length_q.value(),
+            cumulative_sequence_length_k.value(),
+            seqused_k, /*seqused_k*/
+            alibi_slopes, /*alibi_slopes*/
+            max_seqlen_batch_q,
+            max_seqlen_batch_k,
+            dropout_p,
+            softmax_scale,
+            false /*zero_tensors*/,
+            is_causal,
+            non_null_window_left,
+            non_null_window_right,
+            return_debug_mask,
+            c10::nullopt /*gen_*/);
+  } else {
+    std::tie(
+        output,
+        q_padded,
+        k_padded,
+        v_padded,
+        logsumexp,
+        philox_seed,
+        philox_offset,
+        debug_attn_mask) = pytorch_flash::mha_fwd(
+            query,
+            key,
+            value,
+            out,
+            alibi_slopes,
+            dropout_p,
+            softmax_scale,
+            is_causal,
+            non_null_window_left,
+            non_null_window_right,
+            return_debug_mask, /*return_softmax (this is used for testing)*/
+            c10::nullopt);
+  }
+  #endif
+
   debug_attn_mask =
       return_debug_mask ? debug_attn_mask : at::empty({0}, query.options());
   return std::make_tuple(
