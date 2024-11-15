@@ -34,7 +34,7 @@ namespace pytorch_flash {
 // Use a macro to clean up kernel definitions
 #define DEFINE_FLASH_BACKWARD_KERNEL(kernelName, ...) \
 template<typename Kernel_traits, __VA_ARGS__> \
-__global__ void __launch_bounds__(256, 2) kernelName(KERNEL_PARAM_MODIFIER const Flash_bwd_params params)
+__global__ void __launch_bounds__(256, 1) kernelName(KERNEL_PARAM_MODIFIER const Flash_bwd_params params)
 
 DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dq_dk_dv_loop_kernel, bool Is_dropout, bool Is_causal, bool Has_alibi, bool Is_even_M, bool Is_even_K) {
     #if defined(ARCH_SUPPORTS_FLASH)
@@ -56,7 +56,7 @@ DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dq_dk_dv_loop_seqk_parallel_kernel, bool 
 DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dk_dv_loop_seqk_parallel_kernel, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap) {
     #if defined(ARCH_SUPPORTS_FLASH)
         static_assert(!(Is_causal && Is_local));  // If Is_local is true, Is_causal should be false
-        flash::compute_dk_dv_seqk_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
+        pytorch_flash::compute_dk_dv_seqk_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
     #else
         FLASH_UNSUPPORTED_ARCH
     #endif
@@ -64,7 +64,7 @@ DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dk_dv_loop_seqk_parallel_kernel, bool Is_
 DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dk_dv_trans_loop_seqk_parallel_kernel, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap) {
     #if defined(ARCH_SUPPORTS_FLASH)
         static_assert(!(Is_causal && Is_local));  // If Is_local is true, Is_causal should be false
-        flash::compute_dk_dv_trans_seqk_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
+        pytorch_flash::compute_dk_dv_trans_seqk_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
     #else
         FLASH_UNSUPPORTED_ARCH
     #endif
@@ -72,7 +72,7 @@ DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dk_dv_trans_loop_seqk_parallel_kernel, bo
 DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dq_loop_seqq_parallel_kernel, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap) {
     #if defined(ARCH_SUPPORTS_FLASH)
         static_assert(!(Is_causal && Is_local));  // If Is_local is true, Is_causal should be false
-        flash::compute_dq_seqq_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
+        pytorch_flash::compute_dq_seqq_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
     #else
         FLASH_UNSUPPORTED_ARCH
     #endif
@@ -163,7 +163,7 @@ void run_flash_bwd_seqk_parallel(Flash_bwd_params &params, hipStream_t stream) {
 }
 
 template<typename Kernel_traits, typename Kernel_trans_traits, bool Is_dropout, bool Is_causal>
-void run_flash_bwd_separate_seqk_parallel(Flash_bwd_params &params, cudaStream_t stream) {
+void run_flash_bwd_separate_seqk_parallel(Flash_bwd_params &params, hipStream_t stream) {
     const int num_m_block = (params.seqlen_q + Kernel_traits::kBlockM - 1) / Kernel_traits::kBlockM;
     dim3 grid_m(num_m_block, params.b, params.h);
     const int num_n_block = (params.seqlen_k + Kernel_traits::kBlockN - 1) / Kernel_traits::kBlockN;
@@ -180,7 +180,7 @@ void run_flash_bwd_separate_seqk_parallel(Flash_bwd_params &params, cudaStream_t
     } else {
         flash_bwd_dot_do_o_kernel<false, Kernel_traits><<<grid_m, Kernel_traits::kNThreads, 0, stream>>>(params);
     }
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    C10_HIP_KERNEL_LAUNCH_CHECK();
     // printf("flash_bwd_dot_do_o_kernel done, params.deterministic=%d, params.seqlen_q=%d, params.seqlen_k=%d, \n", 
     //     params.deterministic, params.seqlen_q, params.seqlen_k);
 
@@ -226,7 +226,7 @@ void run_flash_bwd_separate_seqk_parallel(Flash_bwd_params &params, cudaStream_t
                         #endif
                         
                         kernel<<<grid_n, Kernel_traits::kNThreads, smem_size_dq_dk_dv, stream>>>(params);
-                        C10_CUDA_KERNEL_LAUNCH_CHECK();
+                        C10_HIP_KERNEL_LAUNCH_CHECK();
                         auto kernel_dq = flash_bwd_dq_loop_seqq_parallel_kernel<
                             Kernel_traits, 
                             Is_dropout && !Is_softcap, Is_causal, 
@@ -236,7 +236,7 @@ void run_flash_bwd_separate_seqk_parallel(Flash_bwd_params &params, cudaStream_t
                             IsEvenKConst, 
                             Is_softcap>;
                         kernel_dq<<<grid_m, Kernel_traits::kNThreads, smem_size_dq, stream>>>(params);
-                        C10_CUDA_KERNEL_LAUNCH_CHECK();
+                        C10_HIP_KERNEL_LAUNCH_CHECK();
 
                     });
                 });
@@ -253,7 +253,7 @@ void run_flash_bwd(Flash_bwd_params &params, hipStream_t stream) {
 }
 
 template<typename Kernel_dq_traits, typename Kernel_dkdv_traits, bool Is_dropout, bool Is_causal>
-void run_flash_separate_bwd(Flash_bwd_params &params, cudaStream_t stream) {
+void run_flash_separate_bwd(Flash_bwd_params &params, hipStream_t stream) {
 #ifndef FLASHATTENTION_DISABLE_BACKWARD
     run_flash_bwd_separate_seqk_parallel<Kernel_dq_traits, Kernel_dkdv_traits, Is_dropout, Is_causal>(params, stream);
 #endif

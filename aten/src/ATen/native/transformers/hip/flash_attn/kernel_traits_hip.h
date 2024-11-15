@@ -651,18 +651,20 @@ struct Flash_bwd_kernel_trans_traits : public Base {
         Layout<Shape<Int<AtomLayoutMdQ>, Int<kNWarps / AtomLayoutMdQ>, _1>>,  // 2x4x1 or 4x2x1 thread group
         typename Base::ValLayoutMNK>;
 
-    // using SmemLayoutAtomQdO = decltype(
-    //     composition(Swizzle<kSwizzle, 3, 3>{},
-    //                 Layout<Shape<_8, Int<kBlockKSmem>>,
-    //                        Stride<Int<kBlockKSmem>, _1>>{}));
+    using SmemLayoutAtomQdO = decltype(
+        composition(Swizzle<kSwizzle, 3, 3>{},
+                    Layout<Shape<_8, Int<kBlockKSmem>>,
+                           Stride<Int<kBlockKSmem>, _1>>{}));
+
     using SmemLayoutQdO = decltype(tile_to_shape(
         SmemLayoutAtomQdO{},
         make_shape(Int<kBlockM>{}, Int<kHeadDim>{})));
 
-    // using SmemLayoutAtomKV = decltype(
-    //     composition(Swizzle<kSwizzle, 3, 3>{},
-    //                 Layout<Shape<Int<kBlockM / kNWarps>, Int<kBlockKSmem>>,
-    //                        Stride<Int<kBlockKSmem>, _1>>{}));
+    using SmemLayoutAtomKV = decltype(
+        composition(Swizzle<kSwizzle, 3, 3>{},
+                    Layout<Shape<Int<kBlockM / kNWarps>, Int<kBlockKSmem>>,
+                           Stride<Int<kBlockKSmem>, _1>>{}));
+
     using SmemLayoutKV = decltype(tile_to_shape(
         // SmemLayoutAtomQdO{},
         SmemLayoutAtomKV{},
@@ -683,13 +685,16 @@ struct Flash_bwd_kernel_trans_traits : public Base {
     static_assert(kPBlockN == 16 || kPBlockN == 32 || kPBlockN == 64);
     // static constexpr int kSwizzlePdS = kPBlockN == 16 ? 1 : (kPBlockN == 32 ? 2 : 3);
     static constexpr int kSwizzlePdS = 3;
-    // using SmemLayoutAtomPdS = decltype(
-    //     composition(Swizzle<kSwizzlePdS, 3, 3>{},
-    //                 Layout<Shape<Int<kBlockM>, Int<kPBlockN>>,
-    //                        Stride<Int<kPBlockN>, _1>>{}));
+
+     using SmemLayoutAtomPdS = decltype(
+         composition(Swizzle<kSwizzlePdS, 3, 3>{},
+                     Layout<Shape<Int<kBlockM>, Int<kPBlockN>>,
+                            Stride<Int<kPBlockN>, _1>>{}));
+
     using SmemLayoutPdS = decltype(tile_to_shape(
         SmemLayoutAtomPdS{},
         make_shape(Int<kBlockM>{}, Int<kBlockN>{})));
+
     using SmemLayoutPdStransposed = decltype(
         composition(SmemLayoutPdS{}, make_layout(Shape<Int<kBlockN>, Int<kBlockM>>{}, GenRowMajor{})));
     using SmemLayoutPdStransposedNoSwizzle = decltype(get_nonswizzle_portion(SmemLayoutPdStransposed{}));
@@ -707,6 +712,7 @@ struct Flash_bwd_kernel_trans_traits : public Base {
     using SmemLayoutdKV = decltype(tile_to_shape(
         SmemLayoutAtomdKV{},
         make_shape(Int<kBlockN>{}, Int<kHeadDim>{})));
+    
     using SmemLayoutAtomdKVStore = decltype(
         composition(Swizzle<2, 4, 2>{},
                     Layout<Shape<_8, Int<4>>,
@@ -741,6 +747,7 @@ struct Flash_bwd_kernel_trans_traits : public Base {
            ? kSmemKVSize + kSmemdSSize + kSmemPSize
            : std::max(kSmemKVSize, kSmemKVSize / 2 + kSmemdSSize + kSmemPSize));
     static constexpr int kSmemSizeTrans1colblock = kSmemQdOSize + kSmemKVSize + kSmemdQSize;
+
     static constexpr int kGmemElemsPerLoad = sizeof(cute::uint128_t) / sizeof(Element);
     static_assert(kHeadDim % kGmemElemsPerLoad == 0, "kHeadDim must be a multiple of kGmemElemsPerLoad");
     // Using kBlockKSmem instead of kHeadDim here to avoid bank conflicts, but doesn't seem
