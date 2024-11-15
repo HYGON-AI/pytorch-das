@@ -1062,6 +1062,9 @@ if(USE_ROCM)
     #TODO: extreme performance?
     # list(APPEND HIP_CXX_FLAGS -ffast-math)
     list(APPEND HIP_CXX_FLAGS -DDCU_ASM)
+    list(APPEND HIP_CXX_FLAGS -DBWDSEPARATE)
+    #FIXME:Performance is irrelevant?
+    # list(APPEND HIP_HIPCC_FLAGS -Rpass-analysis=kernel-resource-usage)
     if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "6.0.0")
       list(APPEND HIP_CXX_FLAGS -DHIPBLAS_V2)
     endif()
