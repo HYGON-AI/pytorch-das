@@ -852,12 +852,12 @@ endif()
 
 include(cmake/Dependencies.cmake)
 
-#cmake_dependent_option(
-#  USE_FLASH_ATTENTION
-#  "Whether to build the flash_attention kernel for scaled dot product attention.\
-#  Will be disabled if not supported by the platform" ON
-#  "USE_CUDA OR USE_ROCM;NOT MSVC" OFF)
-option(USE_FLASH_ATTENTION ON)
+cmake_dependent_option(
+  USE_FLASH_ATTENTION
+  "Whether to build the flash_attention kernel for scaled dot product attention.\
+  Will be disabled if not supported by the platform" ON
+  "USE_CUDA OR USE_ROCM;NOT MSVC" OFF)
+#option(USE_FLASH_ATTENTION ON)
 
 # We are currenlty not using alibi attention for Flash So we disable this
 # feature by default We dont currently document this feature because we don't
