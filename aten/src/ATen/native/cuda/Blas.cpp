@@ -6,7 +6,7 @@
 #include <ATen/OpMathType.h>
 #include <ATen/TensorUtils.h>
 #include <ATen/cuda/CUDABlas.h>
-#if ROCM_VERSION >= 50704
+#if ROCM_VERSION >= 60300
 #include <ATen/cuda/tunable/Tunable.h>
 #include <ATen/cuda/tunable/TunableGemm.h>
 #endif
@@ -160,7 +160,7 @@ enum class Activation {
   GELU,
 };
 
-#if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 50704)
+#if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 60300)
 cuda::blas::GEMMAndBiasActivationEpilogue activation_to_gemm_and_blas_arg(Activation a) {
   switch (a) {
     case Activation::None:
@@ -241,7 +241,7 @@ Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& ma
   at::ScalarType scalar_type = self.scalar_type();
   c10::MaybeOwned<Tensor> self_;
   if (&result != &self) {
-#if (defined(CUDA_VERSION) && CUDA_VERSION >= 11040 ) || (defined(USE_ROCM) && ROCM_VERSION >= 50704)
+#if (defined(CUDA_VERSION) && CUDA_VERSION >= 11040 ) || (defined(USE_ROCM) && ROCM_VERSION >= 60300)
     // Strangely, if mat2 has only 1 row or column, we get
     // CUBLAS_STATUS_INVALID_VALUE error from cublasLtMatmulAlgoGetHeuristic.
     // self.dim() == 1 && result.dim() == 2 && self.sizes()[0] == mat2_sizes[1]
@@ -288,7 +288,7 @@ Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& ma
     }
     self__sizes = self_->sizes();
   } else {
-#if defined(USE_ROCM) && ROCM_VERSION >= 50704
+#if defined(USE_ROCM) && ROCM_VERSION >= 60300
     useLtInterface = !disable_addmm_cuda_lt &&
         result.dim() == 2 && result.is_contiguous() &&
         isSupportedHipLtROCmArch(self.device().index()) &&
@@ -339,7 +339,7 @@ Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& ma
 
   TORCH_INTERNAL_ASSERT_DEBUG_ONLY(!args.result->is_conj());
 
-#if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 50704)
+#if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 60300)
   if (useLtInterface) {
 #if defined(USE_ROCM)
     AT_DISPATCH_FLOATING_TYPES_AND2(
@@ -775,7 +775,7 @@ Tensor& _int_mm_out_cuda(const Tensor& self, const Tensor& mat2, Tensor& result)
 
   TORCH_CHECK(result.is_contiguous(), "Expected result to be contiguous.");
 
-#if (defined(CUDA_VERSION) && (CUDA_VERSION >= 11070)) || (defined(USE_ROCM) && ROCM_VERSION >= 60000)
+#if (defined(CUDA_VERSION) && (CUDA_VERSION >= 11070)) || (defined(USE_ROCM) && ROCM_VERSION >= 60300)
   cublasCommonArgs args(self, mat2, result);
 
   at::cuda::blas::int8_gemm(

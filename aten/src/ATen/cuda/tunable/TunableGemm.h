@@ -11,7 +11,7 @@
 
 #include <ATen/cuda/tunable/GemmCommon.h>
 #ifdef USE_ROCM
-#if ROCM_VERSION >= 50704
+#if ROCM_VERSION >= 60300
 #include <ATen/cuda/tunable/GemmHipblaslt.h>
 #endif
 #include <ATen/cuda/tunable/GemmRocblas.h>
@@ -248,7 +248,7 @@ class GemmTunableOp : public TunableOp<GemmParams<T>, StreamTimer> {
       AddRocblasValidator();
     }
 
-#if defined(USE_ROCM) && ROCM_VERSION >= 50704
+#if defined(USE_ROCM) && ROCM_VERSION >= 60300
     static const char *env_hipblaslt = std::getenv("PYTORCH_TUNABLEOP_HIPBLASLT_ENABLED");
     if (env_hipblaslt == nullptr || strcmp(env_hipblaslt, "1") == 0) {
       rocm_validators = true;
@@ -292,7 +292,7 @@ class GemmStridedBatchedTunableOp : public TunableOp<GemmStridedBatchedParams<T>
       AddRocblasValidator();
     }
 
-#if defined(USE_ROCM) && ROCM_VERSION >= 50704
+#if defined(USE_ROCM) && ROCM_VERSION >= 60300
     static const char *env_hipblaslt = std::getenv("PYTORCH_TUNABLEOP_HIPBLASLT_ENABLED");
     if (env_hipblaslt == nullptr || strcmp(env_hipblaslt, "1") == 0) {
       rocm_validators = true;
