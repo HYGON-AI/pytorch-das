@@ -117,7 +117,9 @@
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
 [submodule "third_party/cutlass"]
 	path = third_party/cutlass
-	url = https://github.com/NVIDIA/cutlass.git
+	url = http://10.6.10.68/dcutoolkit/deeplearing/cutlass_3.2.1.git
+	branch = hipcc_master
+	commit = ec281e373c371c3b08305db872191d37c9ef94c7
 [submodule "third_party/mimalloc"]
 	path = third_party/mimalloc
 	url = https://github.com/microsoft/mimalloc.git
