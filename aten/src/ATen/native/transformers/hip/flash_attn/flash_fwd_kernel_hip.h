@@ -7,10 +7,10 @@
 
 #pragma once
 
-#include <cute/tensor_hip.hpp>
+#include <cute/tensor.hpp>
 
 #include <cutlass/cutlass.h>
-#include <cutlass/array_hip.h>
+#include <cutlass/array.h>
 #include <cutlass/numeric_types.h>
 
 #include "ATen/native/transformers/hip/flash_attn/block_info.h"

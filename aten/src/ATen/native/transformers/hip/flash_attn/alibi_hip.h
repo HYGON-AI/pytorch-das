@@ -2,10 +2,10 @@
 #include <ATen/dtk_macros.h>
 #include <cmath>
 
-#include <cute/tensor_hip.hpp>
+#include <cute/tensor.hpp>
 
 #include <cutlass/cutlass.h>
-#include <cutlass/array_hip.h>
+#include <cutlass/array.h>
 
 #include "utils_hip.h"
 
