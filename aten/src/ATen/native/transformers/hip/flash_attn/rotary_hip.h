@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include <cute/tensor_hip.hpp>
+#include <cute/tensor.hpp>
 
 #include <ATen/native/transformers/hip/flash_attn/utils_hip.h>
 
