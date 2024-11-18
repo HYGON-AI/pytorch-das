@@ -8,7 +8,7 @@
 
 #include <cmath>
 
-#include <cute/tensor_hip.hpp>
+#include <cute/tensor.hpp>
 
 #include <cutlass/numeric_types.h>
 
