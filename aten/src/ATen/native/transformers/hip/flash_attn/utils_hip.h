@@ -17,9 +17,9 @@
 #include <cuda_bf16.h>
 #endif
 
-#include <cute/tensor_hip.hpp>
+#include <cute/tensor.hpp>
 
-#include <cutlass/array_hip.h>
+#include <cutlass/array.h>
 #include <cutlass/cutlass.h>
 #include <cutlass/numeric_conversion_hip.h>
 #include <cutlass/numeric_types.h>

@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include <cute/tensor_hip.hpp>
+#include <cute/tensor.hpp>
 
 namespace pytorch_flash {
 

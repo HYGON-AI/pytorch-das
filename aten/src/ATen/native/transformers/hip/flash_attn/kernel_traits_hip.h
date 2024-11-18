@@ -6,10 +6,10 @@
 
 #pragma once
 
-#include "cute/tensor_hip.hpp"
+#include "cute/tensor.hpp"
 
 #include "cutlass/cutlass.h"
-#include "cutlass/layout/layout_hip.h"
+#include "cutlass/layout/layout.h"
 #include <cutlass/numeric_types.h>
 namespace pytorch_flash {
 
