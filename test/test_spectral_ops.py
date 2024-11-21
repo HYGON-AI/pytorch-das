@@ -123,7 +123,7 @@ def skip_helper_for_fft(device, dtype):
     if not SM53OrLater:
         raise unittest.SkipTest("half and complex32 are only supported on CUDA device with SM>53")
     if torch.version.hip:
-        raise unittest.SkipTest("half and complex32 are not supported on DCU"
+        raise unittest.SkipTest("half and complex32 are not supported on DCU")
 
 ###
 def skip_helper_fp64_onE100(device, dtype):
