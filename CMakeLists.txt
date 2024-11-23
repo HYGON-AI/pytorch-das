@@ -857,6 +857,11 @@ cmake_dependent_option(
   "Whether to build the flash_attention kernel for scaled dot product attention.\
   Will be disabled if not supported by the platform" ON
   "USE_CUDA OR USE_ROCM;NOT MSVC" OFF)
+option(USE_AOTRITON_FA "enable to compile aotriton fa" ON)
+message(STATUS "zll USE_AOTRITON_FA ${USE_AOTRITON_FA}")
+if(USE_AOTRITON_FA)
+  add_definitions(-DUSE_AOTRITON_FA)
+endif()
 
 # We are currenlty not using alibi attention for Flash So we disable this
 # feature by default We dont currently document this feature because we don't

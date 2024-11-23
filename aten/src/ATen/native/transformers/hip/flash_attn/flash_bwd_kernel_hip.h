@@ -610,9 +610,10 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
             tdOgdO.data() = tdOgdO.data() + (-int(kBlockM * params.do_row_stride));
             pytorch_flash::copy</*Is_even_MN=*/true, Is_even_K>(gmem_tiled_copy_dO, tdOgdO, tdOsdO, tQcQ, tQpQ);
             // pytorch_flash::cp_async_fence();
-            __syncthreads();
+            //__syncthreads();
         }
 
+        __syncthreads();
         pytorch_flash::gemm(acc_dq, tdQrdS, tdQrKt, tdQsdS, tdQsKt, tiled_mma_dq,
                     smem_tiled_copy_dS, smem_tiled_copy_Kt, smem_thr_copy_dS, smem_thr_copy_Kt);
 
@@ -1208,7 +1209,7 @@ inline __device__ void compute_dk_dv_1colblock(const Params &params, const int b
     }
 #if 1
     // Epilogue
-    __builtin_amdgcn_sched_barrier(1);
+    // __builtin_amdgcn_sched_barrier(1);
     if constexpr(Is_dropout) {
         #pragma unroll
         for (int i = 0; i < size(acc_dv); ++i) { acc_dv(i) *= params.rp_dropout; }
@@ -1511,7 +1512,8 @@ inline __device__ void compute_dq_1rowblock(const Params &params, const int bidb
         gmem_tiled_copy_QKV, tQgQ, tQsQ, tQcQ, tQpQ, binfo.actual_seqlen_q - m_block * kBlockM);
     pytorch_flash::copy<Is_even_MN, Is_even_K, /*Clear_OOB_MN=*/true>(
         gmem_tiled_copy_dO, tdOgdO, tdOsdO, tQcQ, tQpQ, binfo.actual_seqlen_q - m_block * kBlockM);
-    if constexpr(Kernel_traits::Is_Q_in_regs) { __syncthreads(); }
+    //if constexpr(Kernel_traits::Is_Q_in_regs) { __syncthreads(); }
+    __syncthreads();
 
     if constexpr (Kernel_traits::Share_Q_K_smem) {
         __syncthreads();
@@ -1523,7 +1525,7 @@ inline __device__ void compute_dq_1rowblock(const Params &params, const int bidb
         CUTE_STATIC_ASSERT_V(size<1>(tdPsdO) == size<1>(tdPrdO_copy_view));
         cute::copy(smem_tiled_copy_QdO, tdPsdO, tdPrdO_copy_view);
     }
-
+    __syncthreads();
     // wangaq debug
     Tensor caccS = make_identity_tensor(Shape<Int<kBlockM>, Int<kBlockN>>{});    // (BLK_N,BLK_M) -> (blk_n,blk_m)
     Tensor taccScS = thr_mma_sdp.partition_C(caccS);                           // (MMA,MMA_N,MMA_N)
@@ -1544,6 +1546,7 @@ inline __device__ void compute_dq_1rowblock(const Params &params, const int bidb
         gmem_tiled_copy_QKV, tVgV, tVsV, tKVcKV, tKVpKV, binfo.actual_seqlen_k - n_block * kBlockN
     );
 
+    __syncthreads();
     // wangaq debug
     // __syncthreads();
     // if (cute::thread(0, 0)) {
@@ -1576,6 +1579,7 @@ inline __device__ void compute_dq_1rowblock(const Params &params, const int bidb
         cute::copy(smem_tiled_copy_QdO, tdPsdO, tdPrdO_copy_view);
     }
 
+    __syncthreads();
     pytorch_flash::Dropout dropout(params.rng_state[0], params.rng_state[1], params.p_dropout_in_uint8_t,
                            bidb, bidh, tidx, params.h);
 
@@ -1799,13 +1803,14 @@ inline __device__ void compute_dq_1rowblock(const Params &params, const int bidb
         //     );
         // }
 
+	__syncthreads();
         if (n_block > n_block_min) {
-            __syncthreads();
             tVgV.data() = tVgV.data() + (-int(kBlockN * params.k_row_stride));
             pytorch_flash::copy</*Is_even_MN=*/true, Is_even_K>(gmem_tiled_copy_QKV, tVgV, tVsV, tKVcKV, tKVpKV);
             // Advance gK/gV
             tKgK.data() = tKgK.data() + (-int(kBlockN * params.k_row_stride));
             pytorch_flash::copy</*Is_even_MN=*/true, Is_even_K>(gmem_tiled_copy_QKV, tKgK, tKsK, tKVcKV, tKVpKV);
+            __syncthreads();
         }
     }
 #if 0

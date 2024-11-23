@@ -74,6 +74,7 @@ DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dq_loop_seqq_parallel_kernel, bool Is_dro
         static_assert(!(Is_causal && Is_local));  // If Is_local is true, Is_causal should be false
         pytorch_flash::compute_dq_seqq_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
     #else
+        
         FLASH_UNSUPPORTED_ARCH
     #endif
 }

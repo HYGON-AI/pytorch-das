@@ -290,7 +290,7 @@ void run_mha_fwd_hdim128(Flash_fwd_params &params, hipStream_t stream) {
         // }
 #if 1
         // printf("run 128\n");
-        if (params.seqlen_q <= 4096) {
+        if (params.seqlen_q < 4096) {
             run_flash_fwd<Flash_fwd_kernel_traits<Headdim, 64, 32, 4, false, /*Share_Q_K_smem_=*/true, T>, Is_dropout, Is_causal>(params, stream);
         }
         else {
