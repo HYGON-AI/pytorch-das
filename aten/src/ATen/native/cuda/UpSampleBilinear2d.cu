@@ -845,7 +845,7 @@ static void upsample_gen2d_aa_out_cuda_template(
   size_t sharedMemPerBlock = at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
   int* maxThreadsDim = at::cuda::getCurrentDeviceProperties()->maxThreadsDim;
   int maxThreadsPerBlock = std::min(at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock, 256);
-  int* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
+  uint32_t* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
   int block_x = std::min<int>(maxThreadsDim[0], at::cuda::warp_size());
   int grid_x = std::min<int>(maxGridSize[0], ceil_div(output_width, block_x));
 
@@ -947,7 +947,7 @@ static void upsample_gen2d_aa_backward_out_cuda_template(
   int block_y = std::min<int>(maxThreadsDim[1], num_threads / block_x);
   const dim3 block(block_x, block_y);
 
-  int* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
+  uint32_t* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
   int grid_x = std::min<int>(maxGridSize[0], ceil_div(output_width, block_x));
   int grid_y = std::min<int>(maxGridSize[1], ceil_div(output_height, block_y));
   int grid_z = std::min<int>(maxGridSize[2], input_size[0] * input_size[1]);

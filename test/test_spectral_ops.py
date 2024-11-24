@@ -122,6 +122,8 @@ def skip_helper_for_fft(device, dtype):
         raise unittest.SkipTest("half and complex32 are not supported on CPU")
     if not SM53OrLater:
         raise unittest.SkipTest("half and complex32 are only supported on CUDA device with SM>53")
+    if torch.version.hip:
+        raise unittest.SkipTest("half and complex32 are not supported on DCU")
 
 ###
 def skip_helper_fp64_onE100(device, dtype):
@@ -334,6 +336,7 @@ class TestFFT(TestCase):
     @ops(spectral_funcs, dtypes=OpDTypes.unsupported,
          allowed_dtypes=[torch.half, torch.bfloat16])
     def test_fft_half_and_bfloat16_errors(self, device, dtype, op):
+        skip_helper_for_fft(device, dtype)
         # TODO: Remove torch.half error when complex32 is fully implemented
         sample = first_sample(self, op.sample_inputs(device, dtype))
         device_type = torch.device(device).type
