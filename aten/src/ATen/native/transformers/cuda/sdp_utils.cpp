@@ -19,7 +19,7 @@
 #include <c10/core/SymInt.h>
 #include <c10/util/string_view.h>
 
-if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION) && defined(USE_AOTRITON_FA)
+#if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION) && defined(USE_AOTRITON_FA)
 #include <aotriton/flash.h>
 #endif
 
@@ -185,19 +185,19 @@ bool check_flash_attention_hardware_support(sdp_params const& params, bool debug
   using sm80 = SMVersion<8, 0>;
   using sm90 = SMVersion<9, 0>;
 #if USE_ROCM
-  #if defined(USE_AOTRITON_FA)
-  auto stream = at::cuda::getCurrentCUDAStream().stream();
-  if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
-      auto dprops = at::cuda::getCurrentDeviceProperties();
-      if (debug) {
-          TORCH_WARN(
-                  "Flash attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
-      }
-      return false;
-  }
-  #else
-  return ture;
-  #endif
+  // #if defined(USE_AOTRITON_FA)
+  // auto stream = at::cuda::getCurrentCUDAStream().stream();
+  // if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
+  //     auto dprops = at::cuda::getCurrentDeviceProperties();
+  //     if (debug) {
+  //         TORCH_WARN(
+  //                 "Flash attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+  //     }
+  //     return false;
+  // }
+  // #else
+  return true;
+  // #endif
 #else
   auto dprops = at::cuda::getCurrentDeviceProperties();
   if (!check_sm_version<sm80, sm90>(dprops)) {
@@ -221,17 +221,18 @@ bool check_mem_efficient_hardware_support(sdp_params const& params, bool debug) 
   using sm90 = SMVersion<9, 0>;
 #if USE_ROCM
   #if USE_AOTRITON_FA
-  auto stream = at::cuda::getCurrentCUDAStream().stream();
-  if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
-      auto dprops = at::cuda::getCurrentDeviceProperties();
-      if (debug) {
-          TORCH_WARN(
-                  "Mem Efficient attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
-      }
-      return false;
-  }
+  return true;
+  // auto stream = at::cuda::getCurrentCUDAStream().stream();
+  // if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
+  //     auto dprops = at::cuda::getCurrentDeviceProperties();
+  //     if (debug) {
+  //         TORCH_WARN(
+  //                 "Mem Efficient attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+  //     }
+  //     return false;
+  // }
   #else
-  return false
+  return false;
   #endif
 #else
   auto dprops = at::cuda::getCurrentDeviceProperties();

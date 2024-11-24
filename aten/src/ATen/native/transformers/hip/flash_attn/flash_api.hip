@@ -11,7 +11,6 @@
 #include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
 
 #include <cutlass/numeric_types.h>
-
 #include <ATen/native/transformers/hip/flash_attn/flash_api.h>
 #include <ATen/native/transformers/hip/flash_attn/flash_hip.h>
 #include <ATen/native/transformers/hip/flash_attn/static_switch.h>
@@ -46,7 +45,7 @@
 
 // AOTriton headers
 #if USE_AOTRITON_FA
-#include <ATen/native/transformers/hip/flash_attn/flash_api.h>
+#include <ATen/native/transformers/hip/aotriton_adapter.h>
 #include <aotriton/flash.h>
 #include <aotriton/runtime.h>
 #endif
