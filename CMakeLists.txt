@@ -858,7 +858,6 @@ cmake_dependent_option(
   Will be disabled if not supported by the platform" ON
   "USE_CUDA OR USE_ROCM;NOT MSVC" OFF)
 option(USE_AOTRITON_FA "enable to compile aotriton fa" ON)
-message(STATUS "zll USE_AOTRITON_FA ${USE_AOTRITON_FA}")
 if(USE_AOTRITON_FA)
   add_definitions(-DUSE_AOTRITON_FA)
 endif()

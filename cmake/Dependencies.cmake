@@ -1059,12 +1059,8 @@ if(USE_ROCM)
 
     list(APPEND HIP_CXX_FLAGS -DHIP_ENABLE_WARP_SYNC_BUILTINS)
     list(APPEND HIP_CXX_FLAGS -mno-fma)
-<<<<<<< cmake/Dependencies.cmake
     #TODO: extreme performance?
     # list(APPEND HIP_CXX_FLAGS -ffast-math)
-=======
-    #list(APPEND HIP_CXX_FLAGS -ffast-math)
->>>>>>> cmake/Dependencies.cmake
     list(APPEND HIP_CXX_FLAGS -DDCU_ASM)
     list(APPEND HIP_CXX_FLAGS -DBWDSEPARATE)
     #FIXME:Performance is irrelevant?
