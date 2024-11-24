@@ -100,7 +100,10 @@ std::tuple<Tensor, Tensor, Tensor> miopen_batch_norm(
     mode = miopenBNSpatial;
   }
 
-  auto output_t = at::empty(input->sizes(), input->options());
+  auto output_t = input->suggest_memory_format() == at::MemoryFormat::ChannelsLast ? 
+                    at::empty(input->sizes(), input->options(), at::MemoryFormat::ChannelsLast) : 
+                    at::empty(input->sizes(), input->options());
+
   TensorArg output{ output_t, "output", 0 };
 
   auto handle = getMiopenHandle();
@@ -193,7 +196,9 @@ std::tuple<Tensor, Tensor, Tensor> miopen_batch_norm_backward(
   }
   checkAllSameType(c, {input, grad_output});
   checkAllSameType(c, {weight, save_mean, save_var});
-  checkAllContiguous(c, {input, grad_output, save_mean, save_var});
+  if(input->suggest_memory_format() != at::MemoryFormat::ChannelsLast) {
+    checkAllContiguous(c, {input, grad_output, save_mean, save_var});
+  }
   checkDimRange(c, input, 2, 6 /* exclusive */);
   checkSameSize(c, input, grad_output);
   auto num_features = input->size(1);
@@ -208,7 +213,9 @@ std::tuple<Tensor, Tensor, Tensor> miopen_batch_norm_backward(
     mode = miopenBNSpatial;
   }
 
-  auto grad_input_t  = at::empty(input->sizes(), input->options());
+  auto grad_input_t  = input->suggest_memory_format() == at::MemoryFormat::ChannelsLast ?
+                        at::empty(input->sizes(), input->options(), at::MemoryFormat::ChannelsLast) :
+                        at::empty(input->sizes(), input->options());
   auto grad_weight_t = at::empty(weight->sizes(), weight->options());
   auto grad_bias_t   = at::empty(weight->sizes(), weight->options());
 

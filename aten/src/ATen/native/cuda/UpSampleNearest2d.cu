@@ -278,7 +278,7 @@ static void upsample_nearest2d_out_cuda_template(
         at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock, MAX_THREADS);
 
     int* maxThreadsDim = at::cuda::getCurrentDeviceProperties()->maxThreadsDim;
-    int* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
+    uint32_t* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
 
     // upsample_nearest2d meta call makes sure input/output tensor is not empty;
     int block_x = std::min<int>(

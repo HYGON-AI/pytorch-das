@@ -1059,8 +1059,12 @@ if(USE_ROCM)
 
     list(APPEND HIP_CXX_FLAGS -DHIP_ENABLE_WARP_SYNC_BUILTINS)
     list(APPEND HIP_CXX_FLAGS -mno-fma)
+<<<<<<< cmake/Dependencies.cmake
     #TODO: extreme performance?
     # list(APPEND HIP_CXX_FLAGS -ffast-math)
+=======
+    #list(APPEND HIP_CXX_FLAGS -ffast-math)
+>>>>>>> cmake/Dependencies.cmake
     list(APPEND HIP_CXX_FLAGS -DDCU_ASM)
     list(APPEND HIP_CXX_FLAGS -DBWDSEPARATE)
     #FIXME:Performance is irrelevant?
@@ -1114,7 +1118,7 @@ if(USE_ROCM)
     else()
       message(STATUS "Disabling Kernel Assert for ROCm")
     endif()
-    if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "5.7.0")
+    if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "6.3.0")
       if(USE_AOTRITON_FA)
         include(${CMAKE_CURRENT_LIST_DIR}/External/aotriton.cmake)
       endif()

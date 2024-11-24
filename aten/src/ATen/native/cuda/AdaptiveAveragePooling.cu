@@ -490,7 +490,7 @@ namespace {
         const int max_threads = std::min<int>(
             at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock, CUDA_MAX_THREADS);
         int* maxThreadsDim = at::cuda::getCurrentDeviceProperties()->maxThreadsDim;
-        int* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
+        uint32_t* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
         size_t sharedMemPerBlock = at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
 
         // Launch kernel on output tensor elements. Logic behind launch config:
@@ -642,7 +642,7 @@ namespace {
         int max_threads = std::min<int>(
             at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock, CUDA_MAX_THREADS);
         int* maxThreadsDim = at::cuda::getCurrentDeviceProperties()->maxThreadsDim;
-        int* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
+        uint32_t* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
         size_t sharedMemPerBlock = at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
 
         // Launch kernel on input tensor elements. Logic behind launch config:
