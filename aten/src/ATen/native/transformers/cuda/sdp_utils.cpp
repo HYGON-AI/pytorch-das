@@ -679,11 +679,24 @@ bool can_use_mem_efficient_attention(sdp_params const& params, bool debug) {
   return check_tensor_dtype(params, less_than_sm80_mem_efficient_dtypes, debug);
 }
 
+inline int switch_math_fa_enable() {
+  static const char switch_math_fa_name[] = "USE_MATH_FA";
+  char* switch_math_fa_str = std::getenv(switch_math_fa_name);
+  int switch_math_fa_value = 0;
+  if (switch_math_fa_str!= nullptr){
+    switch_math_fa_value = c10::stoi(switch_math_fa_str);
+  }
+  return switch_math_fa_value;
+}
+
 SDPBackend select_sdp_backend(sdp_params const& kernel_params) {
   // This function defines the priority order of the different sdp backends
   // 1. Flash Attention
   // 2. Mem Efficient Attention
   // 3. Math fallback
+  if(switch_math_fa_enable()) {
+    return SDPBackend::math;
+  }
   auto& ctx = at::globalContext();
   if (!ctx.userEnabledMathSDP() && !ctx.userEnabledFlashSDP() &&
       !ctx.userEnabledMemEfficientSDP() && !ctx.userEnabledCuDNNSDP()) {
