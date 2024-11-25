@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import functools
 import logging
+from copy import deepcopy
 from typing import cast, List, Optional, Sequence, Tuple, TYPE_CHECKING, TypedDict
 
 import torch
@@ -41,11 +42,17 @@ aten = torch.ops.aten
 
 
 def conv_grid(n, c, h, w, meta):
-    return (
-        ceildiv(n * h * w, meta["BLOCK_M"]),
-        ceildiv(c, meta["BLOCK_N"]),
-        meta["GROUPS"],
-    )
+    if "GROUP_SIZE_M" in meta:
+        return (
+            (ceildiv((h * w * n), meta["BLOCK_M"])
+            * ceildiv(c, meta["BLOCK_N"])), 1, 1
+        )
+    else:
+        return (
+            ceildiv(n * h * w, meta["BLOCK_M"]),
+            ceildiv(c, meta["BLOCK_N"]),
+            meta["GROUPS"],
+        )
 
 def config_gen():
     import itertools
@@ -152,13 +159,29 @@ conv2d_template = TritonTemplate(
     stride_wh = {{stride("W", 2)}}
     stride_ww = {{stride("W", 3)}}
 
+{% if GROUP_SIZE_M is defined %}
+    pid = tl.program_id(0)
+    num_pid_m = tl.cdiv(OUT_H * OUT_W * BATCH, BLOCK_M)
+    num_pid_n = tl.cdiv(OUT_C, BLOCK_N)
+    num_pid_in_group = GROUP_SIZE_M * num_pid_n
+    group_id = pid // num_pid_in_group
+    first_pid_m = group_id * GROUP_SIZE_M
+    group_size_m = min(num_pid_m - first_pid_m, GROUP_SIZE_M)
+    pid_m = first_pid_m + (pid % group_size_m)
+    pid_n = (pid % num_pid_in_group) // group_size_m
+
+    nhw = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    idx_y_c = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+{% else %}
     nhw = tl.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)
+    idx_y_c = tl.program_id(1) * BLOCK_N + tl.arange(0, BLOCK_N)
+{% endif %}
+
     idx_y_w = nhw % OUT_W
     nh = nhw // OUT_W
     idx_y_h = nh % OUT_H
     idx_n = nh // OUT_H
-    idx_y_c = tl.program_id(1) * BLOCK_N + tl.arange(0, BLOCK_N)
-
+    
 {% if GROUPS == 1 %}
     group = 0
     GROUP_IN_C = IN_C
@@ -215,6 +238,126 @@ conv2d_template = TritonTemplate(
     idx_w = idx_y_w[:, None]
 
     # inductor generates a suffix
+    {{store_output(("idx_n", "idx_c", "idx_h", "idx_w"), "acc", "mask")}}
+""",
+)
+
+conv2d_few_channel_tmpl = TritonTemplate(
+    name="conv_few_channel",
+    grid=conv_grid,
+    source=r"""
+{{def_kernel("X", "W")}}
+    # Tensor dimensions
+    BATCH = {{size("X", 0)}}
+    IN_C = {{size("X", 1)}}
+    IN_H = {{size("X", 2)}}
+    IN_W = {{size("X", 3)}}
+    OUT_C = {{size(None, 1)}}
+    OUT_H = {{size(None, 2)}}
+    OUT_W = {{size(None, 3)}}
+
+    # Strides:
+    stride_xn = {{stride("X", 0)}}
+    stride_xc = {{stride("X", 1)}}
+    stride_xh = {{stride("X", 2)}}
+    stride_xw = {{stride("X", 3)}}
+    stride_wc_out = {{stride("W", 0)}}
+    stride_wc_in = {{stride("W", 1)}}
+    stride_wh = {{stride("W", 2)}}
+    stride_ww = {{stride("W", 3)}}
+
+    nhw = tl.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)
+    off_y_n = nhw // (OUT_H * OUT_W)
+    off_y_hw = nhw % (OUT_H * OUT_W)
+    off_y_h = off_y_hw // OUT_W
+    off_y_w = off_y_hw % OUT_W
+
+    off_y_k = tl.program_id(1) * BLOCK_N + tl.arange(0, BLOCK_N)
+
+    off_x_n = off_y_n
+    off_x_h = off_y_h * STRIDE_H - PADDING_H
+    off_x_w = off_y_w * STRIDE_W - PADDING_W
+    off_x_nhw = off_x_n * stride_xn + off_x_h * stride_xh + off_x_w * stride_xw
+    
+    if IN_C == 1:
+        shift_rightc = 0
+        multipliercc = 0
+        multiplierc = multipliercc.to(tl.uint32)
+    else:
+        a = (31 - tl.math.clz(IN_C)).to(tl.int32)
+        a += (IN_C & (IN_C  - 1)) != 0
+        pc = a + 31
+        shift_rightc = pc - 32
+        if IN_C % 3 == 0:
+            multiplierc = 2863311531
+        else:
+            multiplierc = 2147483648
+
+    if KERNEL_W == 1:
+        shift_rightm = 0
+        multipliermm = 0
+        multiplierm = multipliermm.to(tl.uint32)
+    else:
+        if KERNEL_W == 5:
+            multiplierm = 3435973837
+            shift_rightm = 2
+        elif KERNEL_W == 3:
+            multiplierm = 2863311531
+            shift_rightm = 1
+        elif KERNEL_W == 7:
+            multiplierm = 2454267027
+            shift_rightm = 2
+        else:
+            multiplierm = 3123612579
+            shift_rightm = 3
+
+    off_x_crs_base = tl.arange(0, BLOCK_K)
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
+
+    off_w_crs = tl.arange(0, BLOCK_K)
+    off_w_k = off_y_k
+    w_base = W + off_w_crs[:, None] + off_w_k[None, :] * stride_wc_out
+
+    CRS = IN_C * KERNEL_H * KERNEL_W
+    for crs in range(0, CRS, BLOCK_K):
+        off_x_crs = off_x_crs_base + crs
+        off_c_crs = tl.where(off_x_crs < CRS, off_x_crs, 0)
+        quotientc = tl.math.umulhi(off_c_crs, multiplierc) >> shift_rightc
+        delta_xc = off_x_crs - (quotientc * IN_C)
+        delta_xh = tl.math.umulhi(quotientc, multiplierm) >> shift_rightm
+        delta_xw = quotientc - (delta_xh * KERNEL_W)
+
+        mask_x = (
+            (off_x_n < BATCH)[:, None]
+            & (off_x_crs < CRS)[None, :]
+            & (off_x_h[:, None] + delta_xh[None, :] >= 0)
+            & (off_x_h[:, None] + delta_xh[None, :] < IN_H)
+            & (off_x_w[:, None] + delta_xw[None, :] >= 0)
+            & (off_x_w[:, None] + delta_xw[None, :] < IN_W)
+        )
+        off_x_crs_unpacked = (
+            delta_xh * stride_xh + delta_xw * stride_xw + delta_xc * stride_xc
+        )
+        x_ptrs = X + off_x_nhw[:, None] + off_x_crs_unpacked[None, :]
+        matrix_x = tl.load(x_ptrs, mask=mask_x, other=0.0)
+
+        mask_w = (off_x_crs < CRS)[:, None] & (off_w_k < OUT_C)[None, :]
+        w_ptrs = w_base + crs
+        matrix_w = tl.load(w_ptrs, mask=mask_w, other=0.0)
+        
+        acc += tl.dot(matrix_x, matrix_w, allow_tf32=ALLOW_TF32)
+
+    mask = (
+        (off_y_n < BATCH)[:, None]
+        & (off_y_h < OUT_H)[:, None]
+        & (off_y_w < OUT_W)[:, None]
+        & (off_y_k < OUT_C)[None, :]
+    )
+    idx_n = off_y_n[:, None]
+    idx_c = off_y_k[None, :]
+    idx_h = off_y_h[:, None]
+    idx_w = off_y_w[:, None]
+
     {{store_output(("idx_n", "idx_c", "idx_h", "idx_w"), "acc", "mask")}}
 """,
 )
@@ -456,30 +599,47 @@ def convolution(
         ):
             choices.append(aten_conv1x1_via_mm.bind(args, layout))
 
+        def cfg_add_group_size_m(cfg, group_size_m):
+            new_cfg = deepcopy(cfg)
+            new_cfg.kwargs["GROUP_SIZE_M"] = group_size_m
+            return new_cfg
+
+        # TODO(jansel): try unroll for bigger kernels once fixed: https://github.com/openai/triton/issues/1254
+        conv_paras = {'input_nodes':(x, weight), 'layout':layout, 'KERNEL_H':kernel_shape[0],
+                      'KERNEL_W':kernel_shape[1], 'STRIDE_H':stride[0], 'STRIDE_W':stride[1],
+                      'PADDING_H':padding[0], 'PADDING_W':padding[1], 'GROUPS':groups, 
+                      'UNROLL':is_ones(kernel_shape), 'ALLOW_TF32': torch.backends.cudnn.allow_tf32}
         for cfg in conv_configs(
             sympy_product([x.get_size()[0], *x.get_size()[2:]]),
             out_chan,
             in_chan,
         ):
-            conv2d_template.maybe_append_choice(
-                choices,
-                input_nodes=(x, weight),
-                layout=layout,
-                KERNEL_H=kernel_shape[0],
-                KERNEL_W=kernel_shape[1],
-                STRIDE_H=stride[0],
-                STRIDE_W=stride[1],
-                PADDING_H=padding[0],
-                PADDING_W=padding[1],
-                GROUPS=groups,
-                # TODO(jansel): try unroll for bigger kernels once fixed:
-                #               https://github.com/openai/triton/issues/1254
-                UNROLL=is_ones(kernel_shape),
-                ALLOW_TF32=torch.backends.cudnn.allow_tf32,
-                num_stages=cfg.num_stages,
-                num_warps=cfg.num_warps,
-                **cfg.kwargs,
-            )
+            new_cfgs = []
+            x_layout = x.get_layout()
+            is_channel_last = x_layout.is_channels_last_contiguous(x_layout.size, x_layout.stride)
+            # DCU perf optimize: few channel and block swizzle
+            if is_channel_last:
+                if in_chan <= 32:
+                    conv_paras['num_stages'] = cfg.num_stages
+                    conv_paras['num_warps'] = cfg.num_warps
+                    conv2d_few_channel_tmpl.maybe_append_choice(
+                        choices, 
+                        **conv_paras, 
+                        **cfg.kwargs
+                    )
+                
+                new_cfgs = [cfg_add_group_size_m(cfg, group_size_m) for group_size_m in [4, 8]]
+            else:
+                new_cfgs.append(cfg)
+
+            for new_cfg in new_cfgs:
+                conv_paras['num_stages'] = new_cfg.num_stages
+                conv_paras['num_warps'] = new_cfg.num_warps
+                conv2d_template.maybe_append_choice(
+                    choices, 
+                    **conv_paras, 
+                    **new_cfg.kwargs
+                )
 
     return autotune_select_algorithm("convolution", choices, args, layout)
 
