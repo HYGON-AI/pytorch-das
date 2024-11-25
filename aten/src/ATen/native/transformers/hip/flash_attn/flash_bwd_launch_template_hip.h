@@ -34,7 +34,7 @@ namespace pytorch_flash {
 // Use a macro to clean up kernel definitions
 #define DEFINE_FLASH_BACKWARD_KERNEL(kernelName, ...) \
 template<typename Kernel_traits, __VA_ARGS__> \
-__global__ void __launch_bounds__(256, 2) kernelName(KERNEL_PARAM_MODIFIER const Flash_bwd_params params)
+__global__ void __launch_bounds__(256, 1) kernelName(KERNEL_PARAM_MODIFIER const Flash_bwd_params params)
 
 DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dq_dk_dv_loop_kernel, bool Is_dropout, bool Is_causal, bool Has_alibi, bool Is_even_M, bool Is_even_K) {
     #if defined(ARCH_SUPPORTS_FLASH)
@@ -49,6 +49,32 @@ DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dq_dk_dv_loop_seqk_parallel_kernel, bool 
         static_assert(!(Is_causal && Is_local));  // If Is_local is true, Is_causal should be false
         pytorch_flash::compute_dq_dk_dv_seqk_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
     #else
+        FLASH_UNSUPPORTED_ARCH
+    #endif
+}
+
+DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dk_dv_loop_seqk_parallel_kernel, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap) {
+    #if defined(ARCH_SUPPORTS_FLASH)
+        static_assert(!(Is_causal && Is_local));  // If Is_local is true, Is_causal should be false
+        pytorch_flash::compute_dk_dv_seqk_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
+    #else
+        FLASH_UNSUPPORTED_ARCH
+    #endif
+}
+DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dk_dv_trans_loop_seqk_parallel_kernel, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap) {
+    #if defined(ARCH_SUPPORTS_FLASH)
+        static_assert(!(Is_causal && Is_local));  // If Is_local is true, Is_causal should be false
+        pytorch_flash::compute_dk_dv_trans_seqk_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
+    #else
+        FLASH_UNSUPPORTED_ARCH
+    #endif
+}
+DEFINE_FLASH_BACKWARD_KERNEL(flash_bwd_dq_loop_seqq_parallel_kernel, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap) {
+    #if defined(ARCH_SUPPORTS_FLASH)
+        static_assert(!(Is_causal && Is_local));  // If Is_local is true, Is_causal should be false
+        pytorch_flash::compute_dq_seqq_parallel<Kernel_traits, Is_dropout, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap>(params);
+    #else
+        
         FLASH_UNSUPPORTED_ARCH
     #endif
 }
@@ -137,6 +163,89 @@ void run_flash_bwd_seqk_parallel(Flash_bwd_params &params, hipStream_t stream) {
     C10_HIP_KERNEL_LAUNCH_CHECK();
 }
 
+template<typename Kernel_traits, typename Kernel_trans_traits, bool Is_dropout, bool Is_causal>
+void run_flash_bwd_separate_seqk_parallel(Flash_bwd_params &params, hipStream_t stream) {
+    const int num_m_block = (params.seqlen_q + Kernel_traits::kBlockM - 1) / Kernel_traits::kBlockM;
+    dim3 grid_m(num_m_block, params.b, params.h);
+    const int num_n_block = (params.seqlen_k + Kernel_traits::kBlockN - 1) / Kernel_traits::kBlockN;
+    int gridDimx = num_n_block;
+    if (params.deterministic) {
+        auto dprops = at::cuda::getCurrentDeviceProperties();
+        gridDimx = (dprops->multiProcessorCount + params.b * params.h - 1) / (params.b * params.h);
+    }
+    dim3 grid_n(gridDimx, params.b, params.h);
+    // printf("run_flash_bwd_seqk_parallel: grid_m=%d, %d, %d, \n", grid_m.x, grid_m.y, grid_m.z);
+
+    if (!params.deterministic) {
+        flash_bwd_dot_do_o_kernel<true, Kernel_traits><<<grid_m, Kernel_traits::kNThreads, 0, stream>>>(params);
+    } else {
+        flash_bwd_dot_do_o_kernel<false, Kernel_traits><<<grid_m, Kernel_traits::kNThreads, 0, stream>>>(params);
+    }
+    C10_HIP_KERNEL_LAUNCH_CHECK();
+    // printf("flash_bwd_dot_do_o_kernel done, params.deterministic=%d, params.seqlen_q=%d, params.seqlen_k=%d, \n", 
+    //     params.deterministic, params.seqlen_q, params.seqlen_k);
+
+    // We want to specialize to is_even_MN and not just is_even_M, since in the case where N is not
+    // a multiple of kBlockN, we'll need to apply mask in the loop.
+    const bool is_even_MN = params.cu_seqlens_q == nullptr && params.cu_seqlens_k == nullptr && params.seqlen_q % Kernel_traits::kBlockM == 0 && params.seqlen_k % Kernel_traits::kBlockN == 0;
+    const bool is_even_K = params.d == Kernel_traits::kHeadDim;
+    
+    #ifdef BWDTRANS
+    constexpr int smem_size_dq_dk_dv = Kernel_trans_traits::kSmemSizeTrans1colblock;
+    #else
+    constexpr int smem_size_dq_dk_dv = Kernel_traits::kSmemSize1colblock;
+    #endif
+    constexpr int smem_size_dq = Kernel_traits::kSmemSize1rowblock;
+    // printf("smem_size_dq_dk_dv = %d smem_size_dq = %d\n", smem_size_dq_dk_dv, smem_size_dq);
+    // printf("run_flash_bwd_seqk_parallel: grid_n=%d, %d, %d, \n", grid_n.x, grid_n.y, grid_n.z);
+    BOOL_SWITCH(is_even_MN, IsEvenMNConst, [&] {
+        EVENK_SWITCH(is_even_K, IsEvenKConst, [&] {
+            LOCAL_SWITCH((params.window_size_left >= 0 || params.window_size_right >= 0) && !params.is_causal, Is_local, [&] {
+                ALIBI_SWITCH(params.alibi_slopes_ptr != nullptr, Has_alibi, [&] {
+                    SOFTCAP_SWITCH(params.softcap > 0.0, Is_softcap, [&] {
+                        // If not IsEvenKConst, we also set IsEvenMNConst to false to reduce number of templates.
+                        // If head dim > 128, set IsEvenMNConst to false to reduce number of templates
+                        // If Is_local, set Is_causal to false
+                        #ifdef BWDTRANS
+                        auto kernel = &flash_bwd_dk_dv_trans_loop_seqk_parallel_kernel<
+                            Kernel_trans_traits, 
+                            Is_dropout && !Is_softcap, Is_causal, 
+                            Is_local && !Is_causal, 
+                            Has_alibi, 
+                            IsEvenMNConst && IsEvenKConst && !Is_local && Kernel_traits::kHeadDim <= 128, 
+                            IsEvenKConst, 
+                            Is_softcap>;
+                        #else
+                        auto kernel = &flash_bwd_dk_dv_loop_seqk_parallel_kernel<
+                            Kernel_traits, 
+                            Is_dropout && !Is_softcap, Is_causal, 
+                            Is_local && !Is_causal, 
+                            Has_alibi, 
+                            IsEvenMNConst && IsEvenKConst && !Is_local && Kernel_traits::kHeadDim <= 128, 
+                            IsEvenKConst, 
+                            Is_softcap>;
+                        #endif
+                        
+                        kernel<<<grid_n, Kernel_traits::kNThreads, smem_size_dq_dk_dv, stream>>>(params);
+                        C10_HIP_KERNEL_LAUNCH_CHECK();
+                        auto kernel_dq = flash_bwd_dq_loop_seqq_parallel_kernel<
+                            Kernel_traits, 
+                            Is_dropout && !Is_softcap, Is_causal, 
+                            Is_local && !Is_causal, 
+                            Has_alibi, 
+                            IsEvenMNConst && IsEvenKConst && !Is_local && Kernel_traits::kHeadDim <= 128, 
+                            IsEvenKConst, 
+                            Is_softcap>;
+                        kernel_dq<<<grid_m, Kernel_traits::kNThreads, smem_size_dq, stream>>>(params);
+                        C10_HIP_KERNEL_LAUNCH_CHECK();
+
+                    });
+                });
+            });
+        });
+    });
+}
+
 template<typename Kernel_traits, bool Is_dropout, bool Is_causal>
 void run_flash_bwd(Flash_bwd_params &params, hipStream_t stream) {
 #ifndef FLASHATTENTION_DISABLE_BACKWARD
@@ -144,9 +253,15 @@ void run_flash_bwd(Flash_bwd_params &params, hipStream_t stream) {
 #endif
 }
 
+template<typename Kernel_dq_traits, typename Kernel_dkdv_traits, bool Is_dropout, bool Is_causal>
+void run_flash_separate_bwd(Flash_bwd_params &params, hipStream_t stream) {
+#ifndef FLASHATTENTION_DISABLE_BACKWARD
+    run_flash_bwd_separate_seqk_parallel<Kernel_dq_traits, Kernel_dkdv_traits, Is_dropout, Is_causal>(params, stream);
+#endif
+}
+
 template<typename T, bool Is_causal>
 void run_mha_bwd_hdim32(Flash_bwd_params &params, hipStream_t stream) {
-    printf("run_mha_bwd_hdim32..\n");
     constexpr static int Headdim = 32;
     // int device;
     // hipGetDevice(&device);
@@ -167,12 +282,26 @@ void run_mha_bwd_hdim32(Flash_bwd_params &params, hipStream_t stream) {
         //     run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 128, 128, 8, 4, 4, 4, true, false, T>, Is_dropout, Is_causal>(params, stream);
         // }
         // run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 32, 32, 4, 1, 1, 1, true, true, T>, Is_dropout, Is_causal>(params, stream);
+        #ifdef BWDSEPARATE
+        using kernel_traits = Flash_bwd_kernel_dq_traits<Headdim, /*kBlockM_*/64, /*kBlockN_*/64, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/4, /*AtomLayoutMdQ*/4, /*Is_V_in_regs_*/false, 
+            /*No_double_buffer_*/true, /*Is_Q_in_regs_*/false, /*Share_Q_K_smem_*/true,  T>;
+        using kernel_trans_traits = Flash_bwd_kernel_trans_traits<Headdim, /*kBlockM_*/32, /*kBlockN_*/64, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/4, /*AtomLayoutMdQ*/1,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>;
+        run_flash_separate_bwd<kernel_traits, kernel_trans_traits, Is_dropout, Is_causal>(params, stream);
+        // run_flash_separate_bwd<dq_traits, Is_dropout, Is_causal>(params, stream);
+        #else
+        run_flash_bwd<Flash_bwd_kernel_traits<Headdim, /*kBlockM_*/64, /*kBlockN_*/32, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/2, /*AtomLayoutNdKV*/2, /*AtomLayoutMdQ*/1,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>, Is_dropout, Is_causal>(params, stream);
+        #endif
+
     });
 }
 
 template<typename T, bool Is_causal>
 void run_mha_bwd_hdim64(Flash_bwd_params &params, hipStream_t stream) {
-    printf("run_mha_bwd_hdim64..\n");
     constexpr static int Headdim = 64;
     // int device;
     // hipGetDevice(&device);
@@ -205,12 +334,26 @@ void run_mha_bwd_hdim64(Flash_bwd_params &params, hipStream_t stream) {
         // }
 
         // run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 32, 4, 4, 2, 4, true, false, T>, Is_dropout>(params, stream);
+        #ifdef BWDSEPARATE
+        using kernel_traits = Flash_bwd_kernel_dq_traits<Headdim, /*kBlockM_*/64, /*kBlockN_*/32, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/1, /*AtomLayoutMdQ*/4, /*Is_V_in_regs_*/false, 
+            /*No_double_buffer_*/true, /*Is_Q_in_regs_*/false, /*Share_Q_K_smem_*/true,  T>;
+        using kernel_trans_traits = Flash_bwd_kernel_trans_traits<Headdim, /*kBlockM_*/32, /*kBlockN_*/64, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/4, /*AtomLayoutMdQ*/1,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>;
+        run_flash_separate_bwd<kernel_traits, kernel_trans_traits, Is_dropout, Is_causal>(params, stream);
+        // run_flash_separate_bwd<dq_traits, Is_dropout, Is_causal>(params, stream);
+        #else
+        run_flash_bwd<Flash_bwd_kernel_traits<Headdim, /*kBlockM_*/64, /*kBlockN_*/32, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/2, /*AtomLayoutNdKV*/2, /*AtomLayoutMdQ*/1,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>, Is_dropout, Is_causal>(params, stream);
+        #endif
+
     });
 }
 
 template<typename T, bool Is_causal>
 void run_mha_bwd_hdim96(Flash_bwd_params &params, hipStream_t stream) {
-    printf("run_mha_bwd_hdim96..\n");
     constexpr static int Headdim = 96;
     // int device;
     // hipGetDevice(&device);
@@ -232,6 +375,21 @@ void run_mha_bwd_hdim96(Flash_bwd_params &params, hipStream_t stream) {
         // } else {
         //     run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 128, 8, 2, 4, 4, true, false, T>, Is_dropout, Is_causal>(params, stream);
         // }
+        #ifdef BWDSEPARATE
+        using kernel_traits = Flash_bwd_kernel_dq_traits<Headdim, /*kBlockM_*/64, /*kBlockN_*/64, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/4, /*AtomLayoutMdQ*/4, /*Is_V_in_regs_*/false, 
+            /*No_double_buffer_*/true, /*Is_Q_in_regs_*/false, /*Share_Q_K_smem_*/true,  T>;
+        using kernel_trans_traits = Flash_bwd_kernel_trans_traits<Headdim, /*kBlockM_*/32, /*kBlockN_*/64, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/4, /*AtomLayoutMdQ*/1,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>;
+        run_flash_separate_bwd<kernel_traits, kernel_trans_traits, Is_dropout, Is_causal>(params, stream);
+        // run_flash_separate_bwd<dq_traits, Is_dropout, Is_causal>(params, stream);
+        #else
+        run_flash_bwd<Flash_bwd_kernel_traits<Headdim, /*kBlockM_*/64, /*kBlockN_*/32, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/2, /*AtomLayoutNdKV*/2, /*AtomLayoutMdQ*/1,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>, Is_dropout, Is_causal>(params, stream);
+        #endif
+
     });
 }
 
@@ -258,15 +416,25 @@ void run_mha_bwd_hdim128(Flash_bwd_params &params, hipStream_t stream) {
         //     run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 2, 2, true, false, T>, Is_dropout, Is_causal>(params, stream);
         // }
 
+        #ifdef BWDSEPARATE
+        using kernel_traits = Flash_bwd_kernel_dq_traits<Headdim, /*kBlockM_*/64, /*kBlockN_*/32, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/1, /*AtomLayoutMdQ*/4, /*Is_V_in_regs_*/false, 
+            /*No_double_buffer_*/true, /*Is_Q_in_regs_*/false, /*Share_Q_K_smem_*/true,  T>;
+        using kernel_trans_traits = Flash_bwd_kernel_trans_traits<Headdim, /*kBlockM_*/32, /*kBlockN_*/64, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/4, /*AtomLayoutMdQ*/1,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>;
+        run_flash_separate_bwd<kernel_traits, kernel_trans_traits, Is_dropout, Is_causal>(params, stream);
+        // run_flash_separate_bwd<dq_traits, Is_dropout, Is_causal>(params, stream);
+        #else
         run_flash_bwd<Flash_bwd_kernel_traits<Headdim, /*kBlockM_*/64, /*kBlockN_*/32, /*kNWarps_*/4,
-            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/1, /*AtomLayoutMdQ*/1,
+            /*AtomLayoutMSdP_*/2, /*AtomLayoutNdKV*/2, /*AtomLayoutMdQ*/1,
             /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>, Is_dropout, Is_causal>(params, stream);
+        #endif
     });
 }
 
 template<typename T, bool Is_causal>
 void run_mha_bwd_hdim160(Flash_bwd_params &params, hipStream_t stream) {
-    printf("run_mha_bwd_hdim160..\n");
     constexpr static int Headdim = 160;
     // int device;
     // hipGetDevice(&device);
@@ -276,18 +444,31 @@ void run_mha_bwd_hdim160(Flash_bwd_params &params, hipStream_t stream) {
     // if (status_ != hipSuccess) {
     //   C10_HIP_CHECK(status_);
     // }
-    // DROPOUT_SWITCH(params.p_dropout < 1.f, Is_dropout, [&] {
-    //     if (max_smem_per_block >= 116 * 1024) {
-    //         run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 4, 4, false, false, T>, Is_dropout, Is_causal>(params, stream);
-    //     } else {
-    //         run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 4, 4, false, true, T>, Is_dropout, Is_causal>(params, stream);
-    //     }
-    // });
+    DROPOUT_SWITCH(params.p_dropout < 1.f, Is_dropout, [&] {
+        // if (max_smem_per_block >= 116 * 1024) {
+        //     run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 4, 4, false, false, T>, Is_dropout, Is_causal>(params, stream);
+        // } else {
+        //     run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 4, 4, false, true, T>, Is_dropout, Is_causal>(params, stream);
+        // }
+        #ifdef BWDSEPARATE
+        using kernel_traits = Flash_bwd_kernel_dq_traits<Headdim, /*kBlockM_*/32, /*kBlockN_*/32, /*kNWarps_*/2,
+            /*AtomLayoutMSdP_*/2, /*AtomLayoutNdKV*/2, /*AtomLayoutMdQ*/2, /*Is_V_in_regs_*/false, 
+            /*No_double_buffer_*/true, /*Is_Q_in_regs_*/false, /*Share_Q_K_smem_*/true, T>;
+        using kernel_trans_traits = Flash_bwd_kernel_trans_traits<Headdim, /*kBlockM_*/32, /*kBlockN_*/64, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/4, /*AtomLayoutMdQ*/1,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>;
+        run_flash_separate_bwd<kernel_traits, kernel_trans_traits, Is_dropout, Is_causal>(params, stream);
+        // run_flash_separate_bwd<dq_traits, Is_dropout, Is_causal>(params, stream);
+        #else
+        run_flash_bwd<Flash_bwd_kernel_traits<Headdim, /*kBlockM_*/64, /*kBlockN_*/32, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/2, /*AtomLayoutNdKV*/2, /*AtomLayoutMdQ*/4,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>, Is_dropout, Is_causal>(params, stream);
+        #endif
+    });
 }
 
 template<typename T, bool Is_causal>
 void run_mha_bwd_hdim192(Flash_bwd_params &params, hipStream_t stream) {
-    printf("run_mha_bwd_hdim192..\n");
     constexpr static int Headdim = 192;
     // int device;
     // hipGetDevice(&device);
@@ -297,18 +478,31 @@ void run_mha_bwd_hdim192(Flash_bwd_params &params, hipStream_t stream) {
     // if (status_ != hipSuccess) {
     //   C10_HIP_CHECK(status_);
     // }
-    // DROPOUT_SWITCH(params.p_dropout < 1.f, Is_dropout, [&] {
-    //     if (max_smem_per_block >= 136 * 1024) {
-    //         run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 2, 2, false, false, T>, Is_dropout, Is_causal>(params, stream);
-    //     } else {
-    //         run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 2, 2, true, true, T>, Is_dropout, Is_causal>(params, stream);
-    //     }
-    // });
+    DROPOUT_SWITCH(params.p_dropout < 1.f, Is_dropout, [&] {
+        // if (max_smem_per_block >= 136 * 1024) {
+        //     run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 2, 2, false, false, T>, Is_dropout, Is_causal>(params, stream);
+        // } else {
+        //     run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 2, 2, true, true, T>, Is_dropout, Is_causal>(params, stream);
+        // }
+        #ifdef BWDSEPARATE
+        using kernel_traits = Flash_bwd_kernel_dq_traits<Headdim, /*kBlockM_*/32, /*kBlockN_*/32, /*kNWarps_*/2,
+            /*AtomLayoutMSdP_*/2, /*AtomLayoutNdKV*/1, /*AtomLayoutMdQ*/2, /*Is_V_in_regs_*/false, 
+            /*No_double_buffer_*/true, /*Is_Q_in_regs_*/false, /*Share_Q_K_smem_*/true,  T>;
+        using kernel_trans_traits = Flash_bwd_kernel_trans_traits<Headdim, /*kBlockM_*/32, /*kBlockN_*/64, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/4, /*AtomLayoutMdQ*/1,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>;
+        run_flash_separate_bwd<kernel_traits, kernel_trans_traits, Is_dropout, Is_causal>(params, stream);
+        // run_flash_separate_bwd<dq_traits, Is_dropout, Is_causal>(params, stream);
+        #else
+        run_flash_bwd<Flash_bwd_kernel_traits<Headdim, /*kBlockM_*/64, /*kBlockN_*/32, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/2, /*AtomLayoutNdKV*/2, /*AtomLayoutMdQ*/4,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>, Is_dropout, Is_causal>(params, stream);
+        #endif
+    });
 }
 
 template<typename T, bool Is_causal>
 void run_mha_bwd_hdim224(Flash_bwd_params &params, hipStream_t stream) {
-    printf("run_mha_bwd_hdim224..\n");
     constexpr static int Headdim = 224;
     // int device;
     // hipGetDevice(&device);
@@ -324,12 +518,25 @@ void run_mha_bwd_hdim224(Flash_bwd_params &params, hipStream_t stream) {
         // } else {
         //     run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 64, 8, 4, 2, 2, true, true, T>, Is_dropout, Is_causal>(params, stream);
         // }
+        #ifdef BWDSEPARATE
+        using kernel_traits = Flash_bwd_kernel_dq_traits<Headdim, /*kBlockM_*/32, /*kBlockN_*/32, /*kNWarps_*/2,
+            /*AtomLayoutMSdP_*/2, /*AtomLayoutNdKV*/2, /*AtomLayoutMdQ*/2, /*Is_V_in_regs_*/false, 
+            /*No_double_buffer_*/true, /*Is_Q_in_regs_*/false, /*Share_Q_K_smem_*/true,  T>;
+        using kernel_trans_traits = Flash_bwd_kernel_trans_traits<Headdim, /*kBlockM_*/32, /*kBlockN_*/64, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/4, /*AtomLayoutMdQ*/1,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>;
+        run_flash_separate_bwd<kernel_traits, kernel_trans_traits, Is_dropout, Is_causal>(params, stream);
+        // run_flash_separate_bwd<dq_traits, Is_dropout, Is_causal>(params, stream);
+        #else
+        run_flash_bwd<Flash_bwd_kernel_traits<Headdim, /*kBlockM_*/64, /*kBlockN_*/32, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/2, /*AtomLayoutNdKV*/2, /*AtomLayoutMdQ*/4,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>, Is_dropout, Is_causal>(params, stream);
+        #endif
     });
 }
 
 template<typename T, bool Is_causal>
 void run_mha_bwd_hdim256(Flash_bwd_params &params, hipStream_t stream) {
-    printf("run_mha_bwd_hdim256..\n");
     constexpr static int Headdim = 256;
     // int device;
     // hipGetDevice(&device);
@@ -349,7 +556,20 @@ void run_mha_bwd_hdim256(Flash_bwd_params &params, hipStream_t stream) {
         //         run_flash_bwd<Flash_bwd_kernel_traits<Headdim, 64, 32, 8, 4, 1, 2, true, true, T>, false, Is_causal>(params, stream);
         //     }
         // }
+        #ifdef BWDSEPARATE
+        using kernel_traits = Flash_bwd_kernel_dq_traits<Headdim, /*kBlockM_*/32, /*kBlockN_*/16, /*kNWarps_*/2,
+            /*AtomLayoutMSdP_*/2, /*AtomLayoutNdKV*/1, /*AtomLayoutMdQ*/2, /*Is_V_in_regs_*/false, 
+            /*No_double_buffer_*/true, /*Is_Q_in_regs_*/false, /*Share_Q_K_smem_*/true,  T>;
+        using kernel_trans_traits = Flash_bwd_kernel_trans_traits<Headdim, /*kBlockM_*/32, /*kBlockN_*/64, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/4, /*AtomLayoutNdKV*/4, /*AtomLayoutMdQ*/1,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>;
+        run_flash_separate_bwd<kernel_traits, kernel_trans_traits, Is_dropout, Is_causal>(params, stream);
+        // run_flash_separate_bwd<dq_traits, Is_dropout, Is_causal>(params, stream);
+        #else
+        run_flash_bwd<Flash_bwd_kernel_traits<Headdim, /*kBlockM_*/64, /*kBlockN_*/32, /*kNWarps_*/4,
+            /*AtomLayoutMSdP_*/2, /*AtomLayoutNdKV*/2, /*AtomLayoutMdQ*/4,
+            /*Is_V_in_regs_*/true, /*No_double_buffer_*/true, T>, Is_dropout, Is_causal>(params, stream);
+        #endif
     });
 }
-
 }

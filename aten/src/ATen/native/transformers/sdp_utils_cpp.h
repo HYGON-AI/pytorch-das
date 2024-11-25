@@ -499,5 +499,17 @@ inline bool check_runtime_disabled_mem_efficient(sdp_params const& params, bool 
   return true;
 }
 
-
+inline int switch_aotriton_fa_enable() {
+  static const char switch_aotriton_fa_name[] = "USE_AOTRITON_FA";
+  char* switch_aotriton_fa_str = std::getenv(switch_aotriton_fa_name);
+  int switch_aotriton_fa_value = 0;
+  if (switch_aotriton_fa_str!= nullptr){
+    switch_aotriton_fa_value = c10::stoi(switch_aotriton_fa_str);
+  }
+  #ifndef USE_AOTRITON_FA
+  return 0;
+  #else
+  return switch_aotriton_fa_value;
+  #endif
+}
 } // namespace sdp

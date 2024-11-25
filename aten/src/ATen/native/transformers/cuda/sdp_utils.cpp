@@ -19,11 +19,10 @@
 #include <c10/core/SymInt.h>
 #include <c10/util/string_view.h>
 
-/*if USE_ROCM
-/*if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION)
+#if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION) && defined(USE_AOTRITON_FA)
 #include <aotriton/flash.h>
 #endif
-*/
+
 /**
 * Note [SDPA Runtime Dispatch]
 * SDPA relies on a runtime dispatch mechanism to select the appropriate
@@ -186,16 +185,19 @@ bool check_flash_attention_hardware_support(sdp_params const& params, bool debug
   using sm80 = SMVersion<8, 0>;
   using sm90 = SMVersion<9, 0>;
 #if USE_ROCM
+  // #if defined(USE_AOTRITON_FA)
+  // auto stream = at::cuda::getCurrentCUDAStream().stream();
+  // if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
+  //     auto dprops = at::cuda::getCurrentDeviceProperties();
+  //     if (debug) {
+  //         TORCH_WARN(
+  //                 "Flash attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+  //     }
+  //     return false;
+  // }
+  // #else
   return true;
-  /*auto stream = at::cuda::getCurrentCUDAStream().stream();
-  if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
-      auto dprops = at::cuda::getCurrentDeviceProperties();
-      if (debug) {
-          TORCH_WARN(
-                  "Flash attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
-      }
-      return false;
-  }*/
+  // #endif
 #else
   auto dprops = at::cuda::getCurrentDeviceProperties();
   if (!check_sm_version<sm80, sm90>(dprops)) {
@@ -218,16 +220,20 @@ bool check_mem_efficient_hardware_support(sdp_params const& params, bool debug) 
   using sm50 = SMVersion<5, 0>;
   using sm90 = SMVersion<9, 0>;
 #if USE_ROCM
+  #if USE_AOTRITON_FA
+  return true;
+  // auto stream = at::cuda::getCurrentCUDAStream().stream();
+  // if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
+  //     auto dprops = at::cuda::getCurrentDeviceProperties();
+  //     if (debug) {
+  //         TORCH_WARN(
+  //                 "Mem Efficient attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+  //     }
+  //     return false;
+  // }
+  #else
   return false;
-  /*auto stream = at::cuda::getCurrentCUDAStream().stream();
-  if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
-      auto dprops = at::cuda::getCurrentDeviceProperties();
-      if (debug) {
-          TORCH_WARN(
-                  "Mem Efficient attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
-      }
-      return false;
-  }*/
+  #endif
 #else
   auto dprops = at::cuda::getCurrentDeviceProperties();
   if (!check_sm_version<sm50, sm90>(dprops)) {
@@ -673,11 +679,24 @@ bool can_use_mem_efficient_attention(sdp_params const& params, bool debug) {
   return check_tensor_dtype(params, less_than_sm80_mem_efficient_dtypes, debug);
 }
 
+inline int switch_math_fa_enable() {
+  static const char switch_math_fa_name[] = "USE_MATH_FA";
+  char* switch_math_fa_str = std::getenv(switch_math_fa_name);
+  int switch_math_fa_value = 0;
+  if (switch_math_fa_str!= nullptr){
+    switch_math_fa_value = c10::stoi(switch_math_fa_str);
+  }
+  return switch_math_fa_value;
+}
+
 SDPBackend select_sdp_backend(sdp_params const& kernel_params) {
   // This function defines the priority order of the different sdp backends
   // 1. Flash Attention
   // 2. Mem Efficient Attention
   // 3. Math fallback
+  if(switch_math_fa_enable()) {
+    return SDPBackend::math;
+  }
   auto& ctx = at::globalContext();
   if (!ctx.userEnabledMathSDP() && !ctx.userEnabledFlashSDP() &&
       !ctx.userEnabledMemEfficientSDP() && !ctx.userEnabledCuDNNSDP()) {

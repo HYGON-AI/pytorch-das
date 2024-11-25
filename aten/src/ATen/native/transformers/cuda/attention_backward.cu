@@ -109,6 +109,99 @@ std::tuple<Tensor, Tensor, Tensor> _flash_attention_backward(
 
   // We check the whether the cumulative_sequence_length_q is defined
   // in order to determine whether we are using varlen or dense forward
+  #ifdef USE_ROCM
+  if (cumulative_sequence_length_q.defined()) {
+    // Varlen forward
+    auto [dQuery, dKey, dValue, dSoftmax] = sdp::switch_aotriton_fa_enable() ? pytorch_flash::mha_aot_varlen_bwd(
+        contiguous_grad_out,
+        query,
+        key,
+        value,
+        contiguous_out,
+        logsumexp,
+        dq,
+        dk,
+        dv,
+        cumulative_sequence_length_q,
+        cumulative_sequence_length_k,
+        alibi_slopes,
+        max_seqlen_batch_q,
+        max_seqlen_batch_k,
+        dropout_p,
+        softmax_scale,
+        false /*zero_tensors*/,
+        is_causal,
+        non_null_window_left,
+        non_null_window_right,
+        determinisitic,
+        philox_seed,
+        philox_offset) : 
+        pytorch_flash::mha_varlen_bwd(
+        contiguous_grad_out,
+        query,
+        key,
+        value,
+        contiguous_out,
+        logsumexp,
+        dq,
+        dk,
+        dv,
+        cumulative_sequence_length_q,
+        cumulative_sequence_length_k,
+        alibi_slopes,
+        max_seqlen_batch_q,
+        max_seqlen_batch_k,
+        dropout_p,
+        softmax_scale,
+        false /*zero_tensors*/,
+        is_causal,
+        non_null_window_left,
+        non_null_window_right,
+        determinisitic,
+        philox_seed,
+        philox_offset);
+    return std::make_tuple(std::move(dQuery), std::move(dKey), std::move(dValue));
+  } else {
+    // Dense forward
+    auto [dQuery, dKey, dValue, dSoftmax] = sdp::switch_aotriton_fa_enable() ? pytorch_flash::mha_aot_bwd(
+        contiguous_grad_out,
+        query,
+        key,
+        value,
+        contiguous_out,
+        logsumexp,
+        dq,
+        dk,
+        dv,
+        alibi_slopes,
+        dropout_p,
+        softmax_scale,
+        is_causal,
+        non_null_window_left,
+        non_null_window_right,
+        determinisitic,
+        philox_seed,
+        philox_offset) : pytorch_flash::mha_bwd(
+        contiguous_grad_out,
+        query,
+        key,
+        value,
+        contiguous_out,
+        logsumexp,
+        dq,
+        dk,
+        dv,
+        alibi_slopes,
+        dropout_p,
+        softmax_scale,
+        is_causal,
+        non_null_window_left,
+        non_null_window_right,
+        determinisitic,
+        philox_seed,
+        philox_offset);
+    return std::make_tuple(std::move(dQuery), std::move(dKey), std::move(dValue));
+  #else
   if (cumulative_sequence_length_q.defined()) {
     // Varlen forward
     auto [dQuery, dKey, dValue, dSoftmax] = pytorch_flash::mha_varlen_bwd(
@@ -158,6 +251,7 @@ std::tuple<Tensor, Tensor, Tensor> _flash_attention_backward(
         philox_seed,
         philox_offset);
     return std::make_tuple(std::move(dQuery), std::move(dKey), std::move(dValue));
+    #endif
   }
 #endif
   TORCH_CHECK(false, "USE_FLASH_ATTENTION was not enabled for build.");
