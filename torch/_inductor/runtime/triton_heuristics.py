@@ -1233,7 +1233,7 @@ def triton_config(
     # for a 2d size_hints [a, b], a should be mapped to YBLOCK rather than XBLOCK
     size_hints = list(reversed(size_hints))
 
-    maxGridSize = [2147483647, 2147483647, 2147483647]
+    maxGridSize = [2147483647, 131071, 131071]
 
     target = conditional_product(x, y, z)
     if conditional_product(*size_hints) < target:
