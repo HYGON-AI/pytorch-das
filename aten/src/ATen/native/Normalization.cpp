@@ -616,9 +616,9 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, int64_t> _batch_norm_impl_index(
     if (input.suggest_memory_format() == MemoryFormat::ChannelsLast) {
       return std::tuple_cat(
              at::miopen_batch_norm(
-               input, weight, bias,
-               running_mean,
-               running_var,
+               input, weight.contiguous(), bias.contiguous(),
+               running_mean.defined() ? running_mean.contiguous() : running_mean,
+               running_var.defined() ? running_var.contiguous() : running_var,
                training, momentum, eps),
              std::tuple<Tensor>(reserve),
              std::make_tuple(2));
