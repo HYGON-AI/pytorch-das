@@ -48,6 +48,7 @@ from torch.testing._internal.common_utils import (
 )
 
 from torch.nested._internal.nested_tensor import (
+    buffer_from_jagged,
     jagged_from_list,
     NestedTensor,
     nested_view_from_values_offsets,
