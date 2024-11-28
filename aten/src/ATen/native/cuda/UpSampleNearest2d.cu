@@ -22,6 +22,12 @@
 #include <ATen/ops/upsample_nearest2d_native.h>
 #endif
 
+#if defined(USE_ROCM) && ROCM_VERSION > 60100
+#define GRID_TYPE uint32_t*
+#else
+#define GRID_TYPE int*
+#endif
+
 namespace at::native {
 namespace {
 
@@ -278,7 +284,7 @@ static void upsample_nearest2d_out_cuda_template(
         at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock, MAX_THREADS);
 
     int* maxThreadsDim = at::cuda::getCurrentDeviceProperties()->maxThreadsDim;
-    uint32_t* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
+    GRID_TYPE maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
 
     // upsample_nearest2d meta call makes sure input/output tensor is not empty;
     int block_x = std::min<int>(

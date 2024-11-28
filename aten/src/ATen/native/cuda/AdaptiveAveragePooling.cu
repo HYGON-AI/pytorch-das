@@ -37,6 +37,12 @@
 #define CUDA_MAX_THREADS 1024 // this is safe, in reality 256 is our limit
 #define BLOCK_STRIDE 2 // increasing block_stride to lower # of blocks launched
 
+#if defined(USE_ROCM) && ROCM_VERSION > 60100
+#define GRID_TYPE uint32_t*
+#else
+#define GRID_TYPE int*
+#endif
+
 namespace at::native {
 
 namespace {
@@ -490,7 +496,7 @@ namespace {
         const int max_threads = std::min<int>(
             at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock, CUDA_MAX_THREADS);
         int* maxThreadsDim = at::cuda::getCurrentDeviceProperties()->maxThreadsDim;
-        uint32_t* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
+        GRID_TYPE maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
         size_t sharedMemPerBlock = at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
 
         // Launch kernel on output tensor elements. Logic behind launch config:
@@ -642,7 +648,7 @@ namespace {
         int max_threads = std::min<int>(
             at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock, CUDA_MAX_THREADS);
         int* maxThreadsDim = at::cuda::getCurrentDeviceProperties()->maxThreadsDim;
-        uint32_t* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
+        GRID_TYPE maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
         size_t sharedMemPerBlock = at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
 
         // Launch kernel on input tensor elements. Logic behind launch config:

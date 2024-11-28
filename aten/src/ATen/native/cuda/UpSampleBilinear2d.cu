@@ -27,6 +27,12 @@
 #include <ATen/ops/zeros.h>
 #endif
 
+#if defined(USE_ROCM) && ROCM_VERSION > 60100
+#define GRID_TYPE uint32_t*
+#else
+#define GRID_TYPE int*
+#endif
+
 namespace at::native {
 namespace {
 
@@ -845,7 +851,7 @@ static void upsample_gen2d_aa_out_cuda_template(
   size_t sharedMemPerBlock = at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
   int* maxThreadsDim = at::cuda::getCurrentDeviceProperties()->maxThreadsDim;
   int maxThreadsPerBlock = std::min(at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock, 256);
-  uint32_t* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
+  GRID_TYPE maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
   int block_x = std::min<int>(maxThreadsDim[0], at::cuda::warp_size());
   int grid_x = std::min<int>(maxGridSize[0], ceil_div(output_width, block_x));
 
@@ -947,7 +953,7 @@ static void upsample_gen2d_aa_backward_out_cuda_template(
   int block_y = std::min<int>(maxThreadsDim[1], num_threads / block_x);
   const dim3 block(block_x, block_y);
 
-  uint32_t* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
+  GRID_TYPE maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
   int grid_x = std::min<int>(maxGridSize[0], ceil_div(output_width, block_x));
   int grid_y = std::min<int>(maxGridSize[1], ceil_div(output_height, block_y));
   int grid_z = std::min<int>(maxGridSize[2], input_size[0] * input_size[1]);
