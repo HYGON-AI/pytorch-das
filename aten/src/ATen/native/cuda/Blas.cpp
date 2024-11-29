@@ -6,7 +6,7 @@
 #include <ATen/OpMathType.h>
 #include <ATen/TensorUtils.h>
 #include <ATen/cuda/CUDABlas.h>
-#if ROCM_VERSION >= 60300
+#if ROCM_VERSION >= 60100
 #include <ATen/cuda/tunable/Tunable.h>
 #include <ATen/cuda/tunable/TunableGemm.h>
 #endif
@@ -160,7 +160,7 @@ enum class Activation {
   GELU,
 };
 
-#if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 60300)
+#if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 60100)
 cuda::blas::GEMMAndBiasActivationEpilogue activation_to_gemm_and_blas_arg(Activation a) {
   switch (a) {
     case Activation::None:
@@ -179,8 +179,7 @@ cuda::blas::GEMMAndBiasActivationEpilogue activation_to_gemm_and_blas_arg(Activa
 static bool getDisableAddmmCudaLt() {
     static const char* env_value = std::getenv("DISABLE_ADDMM_CUDA_LT");
 #ifdef USE_ROCM
-    return false;
-    /*
+  #if ROCM_VERSION >= 60100
     // if we enable tunable op, it'll take priority over just hipblaslt (heuristics)
     // note the current tunable op is not the hipblaslt path (gemm_and_bias)
     auto tuning_ctx = at::cuda::tunable::getTuningContext();
@@ -195,7 +194,10 @@ static bool getDisableAddmmCudaLt() {
     if (env_value != nullptr && strcmp(env_value, "0") == 0) {
       return false;
     }
-    return true;*/
+    return true;
+  #else
+    return false;
+  #endif // ROCM_VERSION >= 60100
 #else
     if (env_value != nullptr && strcmp(env_value, "1") == 0) {
       return true;
@@ -241,7 +243,7 @@ Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& ma
   at::ScalarType scalar_type = self.scalar_type();
   c10::MaybeOwned<Tensor> self_;
   if (&result != &self) {
-#if (defined(CUDA_VERSION) && CUDA_VERSION >= 11040 ) || (defined(USE_ROCM) && ROCM_VERSION >= 60300)
+#if (defined(CUDA_VERSION) && CUDA_VERSION >= 11040 ) || (defined(USE_ROCM) && ROCM_VERSION >= 60100)
     // Strangely, if mat2 has only 1 row or column, we get
     // CUBLAS_STATUS_INVALID_VALUE error from cublasLtMatmulAlgoGetHeuristic.
     // self.dim() == 1 && result.dim() == 2 && self.sizes()[0] == mat2_sizes[1]
@@ -288,7 +290,7 @@ Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& ma
     }
     self__sizes = self_->sizes();
   } else {
-#if defined(USE_ROCM) && ROCM_VERSION >= 60300
+#if defined(USE_ROCM) && ROCM_VERSION >= 60100
     useLtInterface = !disable_addmm_cuda_lt &&
         result.dim() == 2 && result.is_contiguous() &&
         isSupportedHipLtROCmArch(self.device().index()) &&
@@ -339,7 +341,7 @@ Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& ma
 
   TORCH_INTERNAL_ASSERT_DEBUG_ONLY(!args.result->is_conj());
 
-#if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 60300)
+#if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 60100)
   if (useLtInterface) {
 #if defined(USE_ROCM)
     AT_DISPATCH_FLOATING_TYPES_AND2(
@@ -775,7 +777,7 @@ Tensor& _int_mm_out_cuda(const Tensor& self, const Tensor& mat2, Tensor& result)
 
   TORCH_CHECK(result.is_contiguous(), "Expected result to be contiguous.");
 
-#if (defined(CUDA_VERSION) && (CUDA_VERSION >= 11070)) || (defined(USE_ROCM) && ROCM_VERSION >= 60300)
+#if (defined(CUDA_VERSION) && (CUDA_VERSION >= 11070)) || (defined(USE_ROCM) && ROCM_VERSION >= 60100)
   cublasCommonArgs args(self, mat2, result);
 
   at::cuda::blas::int8_gemm(
@@ -919,9 +921,7 @@ _scaled_mm_out_cuda(const Tensor& mat1, const Tensor& mat2,
   const auto out_dtype_ = args.result->scalar_type();
   TORCH_CHECK(args.transa == 't' && args.transb == 'n', "Only multiplication of row-major and column-major matrices is supported by cuBLASLt");
 #ifdef USE_ROCM
-  TORCH_CHECK(false, "_scaled_mm_out_cuda is not compiled for this platform.");
-#endif
-  /*
+  #if ROCM_VERSION >= 60100
   auto tuning_ctx = at::cuda::tunable::getTuningContext();
   if (tuning_ctx->IsTunableOpEnabled()) {
 #define TUNABLE_DISPATCH(BLASOP_A, BLASOP_B)                            \
@@ -1038,7 +1038,10 @@ _scaled_mm_out_cuda(const Tensor& mat1, const Tensor& mat2,
   amax = at::max(at::abs(out.to(kFloat)));
 #endif
 
-  return {out, amax};*/
+  return {out, amax};
+  #else //ROCM_VERSION >= 60100
+    TORCH_CHECK(false, "_scaled_mm_out_cuda is not compiled for this platform.");
+  #endif  //ROCM_VERSION >= 60100
 }
 
 std::tuple<Tensor, Tensor>
