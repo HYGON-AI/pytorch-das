@@ -30,7 +30,7 @@ namespace at::cuda {
 
 namespace {
 
-#if defined(USE_ROCM) && ROCM_VERSION >= 60300
+#if defined(USE_ROCM) && ROCM_VERSION >= 60100
 void createCublasLtHandle(cublasLtHandle_t *handle) {
   TORCH_CUDABLAS_CHECK(cublasLtCreate(handle));
 }
@@ -198,7 +198,7 @@ cublasHandle_t getCurrentCUDABlasHandle() {
   return handle;
 }
 
-#if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 60300)
+#if (!defined(USE_ROCM) && !defined(_MSC_VER)) || (defined(USE_ROCM) && ROCM_VERSION >= 60100)
 cublasLtHandle_t getCurrentCUDABlasLtHandle() {
 #ifdef USE_ROCM
   c10::DeviceIndex device = 0;
