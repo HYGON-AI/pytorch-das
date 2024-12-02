@@ -767,10 +767,10 @@ void bgemm<double>(CUDABLAS_BGEMM_ARGTYPES(double)) {
   }
   else {
     bgemm_internal<double>(CUDABLAS_BGEMM_ARGS(double));
+  }
   #else
   bgemm_internal<double>(CUDABLAS_BGEMM_ARGS(double));
   #endif
-  }
 }
 
 template <>
