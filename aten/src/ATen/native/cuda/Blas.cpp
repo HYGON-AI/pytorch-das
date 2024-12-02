@@ -920,8 +920,7 @@ _scaled_mm_out_cuda(const Tensor& mat1, const Tensor& mat2,
   cublasCommonArgs args(mat1, mat2, out);
   const auto out_dtype_ = args.result->scalar_type();
   TORCH_CHECK(args.transa == 't' && args.transb == 'n', "Only multiplication of row-major and column-major matrices is supported by cuBLASLt");
-#ifdef USE_ROCM
-  #if ROCM_VERSION >= 60100
+#if defined(USE_ROCM) && ROCM_VERSION >= 60100
   auto tuning_ctx = at::cuda::tunable::getTuningContext();
   if (tuning_ctx->IsTunableOpEnabled()) {
 #define TUNABLE_DISPATCH(BLASOP_A, BLASOP_B)                            \
@@ -1005,6 +1004,7 @@ _scaled_mm_out_cuda(const Tensor& mat1, const Tensor& mat2,
     auto dummy_options = TensorOptions().dtype(kFloat).device(kCUDA);
     auto dummy_scale = at::ones(1, dummy_options);
 #endif
+#if defined(USE_ROCM) && ROCM_VERSION >= 60100
     at::cuda::blas::scaled_gemm(
         args.transa,
         args.transb,
@@ -1031,17 +1031,18 @@ _scaled_mm_out_cuda(const Tensor& mat1, const Tensor& mat2,
         out_dtype_,
         amax.data_ptr(),
         use_fast_accum);
+#endif
   }
 
 #if defined(USE_ROCM) && ROCM_VERSION >= 60000 && ROCM_VERSION < 60200
   // ROCm's hipBLASLt does not support amax before 6.2, so calculate separately
   amax = at::max(at::abs(out.to(kFloat)));
 #endif
-
+#if defined(USE_ROCM) && ROCM_VERSION >= 60100
   return {out, amax};
-  #else //ROCM_VERSION >= 60100
+#else 
     TORCH_CHECK(false, "_scaled_mm_out_cuda is not compiled for this platform.");
-  #endif  //ROCM_VERSION >= 60100
+#endif  
 }
 
 std::tuple<Tensor, Tensor>
