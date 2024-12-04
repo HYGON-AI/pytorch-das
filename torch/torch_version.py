@@ -4,7 +4,7 @@ from typing import Any, Iterable
 
 from ._vendor.packaging.version import InvalidVersion, Version
 from .version import __version__ as internal_version
-from .version import __dcu_version__ as dcu_version
+from .version import __hcu_version__ as hcu_version
 
 __all__ = ["TorchVersion"]
 
@@ -63,4 +63,4 @@ for cmp_method in ["__gt__", "__lt__", "__eq__", "__ge__", "__le__"]:
     )
 
 __version__ = TorchVersion(internal_version)
-__dcu_version__ = TorchVersion(dcu_version)
+__hcu_version__ = TorchVersion(hcu_version)

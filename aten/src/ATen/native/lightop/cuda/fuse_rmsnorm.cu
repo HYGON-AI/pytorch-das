@@ -166,9 +166,9 @@ std::tuple<Tensor,Tensor>fuse_rmsnorm_cuda(
     const Tensor& weight,
     double ln_epsilon,
     bool training){
-    AT_ASSERTM(self.is_cuda(), "x must on dcu");
+    AT_ASSERTM(self.is_cuda(), "x must on hcu");
     const int cols=self.sizes().back();
-    AT_ASSERT(cols>=64,"cols must >= 64");//torch layernorm don't support cols<=64 on dcu, so we too .
+    AT_ASSERT(cols>=64,"cols must >= 64");//torch layernorm don't support cols<=64 on hcu, so we too .
     const int nelem = self.numel();
     const int rows=nelem/cols;
     Tensor ret = at::empty_like(self);

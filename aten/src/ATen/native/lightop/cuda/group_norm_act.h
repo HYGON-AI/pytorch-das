@@ -249,7 +249,7 @@ template <typename scalar_t,class act_op>
 void groupnorm_act_forward_impl(const Tensor& self,const Tensor& weight,const Tensor& bias,int64_t num_groups,int64_t num_channels,double gn_epsilon,
                                     bool training,act_op op,Tensor& ret,Tensor& mean,Tensor&rstd)
 {
-    AT_ASSERT(self.is_cuda(), "x must on dcu");
+    AT_ASSERT(self.is_cuda(), "x must on hcu");
     AT_ASSERT(num_channels % num_groups == 0,"num_channels must be divisible by num_groups");
     AT_ASSERT(self.scalar_type()!=at::kDouble,"Don't surpport FP64 tensor");
     if(self.suggest_memory_format()==at::MemoryFormat::ChannelsLast){
