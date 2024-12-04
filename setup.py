@@ -249,7 +249,7 @@ from setuptools.dist import Distribution
 
 from tools.build_pytorch_libs import build_caffe2
 from tools.generate_torch_version import get_torch_version
-from tools.generate_torch_version import get_dcu_version
+from tools.generate_torch_version import get_hcu_version
 from tools.setup_helpers.cmake import CMake
 from tools.setup_helpers.env import (
     build_type,
@@ -349,7 +349,7 @@ DEFAULT_PACKAGE_NAME = LIBTORCH_PKG_NAME if BUILD_LIBTORCH_WHL else "torch"
 
 package_name = os.getenv("TORCH_PACKAGE_NAME", DEFAULT_PACKAGE_NAME)
 package_type = os.getenv("PACKAGE_TYPE", "wheel")
-version = get_dcu_version()
+version = get_hcu_version()
 report(f"Building wheel {package_name}-{version}")
 
 cmake = CMake()

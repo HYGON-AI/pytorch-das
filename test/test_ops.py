@@ -148,7 +148,7 @@ def skip_refs_float_power(device, op):
         if device_type == 'cuda':
             device_name = torch.cuda.get_device_properties(torch.cuda.current_device()).name
             if "K100_AI" in device_name:
-                raise unittest.SkipTest(f"{op.name} are not supported on DCU K100_AI.")
+                raise unittest.SkipTest(f"{op.name} are not supported on HCU K100_AI.")
 ###
 
 # Tests that apply to all operators and aren't related to any particular

@@ -216,10 +216,10 @@ std::tuple<Tensor,Tensor,Tensor> fuse_layer_norm_cuda(
     c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias_opt);
     const Tensor& bias = *bias_maybe_owned;
 
-    AT_ASSERTM(self.is_cuda(), "x must on dcu");
+    AT_ASSERTM(self.is_cuda(), "x must on hcu");
     auto pself=self.expect_contiguous();
     const int cols=self.sizes().back();
-    AT_ASSERT(cols>=64,"cols must >= 64");//torch layernorm don't support cols<=64 on dcu, so we too .
+    AT_ASSERT(cols>=64,"cols must >= 64");//torch layernorm don't support cols<=64 on hcu, so we too .
     const int nelem = pself->numel();
     const int rows=nelem/cols;
     Tensor ret = at::empty_like(*pself),mean,rstd;
