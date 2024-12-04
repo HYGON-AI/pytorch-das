@@ -519,8 +519,8 @@ class TestSchemaCheckModeOpInfo(JitTestCase):
             skip_helper_fp64_onE100(device, dtype)
         except unittest.SkipTest as e:
             self.skipTest(e)  # 如果辅助函数抛出了SkipTest，则跳过测试
-        #if (dtype == torch.complex32):
-            #return
+        if (dtype == torch.complex32):
+            return
         for sample in op.sample_inputs(device, dtype, requires_grad=False):
             with SchemaCheckMode():
                 op(sample.input, *sample.args, **sample.kwargs)
