@@ -210,7 +210,7 @@ static bool getDisableAddmmCudaLt() {
 static bool isSupportedHipLtROCmArch(int index) {
     hipDeviceProp_t* prop = at::cuda::getDeviceProperties(index);
     std::string device_arch = prop->gcnArchName;
-    static const std::vector<std::string> archs = {"gfx90a", "gfx940", "gfx941", "gfx942"};
+    static const std::vector<std::string> archs = {"gfx90a", "gfx928", "gfx936", "gfx940", "gfx941", "gfx942"};
     for (std::string arch : archs) {
         size_t substring = device_arch.find(arch);
         if (substring != std::string::npos) {
