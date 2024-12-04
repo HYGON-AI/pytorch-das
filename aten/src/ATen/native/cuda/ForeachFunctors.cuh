@@ -110,6 +110,40 @@ __device__ void store_args(
   }
 }
 
+template <int depth, typename T>
+__device__ void load_args_cdp(
+    T r_args[][1],
+    T** args,
+    const int64_t i_start,
+    const int64_t chunk_size,
+    const int64_t n) {
+#pragma unroll
+  for (int ii = 0; ii < 1; ii++) {
+    const auto i = i_start + threadIdx.x + ii * blockDim.x;
+    for (int r_index = 0; r_index < depth; r_index++) {
+      r_args[r_index][ii] = 0;
+      if (i < n && i < chunk_size) {
+        r_args[r_index][ii] = args[r_index][i];
+      }
+    }
+  }
+}
+
+template <typename T>
+__device__ void store_args_cdp(
+    T* dst,
+    T* src,
+    const int64_t i_start,
+    const int64_t chunk_size,
+    const int64_t n) {
+#pragma unroll
+  for (int ii = 0; ii < 1; ii++) {
+    const int64_t i = i_start + threadIdx.x + ii * blockDim.x;
+    if (i < n && i < chunk_size)
+      dst[i] = src[ii];
+  }
+}
+
 template <int res_arg_index, typename Op, typename T, typename opmath_t>
 __device__ __forceinline__ void binary_op_scalar(
     T r_args[][kILP],
@@ -444,6 +478,54 @@ struct UnaryOpFunctor {
               static_cast<T>(op(static_cast<opmath_t>(r_args[0][ii])));
         }
         store_args(args[res_arg_index], r_args[0], i_start, chunk_size, n);
+      }
+    }
+  }
+};
+
+template <typename T, int depth, int r_args_depth, int res_arg_index>
+struct Expm1CDOpFunctor {
+  using opmath_t = at::opmath_type<T>;
+  template <typename Op>
+  __device__ __forceinline__ void operator()(
+      int chunk_size,
+      TensorListMetadata<depth>& tl,
+      Op op) {
+    const auto tensor_loc = tl.block_to_tensor[blockIdx.x];
+    const auto chunk_idx = tl.block_to_chunk[blockIdx.x];
+    auto n = tl.numel_for_tensor[tensor_loc];
+    constexpr int64_t kILP_ = 1;
+    T* args[depth];
+    bool all_aligned =
+        init_args<depth>(args, tl, chunk_idx, chunk_size, tensor_loc);
+    n -= chunk_idx * chunk_size;
+    T r_args[r_args_depth][kILP_];
+
+    // to make things simple, we put aligned case in a different code path
+    if (n % kILP_ == 0 && chunk_size % kILP_ == 0 && all_aligned) {
+      for (int64_t i_start = threadIdx.x;
+           i_start * kILP_ < n && i_start * kILP_ < chunk_size;
+           i_start += blockDim.x) {
+        // load
+        load_store_cdp(r_args[0], args[0], 0, i_start);
+#pragma unroll
+        for (int ii = 0; ii < kILP_; ii++) {
+          r_args[0][ii] =
+              static_cast<T>(op(static_cast<opmath_t>(r_args[0][ii])));
+        }
+        // store
+        load_store_cdp(args[res_arg_index], r_args[0], i_start, 0);
+      }
+    } else {
+      for (int64_t i_start = 0; i_start < n && i_start < chunk_size;
+           i_start += blockDim.x * kILP_) {
+        load_args_cdp<r_args_depth>(r_args, args, i_start, chunk_size, n);
+#pragma unroll
+        for (int ii = 0; ii < kILP_; ii++) {
+          r_args[0][ii] =
+              static_cast<T>(op(static_cast<opmath_t>(r_args[0][ii])));
+        }
+        store_args_cdp(args[res_arg_index], r_args[0], i_start, chunk_size, n);
       }
     }
   }
