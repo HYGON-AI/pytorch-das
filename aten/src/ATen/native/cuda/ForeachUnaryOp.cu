@@ -68,6 +68,37 @@ std::vector<Tensor> foreach_unary_op(TensorList tensors) {
   return tensor_lists[1];
 }
 
+template <typename T>
+struct Expm1 {
+  __device__ T operator()(T t) const {
+    return std::expm1(t);
+  }
+};
+
+template <>
+std::vector<Tensor> foreach_unary_op<c10::complex<double>, Expm1>(TensorList tensors) {
+  std::vector<std::vector<at::Tensor>> tensor_lists;
+  std::vector<at::Tensor> vec_res;
+  vec_res.reserve(tensors.size());
+  for (const auto& t : tensors) {
+    vec_res.emplace_back(at::native::empty_like(t));
+  }
+  tensor_lists.emplace_back(tensors.vec());
+  tensor_lists.emplace_back(std::move(vec_res));
+
+  using opmath_t = typename at::opmath_type<c10::complex<double>>;
+  multi_tensor_apply<2>(
+      tensor_lists,
+      Expm1CDOpFunctor<
+          c10::complex<double>,
+          /* depth */ 2,
+          /* r_args_depth */ 1,
+          /* res_arg_index */ 1>(),
+      Expm1<opmath_t>());
+
+  return tensor_lists[1];
+}
+
 template <typename scalar_t, template <class> class Op>
 void foreach_unary_op_(TensorList tensors) {
   std::vector<std::vector<at::Tensor>> tensor_lists;
@@ -81,6 +112,22 @@ void foreach_unary_op_(TensorList tensors) {
           /* r_args_depth */ 1,
           /* res_arg_index */ 0>(),
       Op<opmath_t>());
+  increment_version(tensors);
+}
+
+template <>
+void foreach_unary_op_<c10::complex<double>, Expm1>(TensorList tensors) {
+  std::vector<std::vector<at::Tensor>> tensor_lists;
+  tensor_lists.emplace_back(tensors.vec());
+  using opmath_t = typename at::opmath_type<c10::complex<double>>;
+  multi_tensor_apply<1>(
+      tensor_lists,
+      UnaryOpFunctor<
+          c10::complex<double>,
+          /* depth */ 1,
+          /* r_args_depth */ 1,
+          /* res_arg_index */ 0>(),
+      Expm1<opmath_t>());
   increment_version(tensors);
 }
 
@@ -251,7 +298,8 @@ OP(floating_complex_half_bfloat16, sin, Sin);
 OP(floating_complex_half_bfloat16, sinh, Sinh);
 
 OP(floating_complex_half_bfloat16, exp, Exp);
-OP(floating_complex_half_bfloat16, expm1, Expm1);
+// OP(floating_complex_half_bfloat16, expm1, Expm1);
+OP_CUSTOM_FUNCTOR(floating_complex_half_bfloat16, expm1, Expm1)
 OP(floating_complex_half_bfloat16, tanh, Tanh);
 OP(floating_complex_half_bfloat16, log, Log);
 OP(floating_complex_half_bfloat16, log10, Log10);
