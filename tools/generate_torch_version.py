@@ -72,17 +72,17 @@ def get_torch_version(sha: Optional[str] = None) -> str:
     #    version += "+git" + sha[:7]
     return version
 
-def get_dcu_version(sha: Optional[str] = None) -> str:
+def get_hcu_version(sha: Optional[str] = None) -> str:
     pytorch_root = Path(__file__).parent.parent
-    dcu_version = open(pytorch_root / "version.txt", "r").read().strip()
+    hcu_version = open(pytorch_root / "version.txt", "r").read().strip()
 
     if sha != UNKNOWN:
         if sha is None:
             sha = get_sha(pytorch_root)
-        #dcu_version += "+git" + sha[:7]
-    dcu_version += "+das.opt1"
+        #hcu_version += "+git" + sha[:7]
+    hcu_version += "+das.opt1"
     #abi
-    #dcu_version += "." + get_abi()
+    #hcu_version += "." + get_abi()
     if os.getenv("ROCM_PATH"):
         rocm_path = os.getenv('ROCM_PATH', "")
         rocm_version_path = os.path.join(rocm_path, '.info', "rocm_version")
@@ -90,10 +90,10 @@ def get_dcu_version(sha: Optional[str] = None) -> str:
             lines = file.readlines()
         rocm_version=lines[0].replace(".", "")
         #rocm_version=lines[0][:-2].replace(".", "")
-        dcu_version += ".dtk" + rocm_version
+        hcu_version += ".dtk" + rocm_version
     if os.getenv('PYTORCH_CUSTOM_SUFFIX'):
-        dcu_version += "." + str(os.getenv('PYTORCH_CUSTOM_SUFFIX'))
-    return dcu_version
+        hcu_version += "." + str(os.getenv('PYTORCH_CUSTOM_SUFFIX'))
+    return hcu_version
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -126,7 +126,7 @@ if __name__ == "__main__":
     else:
         version = tagged_version
 
-    dcu_version = get_dcu_version(sha)
+    hcu_version = get_hcu_version(sha)
 
     with open(version_path, "w") as f:
         f.write("from typing import Optional\n\n")
@@ -139,5 +139,5 @@ if __name__ == "__main__":
         f.write(f"cuda: Optional[str] = {repr(args.cuda_version)}\n")
         f.write(f"git_version = {repr(sha)}\n")
         f.write(f"hip: Optional[str] = {repr(args.hip_version)}\n")
-        f.write(f"__dcu_version__ = '{dcu_version}'\n")
+        f.write(f"__hcu_version__ = '{hcu_version}'\n")
         f.write(f"dtk = {repr(args.dtk_version)}\n")
