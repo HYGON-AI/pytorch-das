@@ -363,7 +363,7 @@ static void upsample_bilinear2d_out_cuda_template(
 }
 
 //upsample optimization
-size_t get_env_dcu(const char* env_name, size_t def_value = 0) 
+size_t get_env_hcu(const char* env_name, size_t def_value = 0) 
 {
   if (auto* value = std::getenv(env_name)) {
     int env_value = c10::stoi(value);
@@ -375,7 +375,7 @@ size_t get_env_dcu(const char* env_name, size_t def_value = 0)
 //Backward (adjoint) operation 1 <- 2 (accumulates) optimization
 template <typename scalar_t, typename accscalar_t>
 C10_LAUNCH_BOUNDS_1(1024)
-__global__ void upsample_bilinear2d_backward_out_frame_dcu(
+__global__ void upsample_bilinear2d_backward_out_frame_hcu(
     const size_t nc,
     const int height1,
     const int width1,
@@ -580,7 +580,7 @@ static void upsample_bilinear2d_backward_out_cuda_template(
       const accscalar_t rwidth = area_pixel_compute_scale<accscalar_t>(
           input_width, output_width, align_corners, scales_w);
 
-      if(get_env_dcu("HIP_UPSAMPLE_OPTIMIZE", 0) == 0) {
+      if(get_env_hcu("HIP_UPSAMPLE_OPTIMIZE", 0) == 0) {
         upsample_bilinear2d_backward_out_frame<scalar_t, accscalar_t>
           <<<ceil_div(num_kernels, static_cast<size_t>(num_threads)),
              num_threads,
@@ -597,7 +597,7 @@ static void upsample_bilinear2d_backward_out_cuda_template(
               idata,
               odata);
       } else {
-        upsample_bilinear2d_backward_out_frame_dcu<scalar_t, accscalar_t>
+        upsample_bilinear2d_backward_out_frame_hcu<scalar_t, accscalar_t>
           <<<ceil_div(num_kernels, static_cast<size_t>(num_threads)),
              num_threads,
              0,
