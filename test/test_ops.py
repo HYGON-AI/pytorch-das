@@ -142,8 +142,8 @@ def skip_helper_fp64_onE100(device, dtype):
 ###
 
 def skip_refs_float_power(device, op):
-    skip_ref_ops_dcu = {'_refs.float_power', }  
-    if op.name in skip_ref_ops_dcu:
+    skip_ref_ops_hcu = {'_refs.float_power', }  
+    if op.name in skip_ref_ops_hcu:
         device_type = torch.device(device).type
         if device_type == 'cuda':
             device_name = torch.cuda.get_device_properties(torch.cuda.current_device()).name
@@ -156,7 +156,7 @@ def skip_refs_float_power(device, op):
 @unMarkDynamoStrictTest
 class TestCommon(TestCase):
     exact_dtype = True
-    skip_ref_ops_dcu = {'_refs.float_power',}     ###
+    skip_ref_ops_hcu = {'_refs.float_power',}     ###
 
     # Verifies, on teardown, that no OpInfo is still using dynamic dtypes in CI
     @classmethod
@@ -403,7 +403,7 @@ class TestCommon(TestCase):
     ):
         # NOTE: this test works by comparing the reference
         ex = None
-        if op.name in self.skip_ref_ops_dcu:                                                         # ###
+        if op.name in self.skip_ref_ops_hcu:                                                         # ###
             device_type = torch.device(device).type
             if device_type == 'cuda':
                 device_name = torch.cuda.get_device_properties(torch.cuda.current_device()).name
@@ -2151,7 +2151,7 @@ class TestTags(TestCase):
     @ops(ops_and_refs, dtypes=OpDTypes.any_one)
     def test_tags(self, device, dtype, op):
         '''
-        if op.name in self.skip_ref_ops_dcu:  ###
+        if op.name in self.skip_ref_ops_hcu:  ###
             device_type = torch.device(device).type
             if device_type == 'cuda':
                 device_name = torch.cuda.get_device_properties(torch.cuda.current_device()).name
