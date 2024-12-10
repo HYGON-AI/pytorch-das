@@ -847,7 +847,7 @@ mha_varlen_fwd(const at::Tensor &q_,  // total_q x num_heads x head_size, total_
         softmax_lse = softmax_lse.reshape({num_heads * max_seqlen_q, batch_size});
     }
 
-    #return {out, q_padded, k_padded, v_padded, out_padded, softmax_lse, p, rng_state};
+    // return {out, q_padded, k_padded, v_padded, out_padded, softmax_lse, p, rng_state};
     return {out, q_padded, k_padded, v_padded, softmax_lse, rng_state[0], rng_state[1], p};
 }
 
