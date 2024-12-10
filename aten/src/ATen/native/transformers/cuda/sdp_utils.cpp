@@ -185,6 +185,19 @@ bool check_flash_attention_hardware_support(sdp_params const& params, bool debug
   using sm80 = SMVersion<8, 0>;
   using sm90 = SMVersion<9, 0>;
 #if USE_ROCM
+  auto dprops = at::cuda::getCurrentDeviceProperties();
+  std::string device_arch = dprops->gcnArchName;
+  static const std::vector<std::string> archs = {"gfx906", "gfx926"};
+  for (std::string arch : archs) {
+      size_t substring = device_arch.find(arch);
+      // auto attempting to run math
+      if (substring != std::string::npos) {
+          TORCH_WARN(
+              "Flash attention was not supported for current architecture, attempting to run on torch native impl for backend=math")
+          return false;
+      }
+  }
+  return true;
   // #if defined(USE_AOTRITON_FA)
   // auto stream = at::cuda::getCurrentCUDAStream().stream();
   // if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
@@ -196,7 +209,6 @@ bool check_flash_attention_hardware_support(sdp_params const& params, bool debug
   //     return false;
   // }
   // #else
-  return true;
   // #endif
 #else
   auto dprops = at::cuda::getCurrentDeviceProperties();
