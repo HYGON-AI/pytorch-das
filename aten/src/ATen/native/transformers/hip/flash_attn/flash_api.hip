@@ -1794,7 +1794,7 @@ mha_aot_fwd(const at::Tensor &q,         // batch_size x seqlen_q x num_heads x 
                  is_causal,
                  stream);
 
-  return {out, q_padded, k_padded, v_padded, M, seed_t, offset_t, softmax_fa_t};
+  return {out, q_padded, k_padded, v_padded, M.view({batch_size, num_heads, seqlen_q}), seed_t, offset_t, softmax_fa_t};
 }
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
@@ -1970,8 +1970,8 @@ mha_aot_bwd(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x hea
   at::Tensor dv_t = dv.permute({0,2,1,3});
   at::Tensor dout_t = dout.permute({0,2,1,3});
 
-  at::Tensor softmax_lse_cont = softmax_lse.contiguous();
-  at::Tensor delta = at::empty_like(softmax_lse).contiguous();
+  at::Tensor softmax_lse_cont = softmax_lse.view({batch_size * num_heads, seqlen_q}).contiguous();
+  at::Tensor delta = at::empty_like(softmax_lse_cont).contiguous();
 
   int d_head = head_size_og;
   hipError_t err; // TODO: Error handling
