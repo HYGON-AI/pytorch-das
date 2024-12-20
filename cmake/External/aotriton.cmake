@@ -7,6 +7,10 @@ if(NOT __AOTRITON_INCLUDED)
   add_library(__caffe2_aotriton INTERFACE)
   # Note it is INSTALL"ED"
   if(DEFINED ENV{AOTRITON_INSTALLED_PREFIX})
+    install(DIRECTORY
+            $ENV{AOTRITON_INSTALLED_PREFIX}/lib
+            $ENV{AOTRITON_INSTALLED_PREFIX}/include
+            DESTINATION ${__AOTRITON_INSTALL_DIR})
     set(__AOTRITON_INSTALL_DIR "$ENV{AOTRITON_INSTALLED_PREFIX}")
     message(STATUS "Using Preinstalled AOTriton at ${__AOTRITON_INSTALL_DIR}")
   else()
@@ -35,7 +39,7 @@ if(NOT __AOTRITON_INCLUDED)
     add_dependencies(__caffe2_aotriton aotriton_external)
     message(STATUS "Using AOTriton compiled from source directory ${__AOTRITON_SOURCE_DIR}")
   endif()
-  target_link_libraries(__caffe2_aotriton INTERFACE ${__AOTRITON_INSTALL_DIR}/lib/libaotriton_v2.a)
+  target_link_libraries(__caffe2_aotriton INTERFACE ${__AOTRITON_INSTALL_DIR}/lib/libaotriton_v2.so)
   target_include_directories(__caffe2_aotriton INTERFACE ${__AOTRITON_INSTALL_DIR}/include)
   set(AOTRITON_FOUND TRUE)
 endif() # __AOTRITON_INCLUDED
