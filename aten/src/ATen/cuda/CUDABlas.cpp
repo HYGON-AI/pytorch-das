@@ -604,7 +604,7 @@ void bgemm_internal_cublas<at::BFloat16>(CUDABLAS_BGEMM_ARGTYPES(at::BFloat16)) 
   const float fbeta = beta;
   _cublasAdjustLdLevel3(transa, transb, m, n, k, &lda, &ldb, &ldc);
 
-#if defined(USE_ROCM)
+#if defined(USE_ROCM) && ROCM_VERSION >= 60100
   auto compute_type = CUBLAS_COMPUTE_32F;
 #else
   auto compute_type = CUDA_R_32F;
@@ -1059,7 +1059,7 @@ void gemm_internal_cublas<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
     cublas_flags = static_cast<cublasMath_t>(cublas_flags | CUBLAS_MATH_DISALLOW_REDUCED_PRECISION_REDUCTION);
   }
 #endif
-#if defined(USE_ROCM)
+#if defined(USE_ROCM) && ROCM_VERSION >= 60100
   auto compute_type = CUBLAS_COMPUTE_32F;
 #else
   auto compute_type = CUDA_R_32F;
