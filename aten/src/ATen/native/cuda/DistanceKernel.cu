@@ -22,8 +22,11 @@
 namespace at::native {
 
 namespace {
-
-constexpr int kCUDANumThreads = 256;
+#ifdef USE_ROCM
+  constexpr int kCUDANumThreads = 128;
+#else
+  constexpr int kCUDANumThreads = 256;
+#endif
 
 template <typename scalar_t>
 struct dists {
