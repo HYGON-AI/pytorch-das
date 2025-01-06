@@ -1069,7 +1069,7 @@ if has_triton_package():
 def is_safe_constant(v):
     if istype(v, (tuple, frozenset)):
         return all(map(is_safe_constant, v))
-    return isinstance(v, (enum.Enum, type)) or istype(
+    return isinstance(v, (enum.Enum, type, torch.Size)) or istype(
         v,
         common_constant_types | {slice},
     )
