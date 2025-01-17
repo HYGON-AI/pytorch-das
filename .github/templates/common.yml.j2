@@ -1,14 +1,14 @@
 {%- set upload_artifact_s3_action = "seemethere/upload-artifact-s3@v5" -%}
 {%- set download_artifact_s3_action = "seemethere/download-artifact-s3@v4" -%}
-{%- set upload_artifact_action = "actions/upload-artifact@v3" -%}
-{%- set download_artifact_action = "actions/download-artifact@v3" -%}
+{%- set upload_artifact_action = "actions/upload-artifact@v4.4.0" -%}
+{%- set download_artifact_action = "actions/download-artifact@v4.1.7" -%}
 
 {%- set timeout_minutes = 240 -%}
 
 # NOTE: If testing pytorch/builder changes you can change this variable to change what pytorch/builder reference
 #       the binary builds will check out
 {%- set builder_repo = "pytorch/builder" -%}
-{%- set builder_branch = "release/2.4" -%}
+{%- set builder_branch = "release/2.5" -%}
 
 {%- macro concurrency(build_environment) -%}
 concurrency:
@@ -36,7 +36,7 @@ concurrency:
 {%- macro setup_ec2_windows() -%}
       !{{ display_ec2_information() }}
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}

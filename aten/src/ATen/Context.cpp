@@ -56,6 +56,14 @@ void Context::setDeterministicCuDNN(bool b) {
   deterministic_cudnn = b;
 }
 
+bool Context::deterministicMkldnn() const {
+  return deterministic_mkldnn;
+}
+
+void Context::setDeterministicMkldnn(bool b) {
+  deterministic_mkldnn = b;
+}
+
 bool Context::deterministicAlgorithms() const {
   return _deterministic_algorithms;
 }
@@ -137,6 +145,14 @@ void Context::setSDPUseMath(bool e) {
   enabled_mathSDP = e;
 }
 
+bool Context::allowFP16BF16ReductionMathSDP() const {
+  return allow_fp16_bf16_reduction_mathSDP;
+}
+
+void Context::setAllowFP16BF16ReductionMathSDP(bool e) {
+  allow_fp16_bf16_reduction_mathSDP = e;
+}
+
 bool Context::userEnabledCuDNNSDP() const {
   return enabled_cudnnSDP;
 }
@@ -145,6 +161,13 @@ void Context::setSDPUseCuDNN(bool e) {
   enabled_cudnnSDP = e;
 }
 
+void Context::setSDPUseOverrideable(bool e) {
+  enabled_overrideable = e;
+}
+
+bool Context::userEnabledOverrideableSDP() const {
+  return enabled_overrideable;
+}
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
 static const char cublas_config_var_name[] = "CUBLAS_WORKSPACE_CONFIG";
@@ -268,7 +291,7 @@ at::BlasBackend Context::blasPreferredBackend() {
   if (blas_preferred_backend == at::BlasBackend::Cublaslt) {
     static const bool hipblaslt_unsupported = []() {
       static const std::vector<std::string> archs = {"gfx90a", "gfx928", "gfx936", "gfx940", "gfx941", "gfx942"};
-      for (auto index = 0; index < at::getNumGPUs(); index++) {
+      for (auto index: c10::irange(getNumGPUs())) {
         if (!detail::getCUDAHooks().isGPUArch(index, archs)) {
           TORCH_WARN_ONCE(
             "Attempting to use hipBLASLt on an unsupported architecture! "
@@ -456,7 +479,7 @@ Allocator* getCPUAllocator() {
 }
 
 // override_allow_tf32_flag = true
-//    means the allow_tf32 flags are overrided and tf32 is force disabled
+//    means the allow_tf32 flags are overridden and tf32 is force disabled
 // override_allow_tf32_flag = false
 //    means the original allow_tf32 flags are followed
 thread_local bool override_allow_tf32_flag = false;
