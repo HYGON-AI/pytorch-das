@@ -503,25 +503,11 @@ void index_put_with_sort_kernel(Tensor & self, const c10::List<std::optional<Ten
       if (sliceSize == 1) {
         // This implementation is faster with high amounts of duplicates but could overflow
         // if FP16 / BF16 is used
-        AT_DISPATCH_ALL_TYPES_AND_COMPLEX_AND4(kComplexHalf, kHalf, kBool, kBFloat16,
-        expandedValue.scalar_type(), "indexing_backward_kernel_stride_1", [&] {
-          indexing_backward_kernel_stride_1<scalar_t><<<grid, block, 0, stream>>>(
-            sorted_indices.const_data_ptr<int64_t>(),
-            orig_indices.const_data_ptr<int64_t>(),
-            expandedValue.const_data_ptr<scalar_t>(),
-            src_.mutable_data_ptr<scalar_t>(),
-            num_indices,
-            sliceSize,
-            strideBefore,
-            nElemBefore,
-            accumulate);
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
-        });
-      } else {
-        if (sliceSize <= warp_size) {
-          AT_DISPATCH_ALL_TYPES_AND_COMPLEX_AND4(kComplexHalf, kHalf, kBool, kBFloat16,
-          expandedValue.scalar_type(), "indexing_backward_kernel_small_stride", [&] {
-            indexing_backward_kernel_small_stride<scalar_t><<<grid, block, 0, stream>>>(
+        AT_DISPATCH_V2(
+          expandedValue.scalar_type(),
+          "indexing_backward_kernel_stride_1",
+          AT_WRAP([&] {
+            indexing_backward_kernel_stride_1<scalar_t><<<grid, block, 0, stream>>>(
               sorted_indices.const_data_ptr<int64_t>(),
               orig_indices.const_data_ptr<int64_t>(),
               expandedValue.const_data_ptr<scalar_t>(),
@@ -532,10 +518,42 @@ void index_put_with_sort_kernel(Tensor & self, const c10::List<std::optional<Ten
               nElemBefore,
               accumulate);
             C10_CUDA_KERNEL_LAUNCH_CHECK();
-            });
+          }),
+          AT_EXPAND(AT_ALL_TYPES_AND_COMPLEX),
+          AT_EXPAND(AT_FLOAT8_TYPES),
+          kComplexHalf,
+          kHalf,
+          kBool,
+          kBFloat16);
+      } else {
+        if (sliceSize <= warp_size) {
+          AT_DISPATCH_V2(
+            expandedValue.scalar_type(),
+            "indexing_backward_kernel_small_stride",
+            AT_WRAP([&] {
+              indexing_backward_kernel_small_stride<scalar_t><<<grid, block, 0, stream>>>(
+                sorted_indices.const_data_ptr<int64_t>(),
+                orig_indices.const_data_ptr<int64_t>(),
+                expandedValue.const_data_ptr<scalar_t>(),
+                src_.mutable_data_ptr<scalar_t>(),
+                num_indices,
+                sliceSize,
+                strideBefore,
+                nElemBefore,
+                accumulate);
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            }),
+            AT_EXPAND(AT_ALL_TYPES_AND_COMPLEX),
+            AT_EXPAND(AT_FLOAT8_TYPES),
+            kComplexHalf,
+            kHalf,
+            kBool,
+            kBFloat16);
         } else {
-            AT_DISPATCH_ALL_TYPES_AND_COMPLEX_AND4(kComplexHalf, kHalf, kBool, kBFloat16,
-            expandedValue.scalar_type(), "indexing_backward", [&] {
+          AT_DISPATCH_V2(
+            expandedValue.scalar_type(),
+            "indexing_backward",
+            AT_WRAP([&] {
               indexing_backward_kernel<scalar_t, UNROLL><<<grid, block, 0, stream>>>(
                 sorted_indices.const_data_ptr<int64_t>(),
                 orig_indices.const_data_ptr<int64_t>(),
@@ -547,7 +565,13 @@ void index_put_with_sort_kernel(Tensor & self, const c10::List<std::optional<Ten
                 nElemBefore,
                 accumulate);
               C10_CUDA_KERNEL_LAUNCH_CHECK();
-            });
+            }),
+            AT_EXPAND(AT_ALL_TYPES_AND_COMPLEX),
+            AT_EXPAND(AT_FLOAT8_TYPES),
+            kComplexHalf,
+            kHalf,
+            kBool,
+            kBFloat16);
           }
         }
 
@@ -1310,13 +1334,23 @@ tensorInfoLegacyIfScalar(cuda::detail::TensorInfo<T, IndexType> ti) {
   return ti;
 }
 
+constexpr uint64_t getDefaultMaxThreadsPerBlock() {
+#ifndef USE_ROCM
+  return 128;
+#else
+  // bigger default
+  return 512;
+#endif
 }
+
+}
+
 
 template <typename scalar_t>
 void index_select_out_cuda_impl(
     Tensor& out,
     const Tensor& self,
-    long dim,
+    uint64_t dim,
     const Tensor& index) {
   uint64_t numIndices = index.numel();
   uint64_t selfDims = self.dim() == 0 ? 1 : self.dim();
@@ -1384,6 +1418,7 @@ void index_select_out_cuda_impl(
   // 1: ptrdiff_t was used but it is signed int,  outTotalSize of 2147483648 can cause overflow
   // 2: On ROCm, std::min -> ::min did not work as expected on when outTotalSize>=2147483648
   dim3 largeIndexBlock( (outTotalSize < 128) ? outTotalSize : 128 );
+  //uint64_t defaultMaxBlockThreads = getDefaultMaxThreadsPerBlock();
   if (cuda::detail::canUse32BitIndexMath(out) &&
       cuda::detail::canUse32BitIndexMath(self) &&
       cuda::detail::canUse32BitIndexMath(index)) {
@@ -1475,13 +1510,13 @@ Tensor& index_select_out_cuda(
       self.qscheme() == kPerTensorAffine,
       "Only per_tensor quantized quantized tensors are supported by index_select.")
     AT_DISPATCH_QINT_TYPES(out.scalar_type(), "index_select_quant_cuda", [&] {
-      index_select_out_cuda_impl<scalar_t>(out, self, dim, index);
+      index_select_out_cuda_impl<scalar_t>(out, self, (uint64_t) dim, index);
     });
   } else {
     AT_DISPATCH_V2(
         out.scalar_type(),
         "index_select_cuda",
-        AT_WRAP([&] { index_select_out_cuda_impl<scalar_t>(out, self, dim, index); }),
+        AT_WRAP([&] { index_select_out_cuda_impl<scalar_t>(out, self, (uint64_t) dim, index); }),
         AT_EXPAND(AT_ALL_TYPES_AND_COMPLEX), AT_EXPAND(AT_BAREBONES_UNSIGNED_TYPES),
         kComplexHalf,
         kHalf,
@@ -1742,8 +1777,7 @@ Tensor index_select_sparse_cuda(const Tensor& self, int64_t dim, const Tensor& i
       return make_output(empty_idx, empty_idx);
     }
 
-    Tensor selected_dim_indices, res_dim_indices;
-    std::tie(selected_dim_indices, res_dim_indices) = [&]() -> std::tuple<Tensor, Tensor> {
+    auto [selected_dim_indices, res_dim_indices] = [&]() -> std::tuple<Tensor, Tensor> {
       auto res_dim_indices = at::empty({res_len}, nneg_index.options());
       auto selected_dim_indices = at::empty_like(res_dim_indices);
       auto selected_dim_indices_offsets = intrsc_counts_nneg_index.cumsum(0)

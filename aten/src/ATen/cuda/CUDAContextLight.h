@@ -16,6 +16,10 @@
 #include <cusolverDn.h>
 #endif
 
+#if defined(USE_CUDSS)
+#include <cudss.h>
+#endif
+
 #if defined(USE_ROCM)
 #include <hipsolver/hipsolver.h>
 #endif
@@ -93,4 +97,8 @@ TORCH_CUDA_CPP_API cusolverDnHandle_t getCurrentCUDASolverDnHandle();
 #if defined(USE_ROCM)
 TORCH_CUDA_CPP_API bool getCurrentDeviceEcoInfo(int device);
 #endif
+#if defined(USE_CUDSS)
+TORCH_CUDA_CPP_API cudssHandle_t getCurrentCudssHandle();
+#endif
+
 } // namespace at::cuda

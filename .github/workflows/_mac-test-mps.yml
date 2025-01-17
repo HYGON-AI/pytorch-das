@@ -35,12 +35,13 @@ jobs:
       is-test-matrix-empty: ${{ steps.filter.outputs.is-test-matrix-empty }}
       keep-going: ${{ steps.filter.outputs.keep-going }}
       ci-verbose-test-logs: ${{ steps.filter.outputs.ci-verbose-test-logs }}
+      ci-test-showlocals: ${{ steps.filter.outputs.ci-test-showlocals }}
       ci-no-test-timeout: ${{ steps.filter.outputs.ci-no-test-timeout }}
       ci-no-td: ${{ steps.filter.outputs.ci-no-td }}
       reenabled-issues: ${{ steps.filter.outputs.reenabled-issues }}
     steps:
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.4
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.5
         with:
           submodules: false
 
@@ -81,7 +82,7 @@ jobs:
           use-gha: true
 
       - name: Setup miniconda
-        uses: pytorch/test-infra/.github/actions/setup-miniconda@release/2.4
+        uses: pytorch/test-infra/.github/actions/setup-miniconda@release/2.5
         with:
           python-version: ${{ inputs.python-version }}
           environment-file: .github/requirements/conda-env-${{ runner.os }}-${{ runner.arch }}
@@ -98,6 +99,7 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           CONTINUE_THROUGH_ERROR: ${{ needs.filter.outputs.keep-going }}
           VERBOSE_TEST_LOGS: ${{ needs.filter.outputs.ci-verbose-test-logs }}
+          TEST_SHOWLOCALS: ${{ needs.filter.outputs.ci-test-showlocals }}
           NO_TEST_TIMEOUT: ${{ needs.filter.outputs.ci-no-test-timeout }}
           NO_TD: ${{ needs.filter.outputs.ci-no-td }}
           PIP_REQUIREMENTS_FILE: .github/requirements/pip-requirements-${{ runner.os }}.txt
@@ -159,4 +161,4 @@ jobs:
       - name: Clean up disk space
         if: always()
         continue-on-error: true
-        uses: pytorch/test-infra/.github/actions/check-disk-space@release/2.4
+        uses: pytorch/test-infra/.github/actions/check-disk-space@release/2.5

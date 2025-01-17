@@ -32,982 +32,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  wheel-py3_8-cpu-build:
-    if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
-    timeout-minutes: 240
-    env:
-      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
-      BUILDER_ROOT: ${{ github.workspace }}/builder
-      PACKAGE_TYPE: wheel
-      # TODO: This is a legacy variable that we eventually want to get rid of in
-      #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cpu
-      GPU_ARCH_TYPE: cpu
-      SKIP_ALL_TESTS: 1
-      DESIRED_PYTHON: "3.8"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
-    steps:
-      - name: Display EC2 information
-        shell: bash
-        run: |
-          set -euo pipefail
-          function get_ec2_metadata() {
-            # Pulled from instance metadata endpoint for EC2
-            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
-            category=$1
-            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
-          }
-          echo "ami-id: $(get_ec2_metadata ami-id)"
-          echo "instance-id: $(get_ec2_metadata instance-id)"
-          echo "instance-type: $(get_ec2_metadata instance-type)"
-          echo "system info $(uname -a)"
-      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
-        continue-on-error: true
-        with:
-          github-secret: ${{ secrets.GITHUB_TOKEN }}
-      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
-      - name: Enable long paths on Windows
-        shell: powershell
-        run: |
-          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
-      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
-      # removed once Windows Defender is removed from the AMI
-      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
-        continue-on-error: true
-        shell: powershell
-        run: |
-          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
-          # Let's both exclude the path and disable Windows Defender completely just to be sure
-          # that it doesn't interfere
-          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
-      # NOTE: These environment variables are put here so that they can be applied on every job equally
-      #       They are also here because setting them at a workflow level doesn't give us access to the
-      #       runner.temp variable, which we need.
-      - name: Populate binary env
-        shell: bash
-        run: |
-          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
-          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
-          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - name: Checkout PyTorch
-        uses: malfet/checkout@silent-checkout
-        with:
-          submodules: recursive
-          path: pytorch
-          quiet-checkout: true
-      - name: Clean PyTorch checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: pytorch
-      - name: Checkout pytorch/builder
-        uses: malfet/checkout@silent-checkout
-        with:
-          ref: release/2.4
-          submodules: recursive
-          repository: pytorch/builder
-          path: builder
-          quiet-checkout: true
-      - name: Clean pytorch/builder checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: builder
-      - name: Populate binary env
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
-      - name: Build PyTorch binary
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: wheel-py3_8-cpu
-          retention-days: 14
-          if-no-files-found: error
-          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
-      - name: Wait until all sessions have drained
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        timeout-minutes: 120
-        run: |
-          .github\scripts\wait_for_ssh_to_drain.ps1
-      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        run: |
-          .github\scripts\kill_active_ssh_sessions.ps1
-  wheel-py3_8-cpu-test:  # Testing
-    if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_8-cpu-build
-    runs-on: windows.4xlarge.nonephemeral
-    timeout-minutes: 240
-    env:
-      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
-      BUILDER_ROOT: ${{ github.workspace }}/builder
-      PACKAGE_TYPE: wheel
-      # TODO: This is a legacy variable that we eventually want to get rid of in
-      #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cpu
-      GPU_ARCH_TYPE: cpu
-      SKIP_ALL_TESTS: 1
-      DESIRED_PYTHON: "3.8"
-    steps:
-      - name: Display EC2 information
-        shell: bash
-        run: |
-          set -euo pipefail
-          function get_ec2_metadata() {
-            # Pulled from instance metadata endpoint for EC2
-            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
-            category=$1
-            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
-          }
-          echo "ami-id: $(get_ec2_metadata ami-id)"
-          echo "instance-id: $(get_ec2_metadata instance-id)"
-          echo "instance-type: $(get_ec2_metadata instance-type)"
-          echo "system info $(uname -a)"
-      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
-        continue-on-error: true
-        with:
-          github-secret: ${{ secrets.GITHUB_TOKEN }}
-      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
-      - name: Enable long paths on Windows
-        shell: powershell
-        run: |
-          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
-      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
-      # removed once Windows Defender is removed from the AMI
-      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
-        continue-on-error: true
-        shell: powershell
-        run: |
-          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
-          # Let's both exclude the path and disable Windows Defender completely just to be sure
-          # that it doesn't interfere
-          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
-      # NOTE: These environment variables are put here so that they can be applied on every job equally
-      #       They are also here because setting them at a workflow level doesn't give us access to the
-      #       runner.temp variable, which we need.
-      - name: Populate binary env
-        shell: bash
-        run: |
-          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
-          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
-          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
-        name: Download Build Artifacts
-        with:
-          name: wheel-py3_8-cpu
-          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
-      - name: Checkout PyTorch
-        uses: malfet/checkout@silent-checkout
-        with:
-          submodules: recursive
-          path: pytorch
-          quiet-checkout: true
-      - name: Clean PyTorch checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: pytorch
-      - name: Checkout pytorch/builder
-        uses: malfet/checkout@silent-checkout
-        with:
-          ref: release/2.4
-          submodules: recursive
-          repository: pytorch/builder
-          path: builder
-          quiet-checkout: true
-      - name: Clean pytorch/builder checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: builder
-      - name: Populate binary env
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
-      - name: Test PyTorch binary
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_test.sh"
-      - name: Wait until all sessions have drained
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        timeout-minutes: 120
-        run: |
-          .github\scripts\wait_for_ssh_to_drain.ps1
-      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        run: |
-          .github\scripts\kill_active_ssh_sessions.ps1
-  wheel-py3_8-cpu-upload:  # Uploading
-    if: ${{ github.repository_owner == 'pytorch' }}
-    permissions:
-      id-token: write
-      contents: read
-    needs: wheel-py3_8-cpu-test
+  get-label-type:
+    name: get-label-type
+    uses: ./.github/workflows/_runner-determinator.yml
     with:
-      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
-      BUILDER_ROOT: ${{ github.workspace }}/builder
-      PACKAGE_TYPE: wheel
-      # TODO: This is a legacy variable that we eventually want to get rid of in
-      #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cpu
-      GPU_ARCH_TYPE: cpu
-      DESIRED_PYTHON: "3.8"
-      build_name: wheel-py3_8-cpu
-    secrets:
-      github-token: ${{ secrets.GITHUB_TOKEN }}
-      conda-pytorchbot-token: ${{ secrets.CONDA_PYTORCHBOT_TOKEN }}
-      conda-pytorchbot-token-test: ${{ secrets.CONDA_PYTORCHBOT_TOKEN_TEST }}
-    uses: ./.github/workflows/_binary-upload.yml
-  wheel-py3_8-cuda11_8-build:
-    if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
-    timeout-minutes: 240
-    env:
-      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
-      BUILDER_ROOT: ${{ github.workspace }}/builder
-      PACKAGE_TYPE: wheel
-      # TODO: This is a legacy variable that we eventually want to get rid of in
-      #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cu118
-      GPU_ARCH_VERSION: 11.8
-      GPU_ARCH_TYPE: cuda
-      SKIP_ALL_TESTS: 1
-      DESIRED_PYTHON: "3.8"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
-    steps:
-      - name: Display EC2 information
-        shell: bash
-        run: |
-          set -euo pipefail
-          function get_ec2_metadata() {
-            # Pulled from instance metadata endpoint for EC2
-            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
-            category=$1
-            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
-          }
-          echo "ami-id: $(get_ec2_metadata ami-id)"
-          echo "instance-id: $(get_ec2_metadata instance-id)"
-          echo "instance-type: $(get_ec2_metadata instance-type)"
-          echo "system info $(uname -a)"
-      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
-        continue-on-error: true
-        with:
-          github-secret: ${{ secrets.GITHUB_TOKEN }}
-      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
-      - name: Enable long paths on Windows
-        shell: powershell
-        run: |
-          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
-      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
-      # removed once Windows Defender is removed from the AMI
-      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
-        continue-on-error: true
-        shell: powershell
-        run: |
-          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
-          # Let's both exclude the path and disable Windows Defender completely just to be sure
-          # that it doesn't interfere
-          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
-      # NOTE: These environment variables are put here so that they can be applied on every job equally
-      #       They are also here because setting them at a workflow level doesn't give us access to the
-      #       runner.temp variable, which we need.
-      - name: Populate binary env
-        shell: bash
-        run: |
-          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
-          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
-          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - name: Checkout PyTorch
-        uses: malfet/checkout@silent-checkout
-        with:
-          submodules: recursive
-          path: pytorch
-          quiet-checkout: true
-      - name: Clean PyTorch checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: pytorch
-      - name: Checkout pytorch/builder
-        uses: malfet/checkout@silent-checkout
-        with:
-          ref: release/2.4
-          submodules: recursive
-          repository: pytorch/builder
-          path: builder
-          quiet-checkout: true
-      - name: Clean pytorch/builder checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: builder
-      - name: Populate binary env
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
-      - name: Build PyTorch binary
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: wheel-py3_8-cuda11_8
-          retention-days: 14
-          if-no-files-found: error
-          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
-      - name: Wait until all sessions have drained
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        timeout-minutes: 120
-        run: |
-          .github\scripts\wait_for_ssh_to_drain.ps1
-      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        run: |
-          .github\scripts\kill_active_ssh_sessions.ps1
-  wheel-py3_8-cuda11_8-test:  # Testing
-    if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_8-cuda11_8-build
-    runs-on: windows.8xlarge.nvidia.gpu
-    timeout-minutes: 240
-    env:
-      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
-      BUILDER_ROOT: ${{ github.workspace }}/builder
-      PACKAGE_TYPE: wheel
-      # TODO: This is a legacy variable that we eventually want to get rid of in
-      #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cu118
-      GPU_ARCH_VERSION: 11.8
-      GPU_ARCH_TYPE: cuda
-      SKIP_ALL_TESTS: 1
-      DESIRED_PYTHON: "3.8"
-    steps:
-      - name: Display EC2 information
-        shell: bash
-        run: |
-          set -euo pipefail
-          function get_ec2_metadata() {
-            # Pulled from instance metadata endpoint for EC2
-            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
-            category=$1
-            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
-          }
-          echo "ami-id: $(get_ec2_metadata ami-id)"
-          echo "instance-id: $(get_ec2_metadata instance-id)"
-          echo "instance-type: $(get_ec2_metadata instance-type)"
-          echo "system info $(uname -a)"
-      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
-        continue-on-error: true
-        with:
-          github-secret: ${{ secrets.GITHUB_TOKEN }}
-      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
-      - name: Enable long paths on Windows
-        shell: powershell
-        run: |
-          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
-      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
-      # removed once Windows Defender is removed from the AMI
-      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
-        continue-on-error: true
-        shell: powershell
-        run: |
-          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
-          # Let's both exclude the path and disable Windows Defender completely just to be sure
-          # that it doesn't interfere
-          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
-      # NOTE: These environment variables are put here so that they can be applied on every job equally
-      #       They are also here because setting them at a workflow level doesn't give us access to the
-      #       runner.temp variable, which we need.
-      - name: Populate binary env
-        shell: bash
-        run: |
-          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
-          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
-          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
-        name: Download Build Artifacts
-        with:
-          name: wheel-py3_8-cuda11_8
-          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
-      - name: Checkout PyTorch
-        uses: malfet/checkout@silent-checkout
-        with:
-          submodules: recursive
-          path: pytorch
-          quiet-checkout: true
-      - name: Clean PyTorch checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: pytorch
-      - name: Checkout pytorch/builder
-        uses: malfet/checkout@silent-checkout
-        with:
-          ref: release/2.4
-          submodules: recursive
-          repository: pytorch/builder
-          path: builder
-          quiet-checkout: true
-      - name: Clean pytorch/builder checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: builder
-      - name: Populate binary env
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
-      - name: Test PyTorch binary
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_test.sh"
-      - name: Wait until all sessions have drained
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        timeout-minutes: 120
-        run: |
-          .github\scripts\wait_for_ssh_to_drain.ps1
-      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        run: |
-          .github\scripts\kill_active_ssh_sessions.ps1
-  wheel-py3_8-cuda11_8-upload:  # Uploading
-    if: ${{ github.repository_owner == 'pytorch' }}
-    permissions:
-      id-token: write
-      contents: read
-    needs: wheel-py3_8-cuda11_8-test
-    with:
-      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
-      BUILDER_ROOT: ${{ github.workspace }}/builder
-      PACKAGE_TYPE: wheel
-      # TODO: This is a legacy variable that we eventually want to get rid of in
-      #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cu118
-      GPU_ARCH_VERSION: 11.8
-      GPU_ARCH_TYPE: cuda
-      DESIRED_PYTHON: "3.8"
-      build_name: wheel-py3_8-cuda11_8
-    secrets:
-      github-token: ${{ secrets.GITHUB_TOKEN }}
-      conda-pytorchbot-token: ${{ secrets.CONDA_PYTORCHBOT_TOKEN }}
-      conda-pytorchbot-token-test: ${{ secrets.CONDA_PYTORCHBOT_TOKEN_TEST }}
-    uses: ./.github/workflows/_binary-upload.yml
-  wheel-py3_8-cuda12_1-build:
-    if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
-    timeout-minutes: 240
-    env:
-      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
-      BUILDER_ROOT: ${{ github.workspace }}/builder
-      PACKAGE_TYPE: wheel
-      # TODO: This is a legacy variable that we eventually want to get rid of in
-      #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cu121
-      GPU_ARCH_VERSION: 12.1
-      GPU_ARCH_TYPE: cuda
-      SKIP_ALL_TESTS: 1
-      DESIRED_PYTHON: "3.8"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
-    steps:
-      - name: Display EC2 information
-        shell: bash
-        run: |
-          set -euo pipefail
-          function get_ec2_metadata() {
-            # Pulled from instance metadata endpoint for EC2
-            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
-            category=$1
-            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
-          }
-          echo "ami-id: $(get_ec2_metadata ami-id)"
-          echo "instance-id: $(get_ec2_metadata instance-id)"
-          echo "instance-type: $(get_ec2_metadata instance-type)"
-          echo "system info $(uname -a)"
-      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
-        continue-on-error: true
-        with:
-          github-secret: ${{ secrets.GITHUB_TOKEN }}
-      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
-      - name: Enable long paths on Windows
-        shell: powershell
-        run: |
-          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
-      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
-      # removed once Windows Defender is removed from the AMI
-      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
-        continue-on-error: true
-        shell: powershell
-        run: |
-          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
-          # Let's both exclude the path and disable Windows Defender completely just to be sure
-          # that it doesn't interfere
-          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
-      # NOTE: These environment variables are put here so that they can be applied on every job equally
-      #       They are also here because setting them at a workflow level doesn't give us access to the
-      #       runner.temp variable, which we need.
-      - name: Populate binary env
-        shell: bash
-        run: |
-          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
-          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
-          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - name: Checkout PyTorch
-        uses: malfet/checkout@silent-checkout
-        with:
-          submodules: recursive
-          path: pytorch
-          quiet-checkout: true
-      - name: Clean PyTorch checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: pytorch
-      - name: Checkout pytorch/builder
-        uses: malfet/checkout@silent-checkout
-        with:
-          ref: release/2.4
-          submodules: recursive
-          repository: pytorch/builder
-          path: builder
-          quiet-checkout: true
-      - name: Clean pytorch/builder checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: builder
-      - name: Populate binary env
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
-      - name: Build PyTorch binary
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: wheel-py3_8-cuda12_1
-          retention-days: 14
-          if-no-files-found: error
-          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
-      - name: Wait until all sessions have drained
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        timeout-minutes: 120
-        run: |
-          .github\scripts\wait_for_ssh_to_drain.ps1
-      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        run: |
-          .github\scripts\kill_active_ssh_sessions.ps1
-  wheel-py3_8-cuda12_1-test:  # Testing
-    if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_8-cuda12_1-build
-    runs-on: windows.8xlarge.nvidia.gpu
-    timeout-minutes: 240
-    env:
-      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
-      BUILDER_ROOT: ${{ github.workspace }}/builder
-      PACKAGE_TYPE: wheel
-      # TODO: This is a legacy variable that we eventually want to get rid of in
-      #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cu121
-      GPU_ARCH_VERSION: 12.1
-      GPU_ARCH_TYPE: cuda
-      SKIP_ALL_TESTS: 1
-      DESIRED_PYTHON: "3.8"
-    steps:
-      - name: Display EC2 information
-        shell: bash
-        run: |
-          set -euo pipefail
-          function get_ec2_metadata() {
-            # Pulled from instance metadata endpoint for EC2
-            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
-            category=$1
-            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
-          }
-          echo "ami-id: $(get_ec2_metadata ami-id)"
-          echo "instance-id: $(get_ec2_metadata instance-id)"
-          echo "instance-type: $(get_ec2_metadata instance-type)"
-          echo "system info $(uname -a)"
-      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
-        continue-on-error: true
-        with:
-          github-secret: ${{ secrets.GITHUB_TOKEN }}
-      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
-      - name: Enable long paths on Windows
-        shell: powershell
-        run: |
-          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
-      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
-      # removed once Windows Defender is removed from the AMI
-      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
-        continue-on-error: true
-        shell: powershell
-        run: |
-          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
-          # Let's both exclude the path and disable Windows Defender completely just to be sure
-          # that it doesn't interfere
-          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
-      # NOTE: These environment variables are put here so that they can be applied on every job equally
-      #       They are also here because setting them at a workflow level doesn't give us access to the
-      #       runner.temp variable, which we need.
-      - name: Populate binary env
-        shell: bash
-        run: |
-          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
-          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
-          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
-        name: Download Build Artifacts
-        with:
-          name: wheel-py3_8-cuda12_1
-          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
-      - name: Checkout PyTorch
-        uses: malfet/checkout@silent-checkout
-        with:
-          submodules: recursive
-          path: pytorch
-          quiet-checkout: true
-      - name: Clean PyTorch checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: pytorch
-      - name: Checkout pytorch/builder
-        uses: malfet/checkout@silent-checkout
-        with:
-          ref: release/2.4
-          submodules: recursive
-          repository: pytorch/builder
-          path: builder
-          quiet-checkout: true
-      - name: Clean pytorch/builder checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: builder
-      - name: Populate binary env
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
-      - name: Test PyTorch binary
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_test.sh"
-      - name: Wait until all sessions have drained
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        timeout-minutes: 120
-        run: |
-          .github\scripts\wait_for_ssh_to_drain.ps1
-      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        run: |
-          .github\scripts\kill_active_ssh_sessions.ps1
-  wheel-py3_8-cuda12_1-upload:  # Uploading
-    if: ${{ github.repository_owner == 'pytorch' }}
-    permissions:
-      id-token: write
-      contents: read
-    needs: wheel-py3_8-cuda12_1-test
-    with:
-      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
-      BUILDER_ROOT: ${{ github.workspace }}/builder
-      PACKAGE_TYPE: wheel
-      # TODO: This is a legacy variable that we eventually want to get rid of in
-      #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cu121
-      GPU_ARCH_VERSION: 12.1
-      GPU_ARCH_TYPE: cuda
-      DESIRED_PYTHON: "3.8"
-      build_name: wheel-py3_8-cuda12_1
-    secrets:
-      github-token: ${{ secrets.GITHUB_TOKEN }}
-      conda-pytorchbot-token: ${{ secrets.CONDA_PYTORCHBOT_TOKEN }}
-      conda-pytorchbot-token-test: ${{ secrets.CONDA_PYTORCHBOT_TOKEN_TEST }}
-    uses: ./.github/workflows/_binary-upload.yml
-  wheel-py3_8-cuda12_4-build:
-    if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
-    timeout-minutes: 240
-    env:
-      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
-      BUILDER_ROOT: ${{ github.workspace }}/builder
-      PACKAGE_TYPE: wheel
-      # TODO: This is a legacy variable that we eventually want to get rid of in
-      #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cu124
-      GPU_ARCH_VERSION: 12.4
-      GPU_ARCH_TYPE: cuda
-      SKIP_ALL_TESTS: 1
-      DESIRED_PYTHON: "3.8"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
-    steps:
-      - name: Display EC2 information
-        shell: bash
-        run: |
-          set -euo pipefail
-          function get_ec2_metadata() {
-            # Pulled from instance metadata endpoint for EC2
-            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
-            category=$1
-            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
-          }
-          echo "ami-id: $(get_ec2_metadata ami-id)"
-          echo "instance-id: $(get_ec2_metadata instance-id)"
-          echo "instance-type: $(get_ec2_metadata instance-type)"
-          echo "system info $(uname -a)"
-      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@main
-        continue-on-error: true
-        with:
-          github-secret: ${{ secrets.GITHUB_TOKEN }}
-      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
-      - name: Enable long paths on Windows
-        shell: powershell
-        run: |
-          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
-      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
-      # removed once Windows Defender is removed from the AMI
-      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
-        continue-on-error: true
-        shell: powershell
-        run: |
-          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
-          # Let's both exclude the path and disable Windows Defender completely just to be sure
-          # that it doesn't interfere
-          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
-      # NOTE: These environment variables are put here so that they can be applied on every job equally
-      #       They are also here because setting them at a workflow level doesn't give us access to the
-      #       runner.temp variable, which we need.
-      - name: Populate binary env
-        shell: bash
-        run: |
-          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
-          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
-          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - name: Checkout PyTorch
-        uses: malfet/checkout@silent-checkout
-        with:
-          submodules: recursive
-          path: pytorch
-          quiet-checkout: true
-      - name: Clean PyTorch checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: pytorch
-      - name: Checkout pytorch/builder
-        uses: malfet/checkout@silent-checkout
-        with:
-          ref: release/2.4
-          submodules: recursive
-          repository: pytorch/builder
-          path: builder
-          quiet-checkout: true
-      - name: Clean pytorch/builder checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: builder
-      - name: Populate binary env
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
-      - name: Build PyTorch binary
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: wheel-py3_8-cuda12_4
-          retention-days: 14
-          if-no-files-found: error
-          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
-      - name: Wait until all sessions have drained
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        timeout-minutes: 120
-        run: |
-          .github\scripts\wait_for_ssh_to_drain.ps1
-      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        run: |
-          .github\scripts\kill_active_ssh_sessions.ps1
-  wheel-py3_8-cuda12_4-test:  # Testing
-    if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_8-cuda12_4-build
-    runs-on: windows.8xlarge.nvidia.gpu
-    timeout-minutes: 240
-    env:
-      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
-      BUILDER_ROOT: ${{ github.workspace }}/builder
-      PACKAGE_TYPE: wheel
-      # TODO: This is a legacy variable that we eventually want to get rid of in
-      #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cu124
-      GPU_ARCH_VERSION: 12.4
-      GPU_ARCH_TYPE: cuda
-      SKIP_ALL_TESTS: 1
-      DESIRED_PYTHON: "3.8"
-    steps:
-      - name: Display EC2 information
-        shell: bash
-        run: |
-          set -euo pipefail
-          function get_ec2_metadata() {
-            # Pulled from instance metadata endpoint for EC2
-            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
-            category=$1
-            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
-          }
-          echo "ami-id: $(get_ec2_metadata ami-id)"
-          echo "instance-id: $(get_ec2_metadata instance-id)"
-          echo "instance-type: $(get_ec2_metadata instance-type)"
-          echo "system info $(uname -a)"
-      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@main
-        continue-on-error: true
-        with:
-          github-secret: ${{ secrets.GITHUB_TOKEN }}
-      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
-      - name: Enable long paths on Windows
-        shell: powershell
-        run: |
-          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
-      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
-      # removed once Windows Defender is removed from the AMI
-      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
-        continue-on-error: true
-        shell: powershell
-        run: |
-          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
-          # Let's both exclude the path and disable Windows Defender completely just to be sure
-          # that it doesn't interfere
-          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
-      # NOTE: These environment variables are put here so that they can be applied on every job equally
-      #       They are also here because setting them at a workflow level doesn't give us access to the
-      #       runner.temp variable, which we need.
-      - name: Populate binary env
-        shell: bash
-        run: |
-          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
-          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
-          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
-        name: Download Build Artifacts
-        with:
-          name: wheel-py3_8-cuda12_4
-          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
-      - name: Checkout PyTorch
-        uses: malfet/checkout@silent-checkout
-        with:
-          submodules: recursive
-          path: pytorch
-          quiet-checkout: true
-      - name: Clean PyTorch checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: pytorch
-      - name: Checkout pytorch/builder
-        uses: malfet/checkout@silent-checkout
-        with:
-          ref: release/2.4
-          submodules: recursive
-          repository: pytorch/builder
-          path: builder
-          quiet-checkout: true
-      - name: Clean pytorch/builder checkout
-        run: |
-          # Remove any artifacts from the previous checkouts
-          git clean -fxd
-        working-directory: builder
-      - name: Populate binary env
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
-      - name: Test PyTorch binary
-        shell: bash
-        run: |
-          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_test.sh"
-      - name: Wait until all sessions have drained
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        timeout-minutes: 120
-        run: |
-          .github\scripts\wait_for_ssh_to_drain.ps1
-      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
-        shell: powershell
-        working-directory: pytorch
-        if: always()
-        run: |
-          .github\scripts\kill_active_ssh_sessions.ps1
-  wheel-py3_8-cuda12_4-upload:  # Uploading
-    if: ${{ github.repository_owner == 'pytorch' }}
-    permissions:
-      id-token: write
-      contents: read
-    needs: wheel-py3_8-cuda12_4-test
-    with:
-      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
-      BUILDER_ROOT: ${{ github.workspace }}/builder
-      PACKAGE_TYPE: wheel
-      # TODO: This is a legacy variable that we eventually want to get rid of in
-      #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cu124
-      GPU_ARCH_VERSION: 12.4
-      GPU_ARCH_TYPE: cuda
-      DESIRED_PYTHON: "3.8"
-      build_name: wheel-py3_8-cuda12_4
-    secrets:
-      github-token: ${{ secrets.GITHUB_TOKEN }}
-      conda-pytorchbot-token: ${{ secrets.CONDA_PYTORCHBOT_TOKEN }}
-      conda-pytorchbot-token-test: ${{ secrets.CONDA_PYTORCHBOT_TOKEN_TEST }}
-    uses: ./.github/workflows/_binary-upload.yml
+      triggering_actor: ${{ github.triggering_actor }}
+      issue_owner: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
+      curr_branch: ${{ github.head_ref || github.ref_name }}
+      curr_ref_type: ${{ github.ref_type }}
   wheel-py3_9-cpu-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -1019,7 +55,7 @@ jobs:
       GPU_ARCH_TYPE: cpu
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.9"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -1036,7 +72,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -1078,7 +114,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -1096,7 +132,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_9-cpu
@@ -1118,8 +154,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_9-cpu-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_9-cpu-build
-    runs-on: windows.4xlarge.nonephemeral
+    needs:
+      - wheel-py3_9-cpu-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge.nonephemeral"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -1147,7 +185,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -1175,7 +213,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_9-cpu
@@ -1194,7 +232,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -1248,7 +286,8 @@ jobs:
     uses: ./.github/workflows/_binary-upload.yml
   wheel-py3_9-cuda11_8-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -1261,7 +300,7 @@ jobs:
       GPU_ARCH_TYPE: cuda
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.9"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -1278,7 +317,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -1320,7 +359,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -1338,7 +377,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_9-cuda11_8
@@ -1360,8 +399,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_9-cuda11_8-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_9-cuda11_8-build
-    runs-on: windows.8xlarge.nvidia.gpu
+    needs:
+      - wheel-py3_9-cuda11_8-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.g4dn.xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -1390,7 +431,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -1418,7 +459,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_9-cuda11_8
@@ -1437,7 +478,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -1492,7 +533,8 @@ jobs:
     uses: ./.github/workflows/_binary-upload.yml
   wheel-py3_9-cuda12_1-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -1505,7 +547,7 @@ jobs:
       GPU_ARCH_TYPE: cuda
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.9"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -1522,7 +564,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -1564,7 +606,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -1582,7 +624,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_9-cuda12_1
@@ -1604,8 +646,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_9-cuda12_1-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_9-cuda12_1-build
-    runs-on: windows.8xlarge.nvidia.gpu
+    needs:
+      - wheel-py3_9-cuda12_1-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.g4dn.xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -1634,7 +678,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -1662,7 +706,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_9-cuda12_1
@@ -1681,7 +725,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -1736,7 +780,8 @@ jobs:
     uses: ./.github/workflows/_binary-upload.yml
   wheel-py3_9-cuda12_4-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -1749,7 +794,7 @@ jobs:
       GPU_ARCH_TYPE: cuda
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.9"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -1766,7 +811,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@main
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -1808,7 +853,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -1826,7 +871,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_9-cuda12_4
@@ -1848,8 +893,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_9-cuda12_4-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_9-cuda12_4-build
-    runs-on: windows.8xlarge.nvidia.gpu
+    needs:
+      - wheel-py3_9-cuda12_4-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.g4dn.xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -1878,7 +925,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@main
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -1906,7 +953,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_9-cuda12_4
@@ -1925,7 +972,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -1978,9 +1025,10 @@ jobs:
       conda-pytorchbot-token: ${{ secrets.CONDA_PYTORCHBOT_TOKEN }}
       conda-pytorchbot-token-test: ${{ secrets.CONDA_PYTORCHBOT_TOKEN_TEST }}
     uses: ./.github/workflows/_binary-upload.yml
-  wheel-py3_10-cpu-build:
+  wheel-py3_9-xpu-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -1988,11 +1036,10 @@ jobs:
       PACKAGE_TYPE: wheel
       # TODO: This is a legacy variable that we eventually want to get rid of in
       #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cpu
-      GPU_ARCH_TYPE: cpu
+      DESIRED_CUDA: xpu
+      GPU_ARCH_TYPE: xpu
       SKIP_ALL_TESTS: 1
-      DESIRED_PYTHON: "3.10"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      DESIRED_PYTHON: "3.9"
     steps:
       - name: Display EC2 information
         shell: bash
@@ -2009,7 +1056,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -2051,7 +1098,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -2069,7 +1116,251 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
+        if: always()
+        with:
+          name: wheel-py3_9-xpu
+          retention-days: 14
+          if-no-files-found: error
+          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
+      - name: Wait until all sessions have drained
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        timeout-minutes: 120
+        run: |
+          .github\scripts\wait_for_ssh_to_drain.ps1
+      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        run: |
+          .github\scripts\kill_active_ssh_sessions.ps1
+  wheel-py3_9-xpu-test:  # Testing
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs:
+      - wheel-py3_9-xpu-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge.nonephemeral"
+    timeout-minutes: 240
+    env:
+      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
+      BUILDER_ROOT: ${{ github.workspace }}/builder
+      PACKAGE_TYPE: wheel
+      # TODO: This is a legacy variable that we eventually want to get rid of in
+      #       favor of GPU_ARCH_VERSION
+      DESIRED_CUDA: xpu
+      GPU_ARCH_TYPE: xpu
+      SKIP_ALL_TESTS: 1
+      DESIRED_PYTHON: "3.9"
+    steps:
+      - name: Display EC2 information
+        shell: bash
+        run: |
+          set -euo pipefail
+          function get_ec2_metadata() {
+            # Pulled from instance metadata endpoint for EC2
+            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+            category=$1
+            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
+          }
+          echo "ami-id: $(get_ec2_metadata ami-id)"
+          echo "instance-id: $(get_ec2_metadata instance-id)"
+          echo "instance-type: $(get_ec2_metadata instance-type)"
+          echo "system info $(uname -a)"
+      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
+        continue-on-error: true
+        with:
+          github-secret: ${{ secrets.GITHUB_TOKEN }}
+      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
+      - name: Enable long paths on Windows
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
+      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
+      # removed once Windows Defender is removed from the AMI
+      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
+          # Let's both exclude the path and disable Windows Defender completely just to be sure
+          # that it doesn't interfere
+          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
+      # NOTE: These environment variables are put here so that they can be applied on every job equally
+      #       They are also here because setting them at a workflow level doesn't give us access to the
+      #       runner.temp variable, which we need.
+      - name: Populate binary env
+        shell: bash
+        run: |
+          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
+          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
+          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
+      - uses: actions/download-artifact@v4.1.7
+        name: Download Build Artifacts
+        with:
+          name: wheel-py3_9-xpu
+          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
+      - name: Checkout PyTorch
+        uses: malfet/checkout@silent-checkout
+        with:
+          submodules: recursive
+          path: pytorch
+          quiet-checkout: true
+      - name: Clean PyTorch checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: pytorch
+      - name: Checkout pytorch/builder
+        uses: malfet/checkout@silent-checkout
+        with:
+          ref: release/2.5
+          submodules: recursive
+          repository: pytorch/builder
+          path: builder
+          quiet-checkout: true
+      - name: Clean pytorch/builder checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: builder
+      - name: Populate binary env
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
+      - name: Test PyTorch binary
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_test.sh"
+      - name: Wait until all sessions have drained
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        timeout-minutes: 120
+        run: |
+          .github\scripts\wait_for_ssh_to_drain.ps1
+      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        run: |
+          .github\scripts\kill_active_ssh_sessions.ps1
+  wheel-py3_9-xpu-upload:  # Uploading
+    if: ${{ github.repository_owner == 'pytorch' }}
+    permissions:
+      id-token: write
+      contents: read
+    needs: wheel-py3_9-xpu-test
+    with:
+      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
+      BUILDER_ROOT: ${{ github.workspace }}/builder
+      PACKAGE_TYPE: wheel
+      # TODO: This is a legacy variable that we eventually want to get rid of in
+      #       favor of GPU_ARCH_VERSION
+      DESIRED_CUDA: xpu
+      GPU_ARCH_TYPE: xpu
+      DESIRED_PYTHON: "3.9"
+      build_name: wheel-py3_9-xpu
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+      conda-pytorchbot-token: ${{ secrets.CONDA_PYTORCHBOT_TOKEN }}
+      conda-pytorchbot-token-test: ${{ secrets.CONDA_PYTORCHBOT_TOKEN_TEST }}
+    uses: ./.github/workflows/_binary-upload.yml
+  wheel-py3_10-cpu-build:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
+    timeout-minutes: 240
+    env:
+      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
+      BUILDER_ROOT: ${{ github.workspace }}/builder
+      PACKAGE_TYPE: wheel
+      # TODO: This is a legacy variable that we eventually want to get rid of in
+      #       favor of GPU_ARCH_VERSION
+      DESIRED_CUDA: cpu
+      GPU_ARCH_TYPE: cpu
+      SKIP_ALL_TESTS: 1
+      DESIRED_PYTHON: "3.10"
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
+    steps:
+      - name: Display EC2 information
+        shell: bash
+        run: |
+          set -euo pipefail
+          function get_ec2_metadata() {
+            # Pulled from instance metadata endpoint for EC2
+            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+            category=$1
+            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
+          }
+          echo "ami-id: $(get_ec2_metadata ami-id)"
+          echo "instance-id: $(get_ec2_metadata instance-id)"
+          echo "instance-type: $(get_ec2_metadata instance-type)"
+          echo "system info $(uname -a)"
+      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
+        continue-on-error: true
+        with:
+          github-secret: ${{ secrets.GITHUB_TOKEN }}
+      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
+      - name: Enable long paths on Windows
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
+      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
+      # removed once Windows Defender is removed from the AMI
+      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
+          # Let's both exclude the path and disable Windows Defender completely just to be sure
+          # that it doesn't interfere
+          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
+      # NOTE: These environment variables are put here so that they can be applied on every job equally
+      #       They are also here because setting them at a workflow level doesn't give us access to the
+      #       runner.temp variable, which we need.
+      - name: Populate binary env
+        shell: bash
+        run: |
+          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
+          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
+          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
+      - name: Checkout PyTorch
+        uses: malfet/checkout@silent-checkout
+        with:
+          submodules: recursive
+          path: pytorch
+          quiet-checkout: true
+      - name: Clean PyTorch checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: pytorch
+      - name: Checkout pytorch/builder
+        uses: malfet/checkout@silent-checkout
+        with:
+          ref: release/2.5
+          submodules: recursive
+          repository: pytorch/builder
+          path: builder
+          quiet-checkout: true
+      - name: Clean pytorch/builder checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: builder
+      - name: Populate binary env
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
+      - name: Build PyTorch binary
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_10-cpu
@@ -2091,8 +1382,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_10-cpu-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_10-cpu-build
-    runs-on: windows.4xlarge.nonephemeral
+    needs:
+      - wheel-py3_10-cpu-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge.nonephemeral"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -2120,7 +1413,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -2148,7 +1441,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_10-cpu
@@ -2167,7 +1460,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -2221,7 +1514,8 @@ jobs:
     uses: ./.github/workflows/_binary-upload.yml
   wheel-py3_10-cuda11_8-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -2234,7 +1528,7 @@ jobs:
       GPU_ARCH_TYPE: cuda
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.10"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -2251,7 +1545,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -2293,7 +1587,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -2311,7 +1605,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_10-cuda11_8
@@ -2333,8 +1627,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_10-cuda11_8-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_10-cuda11_8-build
-    runs-on: windows.8xlarge.nvidia.gpu
+    needs:
+      - wheel-py3_10-cuda11_8-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.g4dn.xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -2363,7 +1659,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -2391,7 +1687,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_10-cuda11_8
@@ -2410,7 +1706,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -2465,7 +1761,8 @@ jobs:
     uses: ./.github/workflows/_binary-upload.yml
   wheel-py3_10-cuda12_1-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -2478,7 +1775,7 @@ jobs:
       GPU_ARCH_TYPE: cuda
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.10"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -2495,7 +1792,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -2537,7 +1834,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -2555,7 +1852,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_10-cuda12_1
@@ -2577,8 +1874,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_10-cuda12_1-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_10-cuda12_1-build
-    runs-on: windows.8xlarge.nvidia.gpu
+    needs:
+      - wheel-py3_10-cuda12_1-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.g4dn.xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -2607,7 +1906,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -2635,7 +1934,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_10-cuda12_1
@@ -2654,7 +1953,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -2709,7 +2008,8 @@ jobs:
     uses: ./.github/workflows/_binary-upload.yml
   wheel-py3_10-cuda12_4-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -2722,7 +2022,7 @@ jobs:
       GPU_ARCH_TYPE: cuda
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.10"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -2739,7 +2039,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@main
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -2781,7 +2081,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -2799,7 +2099,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_10-cuda12_4
@@ -2821,8 +2121,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_10-cuda12_4-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_10-cuda12_4-build
-    runs-on: windows.8xlarge.nvidia.gpu
+    needs:
+      - wheel-py3_10-cuda12_4-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.g4dn.xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -2851,7 +2153,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@main
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -2879,7 +2181,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_10-cuda12_4
@@ -2898,7 +2200,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -2951,9 +2253,10 @@ jobs:
       conda-pytorchbot-token: ${{ secrets.CONDA_PYTORCHBOT_TOKEN }}
       conda-pytorchbot-token-test: ${{ secrets.CONDA_PYTORCHBOT_TOKEN_TEST }}
     uses: ./.github/workflows/_binary-upload.yml
-  wheel-py3_11-cpu-build:
+  wheel-py3_10-xpu-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -2961,11 +2264,10 @@ jobs:
       PACKAGE_TYPE: wheel
       # TODO: This is a legacy variable that we eventually want to get rid of in
       #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cpu
-      GPU_ARCH_TYPE: cpu
+      DESIRED_CUDA: xpu
+      GPU_ARCH_TYPE: xpu
       SKIP_ALL_TESTS: 1
-      DESIRED_PYTHON: "3.11"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      DESIRED_PYTHON: "3.10"
     steps:
       - name: Display EC2 information
         shell: bash
@@ -2982,7 +2284,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -3024,7 +2326,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -3042,7 +2344,251 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
+        if: always()
+        with:
+          name: wheel-py3_10-xpu
+          retention-days: 14
+          if-no-files-found: error
+          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
+      - name: Wait until all sessions have drained
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        timeout-minutes: 120
+        run: |
+          .github\scripts\wait_for_ssh_to_drain.ps1
+      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        run: |
+          .github\scripts\kill_active_ssh_sessions.ps1
+  wheel-py3_10-xpu-test:  # Testing
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs:
+      - wheel-py3_10-xpu-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge.nonephemeral"
+    timeout-minutes: 240
+    env:
+      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
+      BUILDER_ROOT: ${{ github.workspace }}/builder
+      PACKAGE_TYPE: wheel
+      # TODO: This is a legacy variable that we eventually want to get rid of in
+      #       favor of GPU_ARCH_VERSION
+      DESIRED_CUDA: xpu
+      GPU_ARCH_TYPE: xpu
+      SKIP_ALL_TESTS: 1
+      DESIRED_PYTHON: "3.10"
+    steps:
+      - name: Display EC2 information
+        shell: bash
+        run: |
+          set -euo pipefail
+          function get_ec2_metadata() {
+            # Pulled from instance metadata endpoint for EC2
+            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+            category=$1
+            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
+          }
+          echo "ami-id: $(get_ec2_metadata ami-id)"
+          echo "instance-id: $(get_ec2_metadata instance-id)"
+          echo "instance-type: $(get_ec2_metadata instance-type)"
+          echo "system info $(uname -a)"
+      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
+        continue-on-error: true
+        with:
+          github-secret: ${{ secrets.GITHUB_TOKEN }}
+      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
+      - name: Enable long paths on Windows
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
+      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
+      # removed once Windows Defender is removed from the AMI
+      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
+          # Let's both exclude the path and disable Windows Defender completely just to be sure
+          # that it doesn't interfere
+          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
+      # NOTE: These environment variables are put here so that they can be applied on every job equally
+      #       They are also here because setting them at a workflow level doesn't give us access to the
+      #       runner.temp variable, which we need.
+      - name: Populate binary env
+        shell: bash
+        run: |
+          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
+          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
+          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
+      - uses: actions/download-artifact@v4.1.7
+        name: Download Build Artifacts
+        with:
+          name: wheel-py3_10-xpu
+          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
+      - name: Checkout PyTorch
+        uses: malfet/checkout@silent-checkout
+        with:
+          submodules: recursive
+          path: pytorch
+          quiet-checkout: true
+      - name: Clean PyTorch checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: pytorch
+      - name: Checkout pytorch/builder
+        uses: malfet/checkout@silent-checkout
+        with:
+          ref: release/2.5
+          submodules: recursive
+          repository: pytorch/builder
+          path: builder
+          quiet-checkout: true
+      - name: Clean pytorch/builder checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: builder
+      - name: Populate binary env
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
+      - name: Test PyTorch binary
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_test.sh"
+      - name: Wait until all sessions have drained
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        timeout-minutes: 120
+        run: |
+          .github\scripts\wait_for_ssh_to_drain.ps1
+      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        run: |
+          .github\scripts\kill_active_ssh_sessions.ps1
+  wheel-py3_10-xpu-upload:  # Uploading
+    if: ${{ github.repository_owner == 'pytorch' }}
+    permissions:
+      id-token: write
+      contents: read
+    needs: wheel-py3_10-xpu-test
+    with:
+      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
+      BUILDER_ROOT: ${{ github.workspace }}/builder
+      PACKAGE_TYPE: wheel
+      # TODO: This is a legacy variable that we eventually want to get rid of in
+      #       favor of GPU_ARCH_VERSION
+      DESIRED_CUDA: xpu
+      GPU_ARCH_TYPE: xpu
+      DESIRED_PYTHON: "3.10"
+      build_name: wheel-py3_10-xpu
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+      conda-pytorchbot-token: ${{ secrets.CONDA_PYTORCHBOT_TOKEN }}
+      conda-pytorchbot-token-test: ${{ secrets.CONDA_PYTORCHBOT_TOKEN_TEST }}
+    uses: ./.github/workflows/_binary-upload.yml
+  wheel-py3_11-cpu-build:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
+    timeout-minutes: 240
+    env:
+      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
+      BUILDER_ROOT: ${{ github.workspace }}/builder
+      PACKAGE_TYPE: wheel
+      # TODO: This is a legacy variable that we eventually want to get rid of in
+      #       favor of GPU_ARCH_VERSION
+      DESIRED_CUDA: cpu
+      GPU_ARCH_TYPE: cpu
+      SKIP_ALL_TESTS: 1
+      DESIRED_PYTHON: "3.11"
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
+    steps:
+      - name: Display EC2 information
+        shell: bash
+        run: |
+          set -euo pipefail
+          function get_ec2_metadata() {
+            # Pulled from instance metadata endpoint for EC2
+            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+            category=$1
+            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
+          }
+          echo "ami-id: $(get_ec2_metadata ami-id)"
+          echo "instance-id: $(get_ec2_metadata instance-id)"
+          echo "instance-type: $(get_ec2_metadata instance-type)"
+          echo "system info $(uname -a)"
+      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
+        continue-on-error: true
+        with:
+          github-secret: ${{ secrets.GITHUB_TOKEN }}
+      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
+      - name: Enable long paths on Windows
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
+      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
+      # removed once Windows Defender is removed from the AMI
+      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
+          # Let's both exclude the path and disable Windows Defender completely just to be sure
+          # that it doesn't interfere
+          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
+      # NOTE: These environment variables are put here so that they can be applied on every job equally
+      #       They are also here because setting them at a workflow level doesn't give us access to the
+      #       runner.temp variable, which we need.
+      - name: Populate binary env
+        shell: bash
+        run: |
+          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
+          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
+          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
+      - name: Checkout PyTorch
+        uses: malfet/checkout@silent-checkout
+        with:
+          submodules: recursive
+          path: pytorch
+          quiet-checkout: true
+      - name: Clean PyTorch checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: pytorch
+      - name: Checkout pytorch/builder
+        uses: malfet/checkout@silent-checkout
+        with:
+          ref: release/2.5
+          submodules: recursive
+          repository: pytorch/builder
+          path: builder
+          quiet-checkout: true
+      - name: Clean pytorch/builder checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: builder
+      - name: Populate binary env
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
+      - name: Build PyTorch binary
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_11-cpu
@@ -3064,8 +2610,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_11-cpu-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_11-cpu-build
-    runs-on: windows.4xlarge.nonephemeral
+    needs:
+      - wheel-py3_11-cpu-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge.nonephemeral"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -3093,7 +2641,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -3121,7 +2669,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_11-cpu
@@ -3140,7 +2688,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -3194,7 +2742,8 @@ jobs:
     uses: ./.github/workflows/_binary-upload.yml
   wheel-py3_11-cuda11_8-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -3207,7 +2756,7 @@ jobs:
       GPU_ARCH_TYPE: cuda
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.11"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -3224,7 +2773,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -3266,7 +2815,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -3284,7 +2833,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_11-cuda11_8
@@ -3306,8 +2855,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_11-cuda11_8-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_11-cuda11_8-build
-    runs-on: windows.8xlarge.nvidia.gpu
+    needs:
+      - wheel-py3_11-cuda11_8-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.g4dn.xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -3336,7 +2887,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -3364,7 +2915,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_11-cuda11_8
@@ -3383,7 +2934,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -3438,7 +2989,8 @@ jobs:
     uses: ./.github/workflows/_binary-upload.yml
   wheel-py3_11-cuda12_1-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -3451,7 +3003,7 @@ jobs:
       GPU_ARCH_TYPE: cuda
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.11"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -3468,7 +3020,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -3510,7 +3062,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -3528,7 +3080,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_11-cuda12_1
@@ -3550,8 +3102,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_11-cuda12_1-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_11-cuda12_1-build
-    runs-on: windows.8xlarge.nvidia.gpu
+    needs:
+      - wheel-py3_11-cuda12_1-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.g4dn.xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -3580,7 +3134,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -3608,7 +3162,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_11-cuda12_1
@@ -3627,7 +3181,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -3682,7 +3236,8 @@ jobs:
     uses: ./.github/workflows/_binary-upload.yml
   wheel-py3_11-cuda12_4-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -3695,7 +3250,7 @@ jobs:
       GPU_ARCH_TYPE: cuda
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.11"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -3712,7 +3267,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@main
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -3754,7 +3309,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -3772,7 +3327,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_11-cuda12_4
@@ -3794,8 +3349,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_11-cuda12_4-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_11-cuda12_4-build
-    runs-on: windows.8xlarge.nvidia.gpu
+    needs:
+      - wheel-py3_11-cuda12_4-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.g4dn.xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -3824,7 +3381,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@main
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -3852,7 +3409,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_11-cuda12_4
@@ -3871,7 +3428,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -3924,9 +3481,10 @@ jobs:
       conda-pytorchbot-token: ${{ secrets.CONDA_PYTORCHBOT_TOKEN }}
       conda-pytorchbot-token-test: ${{ secrets.CONDA_PYTORCHBOT_TOKEN_TEST }}
     uses: ./.github/workflows/_binary-upload.yml
-  wheel-py3_12-cpu-build:
+  wheel-py3_11-xpu-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -3934,11 +3492,10 @@ jobs:
       PACKAGE_TYPE: wheel
       # TODO: This is a legacy variable that we eventually want to get rid of in
       #       favor of GPU_ARCH_VERSION
-      DESIRED_CUDA: cpu
-      GPU_ARCH_TYPE: cpu
+      DESIRED_CUDA: xpu
+      GPU_ARCH_TYPE: xpu
       SKIP_ALL_TESTS: 1
-      DESIRED_PYTHON: "3.12"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      DESIRED_PYTHON: "3.11"
     steps:
       - name: Display EC2 information
         shell: bash
@@ -3955,7 +3512,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -3997,7 +3554,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -4015,7 +3572,251 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
+        if: always()
+        with:
+          name: wheel-py3_11-xpu
+          retention-days: 14
+          if-no-files-found: error
+          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
+      - name: Wait until all sessions have drained
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        timeout-minutes: 120
+        run: |
+          .github\scripts\wait_for_ssh_to_drain.ps1
+      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        run: |
+          .github\scripts\kill_active_ssh_sessions.ps1
+  wheel-py3_11-xpu-test:  # Testing
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs:
+      - wheel-py3_11-xpu-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge.nonephemeral"
+    timeout-minutes: 240
+    env:
+      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
+      BUILDER_ROOT: ${{ github.workspace }}/builder
+      PACKAGE_TYPE: wheel
+      # TODO: This is a legacy variable that we eventually want to get rid of in
+      #       favor of GPU_ARCH_VERSION
+      DESIRED_CUDA: xpu
+      GPU_ARCH_TYPE: xpu
+      SKIP_ALL_TESTS: 1
+      DESIRED_PYTHON: "3.11"
+    steps:
+      - name: Display EC2 information
+        shell: bash
+        run: |
+          set -euo pipefail
+          function get_ec2_metadata() {
+            # Pulled from instance metadata endpoint for EC2
+            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+            category=$1
+            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
+          }
+          echo "ami-id: $(get_ec2_metadata ami-id)"
+          echo "instance-id: $(get_ec2_metadata instance-id)"
+          echo "instance-type: $(get_ec2_metadata instance-type)"
+          echo "system info $(uname -a)"
+      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
+        continue-on-error: true
+        with:
+          github-secret: ${{ secrets.GITHUB_TOKEN }}
+      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
+      - name: Enable long paths on Windows
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
+      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
+      # removed once Windows Defender is removed from the AMI
+      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
+          # Let's both exclude the path and disable Windows Defender completely just to be sure
+          # that it doesn't interfere
+          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
+      # NOTE: These environment variables are put here so that they can be applied on every job equally
+      #       They are also here because setting them at a workflow level doesn't give us access to the
+      #       runner.temp variable, which we need.
+      - name: Populate binary env
+        shell: bash
+        run: |
+          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
+          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
+          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
+      - uses: actions/download-artifact@v4.1.7
+        name: Download Build Artifacts
+        with:
+          name: wheel-py3_11-xpu
+          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
+      - name: Checkout PyTorch
+        uses: malfet/checkout@silent-checkout
+        with:
+          submodules: recursive
+          path: pytorch
+          quiet-checkout: true
+      - name: Clean PyTorch checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: pytorch
+      - name: Checkout pytorch/builder
+        uses: malfet/checkout@silent-checkout
+        with:
+          ref: release/2.5
+          submodules: recursive
+          repository: pytorch/builder
+          path: builder
+          quiet-checkout: true
+      - name: Clean pytorch/builder checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: builder
+      - name: Populate binary env
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
+      - name: Test PyTorch binary
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_test.sh"
+      - name: Wait until all sessions have drained
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        timeout-minutes: 120
+        run: |
+          .github\scripts\wait_for_ssh_to_drain.ps1
+      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        run: |
+          .github\scripts\kill_active_ssh_sessions.ps1
+  wheel-py3_11-xpu-upload:  # Uploading
+    if: ${{ github.repository_owner == 'pytorch' }}
+    permissions:
+      id-token: write
+      contents: read
+    needs: wheel-py3_11-xpu-test
+    with:
+      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
+      BUILDER_ROOT: ${{ github.workspace }}/builder
+      PACKAGE_TYPE: wheel
+      # TODO: This is a legacy variable that we eventually want to get rid of in
+      #       favor of GPU_ARCH_VERSION
+      DESIRED_CUDA: xpu
+      GPU_ARCH_TYPE: xpu
+      DESIRED_PYTHON: "3.11"
+      build_name: wheel-py3_11-xpu
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+      conda-pytorchbot-token: ${{ secrets.CONDA_PYTORCHBOT_TOKEN }}
+      conda-pytorchbot-token-test: ${{ secrets.CONDA_PYTORCHBOT_TOKEN_TEST }}
+    uses: ./.github/workflows/_binary-upload.yml
+  wheel-py3_12-cpu-build:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
+    timeout-minutes: 240
+    env:
+      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
+      BUILDER_ROOT: ${{ github.workspace }}/builder
+      PACKAGE_TYPE: wheel
+      # TODO: This is a legacy variable that we eventually want to get rid of in
+      #       favor of GPU_ARCH_VERSION
+      DESIRED_CUDA: cpu
+      GPU_ARCH_TYPE: cpu
+      SKIP_ALL_TESTS: 1
+      DESIRED_PYTHON: "3.12"
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
+    steps:
+      - name: Display EC2 information
+        shell: bash
+        run: |
+          set -euo pipefail
+          function get_ec2_metadata() {
+            # Pulled from instance metadata endpoint for EC2
+            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+            category=$1
+            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
+          }
+          echo "ami-id: $(get_ec2_metadata ami-id)"
+          echo "instance-id: $(get_ec2_metadata instance-id)"
+          echo "instance-type: $(get_ec2_metadata instance-type)"
+          echo "system info $(uname -a)"
+      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
+        continue-on-error: true
+        with:
+          github-secret: ${{ secrets.GITHUB_TOKEN }}
+      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
+      - name: Enable long paths on Windows
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
+      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
+      # removed once Windows Defender is removed from the AMI
+      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
+          # Let's both exclude the path and disable Windows Defender completely just to be sure
+          # that it doesn't interfere
+          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
+      # NOTE: These environment variables are put here so that they can be applied on every job equally
+      #       They are also here because setting them at a workflow level doesn't give us access to the
+      #       runner.temp variable, which we need.
+      - name: Populate binary env
+        shell: bash
+        run: |
+          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
+          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
+          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
+      - name: Checkout PyTorch
+        uses: malfet/checkout@silent-checkout
+        with:
+          submodules: recursive
+          path: pytorch
+          quiet-checkout: true
+      - name: Clean PyTorch checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: pytorch
+      - name: Checkout pytorch/builder
+        uses: malfet/checkout@silent-checkout
+        with:
+          ref: release/2.5
+          submodules: recursive
+          repository: pytorch/builder
+          path: builder
+          quiet-checkout: true
+      - name: Clean pytorch/builder checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: builder
+      - name: Populate binary env
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
+      - name: Build PyTorch binary
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_12-cpu
@@ -4037,8 +3838,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_12-cpu-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_12-cpu-build
-    runs-on: windows.4xlarge.nonephemeral
+    needs:
+      - wheel-py3_12-cpu-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge.nonephemeral"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -4066,7 +3869,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -4094,7 +3897,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_12-cpu
@@ -4113,7 +3916,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -4167,7 +3970,8 @@ jobs:
     uses: ./.github/workflows/_binary-upload.yml
   wheel-py3_12-cuda11_8-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -4180,7 +3984,7 @@ jobs:
       GPU_ARCH_TYPE: cuda
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.12"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -4197,7 +4001,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -4239,7 +4043,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -4257,7 +4061,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_12-cuda11_8
@@ -4279,8 +4083,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_12-cuda11_8-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_12-cuda11_8-build
-    runs-on: windows.8xlarge.nvidia.gpu
+    needs:
+      - wheel-py3_12-cuda11_8-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.g4dn.xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -4309,7 +4115,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -4337,7 +4143,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_12-cuda11_8
@@ -4356,7 +4162,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -4411,7 +4217,8 @@ jobs:
     uses: ./.github/workflows/_binary-upload.yml
   wheel-py3_12-cuda12_1-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -4424,7 +4231,7 @@ jobs:
       GPU_ARCH_TYPE: cuda
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.12"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -4441,7 +4248,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -4483,7 +4290,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -4501,7 +4308,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_12-cuda12_1
@@ -4523,8 +4330,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_12-cuda12_1-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_12-cuda12_1-build
-    runs-on: windows.8xlarge.nvidia.gpu
+    needs:
+      - wheel-py3_12-cuda12_1-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.g4dn.xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -4553,7 +4362,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.2
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -4581,7 +4390,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_12-cuda12_1
@@ -4600,7 +4409,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -4655,7 +4464,8 @@ jobs:
     uses: ./.github/workflows/_binary-upload.yml
   wheel-py3_12-cuda12_4-build:
     if: ${{ github.repository_owner == 'pytorch' }}
-    runs-on: windows.4xlarge
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -4668,7 +4478,7 @@ jobs:
       GPU_ARCH_TYPE: cuda
       SKIP_ALL_TESTS: 1
       DESIRED_PYTHON: "3.12"
-      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.1.3.1; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.0.2.54; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.2.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.4.5.107; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.1.0.106; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.20.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.1.105; platform_system == 'Linux' and platform_machine == 'x86_64'
+      PYTORCH_EXTRA_INSTALL_REQUIREMENTS: nvidia-cuda-nvrtc-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-runtime-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cuda-cupti-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cudnn-cu12==9.1.0.70; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cublas-cu12==12.4.5.8; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cufft-cu12==11.2.1.3; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-curand-cu12==10.3.5.147; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusolver-cu12==11.6.1.9; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-cusparse-cu12==12.3.1.170; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nccl-cu12==2.21.5; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvtx-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64' | nvidia-nvjitlink-cu12==12.4.127; platform_system == 'Linux' and platform_machine == 'x86_64'
     steps:
       - name: Display EC2 information
         shell: bash
@@ -4685,7 +4495,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@main
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -4727,7 +4537,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -4745,7 +4555,7 @@ jobs:
         shell: bash
         run: |
           "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.4.0
         if: always()
         with:
           name: wheel-py3_12-cuda12_4
@@ -4767,8 +4577,10 @@ jobs:
           .github\scripts\kill_active_ssh_sessions.ps1
   wheel-py3_12-cuda12_4-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
-    needs: wheel-py3_12-cuda12_4-build
-    runs-on: windows.8xlarge.nvidia.gpu
+    needs:
+      - wheel-py3_12-cuda12_4-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.g4dn.xlarge"
     timeout-minutes: 240
     env:
       PYTORCH_ROOT: ${{ github.workspace }}/pytorch
@@ -4797,7 +4609,7 @@ jobs:
           echo "instance-type: $(get_ec2_metadata instance-type)"
           echo "system info $(uname -a)"
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@main
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -4825,7 +4637,7 @@ jobs:
           echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
           echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
           echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4.1.7
         name: Download Build Artifacts
         with:
           name: wheel-py3_12-cuda12_4
@@ -4844,7 +4656,7 @@ jobs:
       - name: Checkout pytorch/builder
         uses: malfet/checkout@silent-checkout
         with:
-          ref: release/2.4
+          ref: release/2.5
           submodules: recursive
           repository: pytorch/builder
           path: builder
@@ -4892,6 +4704,249 @@ jobs:
       GPU_ARCH_TYPE: cuda
       DESIRED_PYTHON: "3.12"
       build_name: wheel-py3_12-cuda12_4
+    secrets:
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+      conda-pytorchbot-token: ${{ secrets.CONDA_PYTORCHBOT_TOKEN }}
+      conda-pytorchbot-token-test: ${{ secrets.CONDA_PYTORCHBOT_TOKEN_TEST }}
+    uses: ./.github/workflows/_binary-upload.yml
+  wheel-py3_12-xpu-build:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs: get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge"
+    timeout-minutes: 240
+    env:
+      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
+      BUILDER_ROOT: ${{ github.workspace }}/builder
+      PACKAGE_TYPE: wheel
+      # TODO: This is a legacy variable that we eventually want to get rid of in
+      #       favor of GPU_ARCH_VERSION
+      DESIRED_CUDA: xpu
+      GPU_ARCH_TYPE: xpu
+      SKIP_ALL_TESTS: 1
+      DESIRED_PYTHON: "3.12"
+    steps:
+      - name: Display EC2 information
+        shell: bash
+        run: |
+          set -euo pipefail
+          function get_ec2_metadata() {
+            # Pulled from instance metadata endpoint for EC2
+            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+            category=$1
+            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
+          }
+          echo "ami-id: $(get_ec2_metadata ami-id)"
+          echo "instance-id: $(get_ec2_metadata instance-id)"
+          echo "instance-type: $(get_ec2_metadata instance-type)"
+          echo "system info $(uname -a)"
+      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
+        continue-on-error: true
+        with:
+          github-secret: ${{ secrets.GITHUB_TOKEN }}
+      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
+      - name: Enable long paths on Windows
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
+      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
+      # removed once Windows Defender is removed from the AMI
+      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
+          # Let's both exclude the path and disable Windows Defender completely just to be sure
+          # that it doesn't interfere
+          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
+      # NOTE: These environment variables are put here so that they can be applied on every job equally
+      #       They are also here because setting them at a workflow level doesn't give us access to the
+      #       runner.temp variable, which we need.
+      - name: Populate binary env
+        shell: bash
+        run: |
+          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
+          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
+          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
+      - name: Checkout PyTorch
+        uses: malfet/checkout@silent-checkout
+        with:
+          submodules: recursive
+          path: pytorch
+          quiet-checkout: true
+      - name: Clean PyTorch checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: pytorch
+      - name: Checkout pytorch/builder
+        uses: malfet/checkout@silent-checkout
+        with:
+          ref: release/2.5
+          submodules: recursive
+          repository: pytorch/builder
+          path: builder
+          quiet-checkout: true
+      - name: Clean pytorch/builder checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: builder
+      - name: Populate binary env
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
+      - name: Build PyTorch binary
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_build.sh"
+      - uses: actions/upload-artifact@v4.4.0
+        if: always()
+        with:
+          name: wheel-py3_12-xpu
+          retention-days: 14
+          if-no-files-found: error
+          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
+      - name: Wait until all sessions have drained
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        timeout-minutes: 120
+        run: |
+          .github\scripts\wait_for_ssh_to_drain.ps1
+      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        run: |
+          .github\scripts\kill_active_ssh_sessions.ps1
+  wheel-py3_12-xpu-test:  # Testing
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs:
+      - wheel-py3_12-xpu-build
+      - get-label-type
+    runs-on: "${{ needs.get-label-type.outputs.label-type }}windows.4xlarge.nonephemeral"
+    timeout-minutes: 240
+    env:
+      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
+      BUILDER_ROOT: ${{ github.workspace }}/builder
+      PACKAGE_TYPE: wheel
+      # TODO: This is a legacy variable that we eventually want to get rid of in
+      #       favor of GPU_ARCH_VERSION
+      DESIRED_CUDA: xpu
+      GPU_ARCH_TYPE: xpu
+      SKIP_ALL_TESTS: 1
+      DESIRED_PYTHON: "3.12"
+    steps:
+      - name: Display EC2 information
+        shell: bash
+        run: |
+          set -euo pipefail
+          function get_ec2_metadata() {
+            # Pulled from instance metadata endpoint for EC2
+            # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+            category=$1
+            curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
+          }
+          echo "ami-id: $(get_ec2_metadata ami-id)"
+          echo "instance-id: $(get_ec2_metadata instance-id)"
+          echo "instance-type: $(get_ec2_metadata instance-type)"
+          echo "system info $(uname -a)"
+      - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.5
+        continue-on-error: true
+        with:
+          github-secret: ${{ secrets.GITHUB_TOKEN }}
+      # Needed for binary builds, see: https://github.com/pytorch/pytorch/issues/73339#issuecomment-1058981560
+      - name: Enable long paths on Windows
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path "HKLM:\\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1
+      # Since it's just a defensive command, the workflow should continue even the command fails. This step can be
+      # removed once Windows Defender is removed from the AMI
+      - name: Disables Windows Defender scheduled and real-time scanning for files in directories used by PyTorch
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Add-MpPreference -ExclusionPath $(Get-Location).tostring(),$Env:TEMP -ErrorAction Ignore
+          # Let's both exclude the path and disable Windows Defender completely just to be sure
+          # that it doesn't interfere
+          Set-MpPreference -DisableRealtimeMonitoring $True -ErrorAction Ignore
+      # NOTE: These environment variables are put here so that they can be applied on every job equally
+      #       They are also here because setting them at a workflow level doesn't give us access to the
+      #       runner.temp variable, which we need.
+      - name: Populate binary env
+        shell: bash
+        run: |
+          echo "BINARY_ENV_FILE=${RUNNER_TEMP}/env" >> "${GITHUB_ENV}"
+          echo "PYTORCH_FINAL_PACKAGE_DIR=${RUNNER_TEMP}/artifacts" >> "${GITHUB_ENV}"
+          echo "WIN_PACKAGE_WORK_DIR=${RUNNER_TEMP}"
+      - uses: actions/download-artifact@v4.1.7
+        name: Download Build Artifacts
+        with:
+          name: wheel-py3_12-xpu
+          path: "${{ env.PYTORCH_FINAL_PACKAGE_DIR }}"
+      - name: Checkout PyTorch
+        uses: malfet/checkout@silent-checkout
+        with:
+          submodules: recursive
+          path: pytorch
+          quiet-checkout: true
+      - name: Clean PyTorch checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: pytorch
+      - name: Checkout pytorch/builder
+        uses: malfet/checkout@silent-checkout
+        with:
+          ref: release/2.5
+          submodules: recursive
+          repository: pytorch/builder
+          path: builder
+          quiet-checkout: true
+      - name: Clean pytorch/builder checkout
+        run: |
+          # Remove any artifacts from the previous checkouts
+          git clean -fxd
+        working-directory: builder
+      - name: Populate binary env
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_populate_env.sh"
+      - name: Test PyTorch binary
+        shell: bash
+        run: |
+          "${PYTORCH_ROOT}/.circleci/scripts/binary_windows_test.sh"
+      - name: Wait until all sessions have drained
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        timeout-minutes: 120
+        run: |
+          .github\scripts\wait_for_ssh_to_drain.ps1
+      - name: Kill active ssh sessions if still around (Useful if workflow was cancelled)
+        shell: powershell
+        working-directory: pytorch
+        if: always()
+        run: |
+          .github\scripts\kill_active_ssh_sessions.ps1
+  wheel-py3_12-xpu-upload:  # Uploading
+    if: ${{ github.repository_owner == 'pytorch' }}
+    permissions:
+      id-token: write
+      contents: read
+    needs: wheel-py3_12-xpu-test
+    with:
+      PYTORCH_ROOT: ${{ github.workspace }}/pytorch
+      BUILDER_ROOT: ${{ github.workspace }}/builder
+      PACKAGE_TYPE: wheel
+      # TODO: This is a legacy variable that we eventually want to get rid of in
+      #       favor of GPU_ARCH_VERSION
+      DESIRED_CUDA: xpu
+      GPU_ARCH_TYPE: xpu
+      DESIRED_PYTHON: "3.12"
+      build_name: wheel-py3_12-xpu
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
       conda-pytorchbot-token: ${{ secrets.CONDA_PYTORCHBOT_TOKEN }}
