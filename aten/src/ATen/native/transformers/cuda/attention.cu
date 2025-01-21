@@ -823,7 +823,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, c10::SymInt, c10::SymInt, Tensor, Ten
                       head_dim_qk/*int64_t d_qk*/,
                       head_dim_v/*int64_t d_v*/,
                       softmax_scale/*float scaling_factor*/,
-                      training/* bool */,
+		      compute_logsumexp/* bool */,
                       is_causal/* bool */,
                       dropout_p/*double dropout_probability*/,
                       query/* Tensor q*/,
