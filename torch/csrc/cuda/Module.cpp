@@ -1014,9 +1014,9 @@ static void registerCudaDeviceProperties(PyObject* module) {
           &cudaDeviceProp::name
 #endif // USE_ROCM
           )
-#ifndef FBCODE_CAFFE2
-      .def_readonly("uuid", &cudaDeviceProp::uuid)
-#endif
+//#ifndef FBCODE_CAFFE2
+//      .def_readonly("uuid", &cudaDeviceProp::uuid)
+//#endif
       .def_readonly("L2_cache_size", &cudaDeviceProp::l2CacheSize)
       .def("__repr__", [](const cudaDeviceProp& prop) {
         std::ostringstream stream;
@@ -1027,9 +1027,9 @@ static void registerCudaDeviceProperties(PyObject* module) {
 #endif // USE_ROCM
                << ", total_memory=" << prop.totalGlobalMem / (1024ull * 1024)
                << "MB, multi_processor_count=" << prop.multiProcessorCount
-#ifndef FBCODE_CAFFE2
-               << ", uuid=" << uuid_to_string(prop.uuid.bytes)
-#endif
+//#ifndef FBCODE_CAFFE2
+//               << ", uuid=" << uuid_to_string(prop.uuid.bytes)
+//#endif
                << ", L2_cache_size=" << prop.l2CacheSize / (1024ull * 1024)
                << "MB)";
         return stream.str();

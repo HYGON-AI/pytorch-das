@@ -2727,7 +2727,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::collective(
     syncStream(device, ncclEvents_[key], ncclStream);
   } else {
     // Enable ALLREDUCE and compute in the same stream using ALLREDUCE_STREAM_WITH_COMPUTE=1
-    ncclStream = at::cuda::getCurrentCUDAStream(input.device().index());
+    ncclStream = at::cuda::getCurrentCUDAStream(inputs[0].device().index());
   }
 
 
@@ -2858,7 +2858,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::collective(
   }
   if (nccl_group_info_enable_str != nullptr){
     if(c10::stoi(nccl_group_info_enable_str) == 1){
-      std::cout <<"ProcessGroupNCCL collective info: "<< "PG: "<<uid_<<", global rank: "<<globalRank()<< ", group ranks: " << groupRanks() <<", OpType="<<opTypeToString(work->opType_) <<", size=" <<work->numelIn_<<", dtype="<<inputs[0].dtype()<<std::endl;
+      std::cout <<"ProcessGroupNCCL collective info: "<< "PG: "<<local_id_<<", global rank: "<<globalRank()<< ", group ranks: " << groupRanks() <<", OpType="<<opTypeToString(work->opType_) <<", size=" <<work->numelIn_<<", dtype="<<inputs[0].dtype()<<std::endl;
     }
   }
 
@@ -3287,7 +3287,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::pointToPoint(
 
   if (nccl_group_info_enable_str != nullptr){
       if(c10::stoi(nccl_group_info_enable_str) == 1){
-        std::cout <<"ProcessGroupNCCL pointToPoint info: "<< "PG: "<<uid_<<", global rank: "<<globalRank()<< ", group ranks: " << groupRanks() <<", OpType="<<opTypeToString(work->opType_) <<", size=" <<work->numelIn_<<", dtype="<<tensor.dtype()<<std::endl;
+        std::cout <<"ProcessGroupNCCL pointToPoint info: "<< "PG: "<<local_id_<<", global rank: "<<globalRank()<< ", group ranks: " << groupRanks() <<", OpType="<<opTypeToString(work->opType_) <<", size=" <<work->numelIn_<<", dtype="<<tensor.dtype()<<std::endl;
       }
     }
 

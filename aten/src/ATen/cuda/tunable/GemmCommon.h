@@ -162,10 +162,10 @@ struct GemmAndBiasParams : OpParams {
   }
 
   size_t GetSize(bool duplicate_inputs) const {
-    size_t size = GetSizeC();
+    size_t size = sizeof(T) * ldc * n;
     if (duplicate_inputs) {
-      size += GetSizeA();
-      size += GetSizeB();
+      size += sizeof(T) * lda * ((transa == 'n' || transa == 'N') ? k : m);
+      size += sizeof(T) * ldb * ((transb == 'n' || transb == 'N') ? n : k);
     }
     return size;
   }
@@ -175,13 +175,13 @@ struct GemmAndBiasParams : OpParams {
     *copy = *this;
     c10::DeviceIndex device = 0;
     AT_CUDA_CHECK(c10::cuda::GetDevice(&device));
-    size_t c_size = GetSizeC();
+    size_t c_size = ldc * n * sizeof(T);
     copy->c = static_cast<T*>(c10::cuda::CUDACachingAllocator::raw_alloc(c_size));
     AT_CUDA_CHECK(c10::cuda::CUDACachingAllocator::memcpyAsync(
         copy->c, device, c, device, c_size, getCurrentCUDAStream(device), true));
     if (duplicate_inputs) {
-      size_t a_size = GetSizeA();
-      size_t b_size = GetSizeB();
+      size_t a_size = sizeof(T) * lda * ((transa == 'n' || transa == 'N') ? k : m);
+      size_t b_size = sizeof(T) * ldb * ((transb == 'n' || transb == 'N') ? n : k);
       copy->a = static_cast<const T*>(c10::cuda::CUDACachingAllocator::raw_alloc(a_size));
       copy->b = static_cast<const T*>(c10::cuda::CUDACachingAllocator::raw_alloc(b_size));
       copy->duplicate_inputs_ = true;
