@@ -219,6 +219,7 @@ class GemmTunableOp : public TunableOp<GemmParams<T>, StreamTimer> {
       }
     }
 #endif
+#endif
   }
 
   std::string Signature() override {
@@ -278,6 +279,7 @@ class GemmStridedBatchedTunableOp : public TunableOp<GemmStridedBatchedParams<T>
         }
       }
     }
+#endif
 #endif
   }
 

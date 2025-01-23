@@ -59,7 +59,7 @@ inline C10_HOST_DEVICE BFloat16::operator __nv_bfloat16() const {
 #endif
 #if defined(__HIPCC__) && defined(USE_ROCM)
 // 6.2.0 introduced __hip_bfloat16_raw
-#if defined(__BF16_HOST_DEVICE__)
+#if defined(__BF16_HOST_DEVICE__) && ROCM_VERSION >= 60200
 inline C10_HOST_DEVICE BFloat16::BFloat16(const __hip_bfloat16& value) {
   x = __hip_bfloat16_raw(value).x;
 }
