@@ -6,6 +6,7 @@
 #include <ATen/core/Tensor.h>
 #include <ATen/core/grad_mode.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAConfig.h>
 #include <ATen/detail/CUDAHooksInterface.h>
 #include <ATen/native/DispatchStub.h>
 #include <ATen/native/transformers/cuda/sdp_utils.h>
@@ -202,7 +203,6 @@ bool check_flash_attention_hardware_support(sdp_params const& params, bool debug
   // Check that the gpu is capable of running flash attention
   using sm80 = SMVersion<8, 0>;
   using sm90 = SMVersion<9, 0>;
-  auto dprops = at::cuda::getCurrentDeviceProperties();
 #if USE_ROCM
   auto dprops = at::cuda::getCurrentDeviceProperties();
   std::string device_arch = dprops->gcnArchName;
@@ -506,17 +506,6 @@ bool check_cudnn_hardware_support(sdp_params const& params, bool debug) {
   return true;
 }
 
-bool check_is_causal(sdp_params const& params, bool debug) {
-  // Check that the input is causal
-  if (!params.is_causal) {
-    if (debug) {
-      TORCH_WARN("CuDNN requires is_causal=True.");
-    }
-    return false;
-  }
-  return true;
-}
-
 bool check_for_nested_inputs(sdp_params const& params, bool debug) {
   // Check that the input is nested
   if (has_for_nested_inputs(params)) {
@@ -540,22 +529,6 @@ bool check_dtypes_low_precision(sdp_params const& params, bool debug) {
   }
 }
 
-bool check_runtime_enabled_cudnn(sdp_params const& params, bool debug) {
-  static c10::once_flag supported_flag;
-  static bool supported = false;
-  c10::call_once(supported_flag, []() {
-    supported = (c10::utils::check_env("TORCH_CUDNN_SDPA_ENABLED") == true);
-  });
-  if (!supported) {
-    if (debug) {
-      TORCH_WARN(
-          "The CuDNN backend needs to be enabled by setting the enviornment variable`TORCH_CUDNN_SDPA_ENABLED=1`");
-    }
-    return false;
-  }
-  return true;
-}
-
 bool check_runtime_disabled_cudnn(sdp_params const& params, bool debug) {
   // We check the global context to see if user has explicitly turned of cudnn
   // sdp kernels
@@ -568,13 +541,15 @@ bool check_runtime_disabled_cudnn(sdp_params const& params, bool debug) {
   return true;
 }
 
-bool check_cudnn_requires_grad(sdp_params const& params, bool debug) {
-  // Check that the input is causal
-  if (input_requires_grad(params)) {
-    if (debug) {
-      TORCH_WARN("CuDNN does not currently support inputs with requires_grad=True.");
+bool check_cudnn_deterministic(const sdp_params& params, bool debug) {
+  auto& ctx = at::globalContext();
+  if (ctx.deterministicAlgorithms()) {
+    if (!ctx.deterministicAlgorithmsWarnOnly()) {
+      if (debug) {
+        TORCH_WARN("cuDNN SDPA is not deterministic.");
+      }
+      return false;
     }
-    return false;
   }
   return true;
 }
@@ -603,6 +578,7 @@ bool can_use_cudnn_attention(const sdp_params& params, bool debug) {
           check_nonzero_sequence_lengths_dense,
           check_last_dim_stride_equals_1_dense<true /*ignore_singleton_dim>*/>,
           check_all_tensors_on_device,
+          check_tensor_shapes,
           check_cudnn_tensor_shapes,
           check_cudnn_deterministic,
           // check_is_causal,
