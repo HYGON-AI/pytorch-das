@@ -131,19 +131,6 @@ def foo_abstract(x, z):
     return x, z, x + z
 
 
-@torch.library.impl("testlib::foo", "cpu")
-@torch._dynamo.disable
-def foo_impl(x, z):
-    x.add_(5)
-    z.add_(5)
-    return x, z, x + z
-
-
-@torch.library.impl_abstract("testlib::foo")
-def foo_abstract(x, z):
-    return x, z, x + z
-
-
 @torch.library.impl("testlib::foo_mutated", "CompositeImplicitAutograd")
 def foo_mutated(x):
     a, b, c = torch.ops.testlib.foo(x, x.cos())
