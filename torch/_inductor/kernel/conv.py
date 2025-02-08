@@ -57,7 +57,7 @@ def config_gen():
         for i in config_list
     ]
     return configs
-def conv2_grid(n, c, h, w, meta):
+def conv2d_grid(n, c, h, w, meta):
     if "GROUP_SIZE_M" in meta:
         return (
             (ceildiv((h * w * n), meta["BLOCK_M"])
@@ -388,7 +388,7 @@ conv3d_template = TritonTemplate(
 )
 conv2d_few_channel_tmpl = TritonTemplate(
     name="conv_few_channel",
-    grid=conv_grid,
+    grid=conv2d_grid,
     source=r"""
 {{def_kernel("X", "W")}}
     # Tensor dimensions
