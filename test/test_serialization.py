@@ -896,9 +896,7 @@ class TestOldSerialization(TestCase, SerializationMixin):
                 loaded = torch.load(checkpoint, weights_only=False)
                 self.assertTrue(isinstance(loaded, module.Net))
                 if can_retrieve_source:
-                    self.assertEqual(len(w), 1)
-                    self.assertEqual(w[0].category, FutureWarning)
-                    self.assertTrue("You are using `torch.load` with `weights_only=False`" in str(w[0].message))
+                    self.assertEqual(len(w), 0)
 
             # Replace the module with different source
             fname = get_file_path_2(os.path.dirname(os.path.dirname(torch.__file__)), 'torch', 'testing',
