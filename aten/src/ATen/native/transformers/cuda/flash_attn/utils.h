@@ -46,12 +46,7 @@ __forceinline__ __device__ uint32_t relu2<cutlass::half_t>(const uint32_t x) {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
     asm volatile("max.f16x2 %0, %1, %2;\n" : "=r"(res) : "r"(x), "r"(zero));
 #else
-    // asm volatile( \
-    //     "{\n" \
-    //     "\t .reg .f16x2 sela;\n" \
-    //     "\t set.gtu.u32.f16x2 sela, %1, %2;\n" \
-    //     "\t and.b32 %0, sela, %1;\n" 
-    //     "}\n" : "=r"(res) : "r"(x), "r"(zero));
+    
 #endif
 #endif
 
@@ -289,17 +284,7 @@ __forceinline__ __device__ void gemm_k_rs_swait(Tensor0 &acc, Tensor1 &tCrA, Ten
     CUTE_STATIC_ASSERT_V(size<1>(tCsB) == size<1>(tCrB_copy_view));            // N
     cute::copy(smem_tiled_copy_B, tCsB(_, _, k_idx), tCrB_copy_view(_, _, k_idx));
     asm volatile("s_waitcnt lgkmcnt(0)");
-    // int tidx = threadIdx.x;
-    // printf("tid:%d k_idx:%d tCrA:%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-    //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-    //     "tCrB:%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, k_idx, 
-    //     float(tCrA(0, 0, k_idx)), float(tCrA(1, 0, k_idx)), float(tCrA(2, 0, k_idx)), float(tCrA(3, 0, k_idx)), 
-    //     float(tCrA(4, 0, k_idx)), float(tCrA(5, 0, k_idx)), float(tCrA(6, 0, k_idx)), float(tCrA(7, 0, k_idx)), 
-    //     float(tCrA(0, 1, k_idx)), float(tCrA(1, 1, k_idx)), float(tCrA(2, 1, k_idx)), float(tCrA(3, 1, k_idx)), 
-    //     float(tCrA(4, 1, k_idx)), float(tCrA(5, 1, k_idx)), float(tCrA(6, 1, k_idx)), float(tCrA(7, 1, k_idx)), 
-    //     float(tCsB(0, 0, k_idx)), float(tCsB(1, 0, k_idx)), float(tCsB(2, 0, k_idx)), float(tCsB(3, 0, k_idx)), 
-    //     float(tCsB(4, 0, k_idx)), float(tCsB(5, 0, k_idx)), float(tCsB(6, 0, k_idx)), float(tCsB(7, 0, k_idx))
-    // );
+    
     cute::gemm(tiled_mma, tCrA(_, _, k_idx), tCrB(_, _, k_idx), acc);
 }
 
@@ -314,64 +299,14 @@ __forceinline__ __device__ void gemm_rs_debug(Tensor0 &acc, Tensor1 &tCrA, Tenso
     Tensor tCrB_copy_view = smem_thr_copy_B.retile_D(tCrB);
     CUTE_STATIC_ASSERT_V(size<1>(tCsB) == size<1>(tCrB_copy_view));            // N
     cute::copy(smem_tiled_copy_B, tCsB(_, _, _0{}), tCrB_copy_view(_, _, _0{}));
-    // wangaq debug
-    // if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0) {
-    //     int offset = reinterpret_cast<const char *>(&tCsB(0, 0, _0{})) - (char *)(0x1000000000000);
-    //     printf("tid:%d i:0 tCsB:%p %p %p %p "
-    //         "%p %p %p %p "
-    //         "offset:%d row:%d col:%d\n", threadIdx.x, 
-    //         &tCsB(0, 0, _0{}), &tCsB(1, 0, _0{}), &tCsB(2, 0, _0{}), &tCsB(3, 0, _0{}), 
-    //         &tCsB(4, 0, _0{}), &tCsB(5, 0, _0{}), &tCsB(6, 0, _0{}), &tCsB(7, 0, _0{}), 
-    //         offset, offset/128, (offset % 128)/16);
-    // }
     #pragma unroll
     for (int i = 0; i < size<2>(tCrA); ++i) {
         if (i < size<2>(tCrA) - 1) {
             cute::copy(smem_tiled_copy_B, tCsB(_, _, i + 1), tCrB_copy_view(_, _, i + 1));
-            // wangaq debug
-            // if (blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0) {
-            //     int offset = reinterpret_cast<const char *>(&tCsB(0, 0, _0{})) - (char *)(0x1000000000000);
-            //     printf("tid:%d i:%d tCsB:%p %p %p %p "
-            //         "%p %p %p %p "
-            //         "offset:%d row:%d col:%d\n", threadIdx.x, i + 1,
-            //         &tCsB(0, 0, i + 1), &tCsB(1, 0, i + 1), &tCsB(2, 0, i + 1), &tCsB(3, 0, i + 1), 
-            //         &tCsB(4, 0, i + 1), &tCsB(5, 0, i + 1), &tCsB(6, 0, i + 1), &tCsB(7, 0, i + 1), 
-            //         offset, offset/128, (offset % 128)/16);
-            // }
         }
 
         cute::gemm(tiled_mma, tCrA(_, _, i), tCrB(_, _, i), acc);
 
-        // wangaq debug
-        // if(thread0()) {
-        //     printf("i:%d tCrA:%7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | "
-        //         "%7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f \n"
-        //         "tCrB:%7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | "
-        //         "%7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f \n"
-        //         "acc:%7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | "
-        //         "%7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f | %7.4f %7.4f %7.4f %7.4f \n", i, 
-        //         float(tCrA(0,  0, i)),  float(tCrA(1,  0, i)),  float(tCrA(2,  0, i)),  float(tCrA(3,  0, i)), 
-        //         float(tCrA(4,  0, i)),  float(tCrA(5,  0, i)),  float(tCrA(6,  0, i)),  float(tCrA(7,  0, i)), 
-        //         float(tCrA(8,  0, i)),  float(tCrA(9,  0, i)),  float(tCrA(10, 0, i)),  float(tCrA(11, 0, i)), 
-        //         float(tCrA(12, 0, i)),  float(tCrA(13, 0, i)),  float(tCrA(14, 0, i)),  float(tCrA(15, 0, i)), 
-        //         float(tCrA(0,  1, i)),  float(tCrA(1,  1, i)),  float(tCrA(2,  1, i)),  float(tCrA(3,  1, i)), 
-        //         float(tCrA(4,  1, i)),  float(tCrA(5,  1, i)),  float(tCrA(6,  1, i)),  float(tCrA(7,  1, i)), 
-        //         float(tCrA(8,  1, i)),  float(tCrA(9,  1, i)),  float(tCrA(10, 1, i)),  float(tCrA(11, 1, i)), 
-        //         float(tCrA(12, 1, i)),  float(tCrA(13, 1, i)),  float(tCrA(14, 1, i)),  float(tCrA(15, 1, i)), 
-        //         float(tCrB(0,  0, i)),  float(tCrB(1,  0, i)),  float(tCrB(2,  0, i)),  float(tCrB(3,  0, i)), 
-        //         float(tCrB(4,  0, i)),  float(tCrB(5,  0, i)),  float(tCrB(6,  0, i)),  float(tCrB(7,  0, i)), 
-        //         float(tCrB(0,  1, i)),  float(tCrB(1,  1, i)),  float(tCrB(2,  1, i)),  float(tCrB(3,  1, i)), 
-        //         float(tCrB(4,  1, i)),  float(tCrB(5,  1, i)),  float(tCrB(6,  1, i)),  float(tCrB(7,  1, i)), 
-        //         float(tCrB(0,  2, i)),  float(tCrB(1,  2, i)),  float(tCrB(2,  2, i)),  float(tCrB(3,  2, i)), 
-        //         float(tCrB(4,  2, i)),  float(tCrB(5,  2, i)),  float(tCrB(6,  2, i)),  float(tCrB(7,  2, i)), 
-        //         float(tCrB(0,  3, i)),  float(tCrB(1,  3, i)),  float(tCrB(2,  3, i)),  float(tCrB(3,  3, i)), 
-        //         float(tCrB(4,  3, i)),  float(tCrB(5,  3, i)),  float(tCrB(6,  3, i)),  float(tCrB(7,  3, i)), 
-        //         acc(0), acc(1), acc(2), acc(3), acc(4), acc(5), acc(6), acc(7), 
-        //         acc(8), acc(9), acc(10), acc(11), acc(12), acc(13), acc(14), acc(15), 
-        //         acc(16), acc(17), acc(18), acc(19), acc(20), acc(21), acc(22), acc(23), 
-        //         acc(24), acc(25), acc(26), acc(27), acc(28), acc(29), acc(30), acc(31) 
-        //     );
-        // }
     }
 }
 
@@ -427,34 +362,6 @@ __forceinline__ __device__ auto convert_layout_acc(Layout acc_layout) {
     // return make_layout(get<0>(get<0>(acc_layout)), get<1>(acc_layout), get<1>(get<0>(acc_layout)));
     return make_layout(get<0>(get<0>(acc_layout)), get<1>(acc_layout), make_layout(get<1>(get<0>(acc_layout)), get<2>(acc_layout)));
 };
-// template<typename Layout>
-// __forceinline__ __device__ auto convert_layout_acc_back(Layout acc_layout) {
-//     using X = Underscore;
-//     static_assert(decltype(size<0>(acc_layout))::value == 4);
-//     static_assert(decltype(rank(acc_layout))::value == 3);
-//     auto l = logical_divide(acc_layout, Shape<X, X, _1>{});
-
-//     return make_layout(make_layout(get<0>(l), get<1>(get<2>(l))), get<1>(l), get<0>(get<2>(l)));
-// };
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// Convert acc_layout from (MMA=4, MMA_M, MMA_N) to ((4, 2), MMA_M, MMA_N / 2)
-// if using m16n8k16, or to (4, MMA_M, MMA_N) if using m16n8k8.
-// template<typename MMA_traits, typename Layout>
-// __forceinline__ __device__ auto convert_layout_acc_Aregs(Layout acc_layout) {
-//     using X = Underscore;
-//     static_assert(decltype(size<0>(acc_layout))::value == 4);
-//     static_assert(decltype(rank(acc_layout))::value == 3);
-//     constexpr int mma_shape_K = get<2>(typename MMA_traits::Shape_MNK{});
-//     static_assert(mma_shape_K == 8 || mma_shape_K == 16);
-//     // if constexpr (mma_shape_K == 8) {
-//     //     return acc_layout;
-//     // } else {
-//     //     auto l = logical_divide(acc_layout, Shape<X, X, _2>{});  // (4, MMA_M, (2, MMA_N / 2)))
-//     //     return make_layout(make_layout(get<0>(l), get<2, 0>(l)), get<1>(l), get<2, 1>(l));
-//     // }
-// };
 
 template <class TiledMma,
         typename Engine0, typename Layout0,
@@ -470,11 +377,6 @@ __forceinline__ __device__ auto convert_layout_acc_Aregs(const TiledMma& tiled_m
     auto smem_thr_copy_ACC = smem_tiled_copy_ACC.get_thread_slice(tidx);
     Tensor taccOr = smem_thr_copy_ACC.retile_S(tOrP);
     Tensor taccOs = smem_thr_copy_ACC.partition_D(sAcc); 
-    // if (cute::thread0())
-    // { taccOr
-        // raw_ptr_16b(0x2000000000010) o ((_1,_4),_1,_4):((_0,_1),_0,_4)
-    //     print("taccOr\n"); print(taccOr); print("\n");
-    // }
     cute::copy(smem_tiled_copy_ACC, taccOr, taccOs); 
     
     // asm volatile("s_waitcnt lgkmcnt(0)\n\t");
@@ -491,8 +393,7 @@ __forceinline__ __device__ auto convert_layout_acc_Aregs(const TiledMma& tiled_m
 
     cute::copy(smem_tiled_copy_ACC, tSsACC, tSrACC_copy_view);
 
-    // asm volatile("s_waitcnt lgkmcnt(0)\n\t");
-    // __syncthreads(); // 取消这个sync,2024.06.13
+    
 
     return tSrACC;
 }
@@ -643,43 +544,6 @@ __forceinline__ __device__ void copy(TiledCopy tiled_copy, Tensor<Engine0, Layou
             cute::clear(D(_, m, _));
         }
     }
-    // TD [2023-04-13]: Strange that the code below can cause race condition.
-    // I think it's because the copies are under an if statement.
-    // if (Is_even_K) {
-    //     #pragma unroll
-    //     for (int m = 0; m < size<1>(S); ++m) {
-    //         if (Is_even_MN || get<0>(identity_MN(0, m, 0)) < max_MN) {
-    //             copy(tiled_copy, S(_, m, _), D(_, m, _));
-    //         } else if (Clear_OOB_MN) {
-    //             clear(D(_, m, _));
-    //         }
-    //     }
-    // } else {  // It's slightly faster in this case if iterate over K first
-    //     #pragma unroll
-    //     for (int k = 0; k < size<2>(S); ++k) {
-    //         if (predicate_K(k)) {
-    //             #pragma unroll
-    //             for (int m = 0; m < size<1>(S); ++m) {
-    //                 if (Is_even_MN || get<0>(identity_MN(0, m, 0)) < max_MN) {
-    //                     copy(tiled_copy, S(_, m, k), D(_, m, k));
-    //                 } else if (Clear_OOB_MN) {
-    //                     clear(D(_, m, k));
-    //                 }
-    //             }
-    //         } else if (Clear_OOB_K) {  // There's no case where !Clear_OOB_K && Clear_OOB_MN
-    //             if (Clear_OOB_MN || Is_even_MN) {
-    //                 clear(D(_, _, k));
-    //             } else {
-    //                 #pragma unroll
-    //                 for (int m = 0; m < size<1>(S); ++m) {
-    //                     if (!(Is_even_MN || get<0>(identity_MN(0, m, 0)) < max_MN)) {
-    //                         clear(D(_, m, k));
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
 }
 
 template <bool Is_even_MN=true, bool Is_even_K=true, bool Clear_OOB_MN=false, bool Clear_OOB_K=true,
