@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <cute/algorithm/copy.hpp>
+#include <cute/tensor.hpp>
 
 #include <cutlass/cutlass.h>
 #include <cutlass/array.h>
@@ -79,7 +79,8 @@ inline __device__ void compute_dot_do_o(const Params &params) {
         + m_block * kBlockM * params.o_row_stride + bidh * params.o_head_stride;
     const index_t row_offset_dq_accum = binfo.q_offset(params.seqlen_q_rounded * params.h * params.d_rounded, params.h * params.d_rounded, bidb)
         + (m_block * kBlockM + (params.cu_seqlens_q == nullptr ? 0 : 128 * bidb)) * params.h * params.d_rounded + bidh * params.d_rounded;
-    const index_t row_offset_dpsum = (bidb * params.h + bidh) * params.seqlen_q_rounded + m_block * kBlockM;
+    // Regarding 128 * params.b see a comment in mha_varlen_bwd about padding of dq_accum and softmax_d
+    const index_t row_offset_dpsum = (params.unpadded_lse ? (bidh * (params.total_q + 128 * params.b) + binfo.q_offset(params.seqlen_q_rounded, 1, bidb) + 128 * bidb): (bidb * params.h + bidh) * params.seqlen_q_rounded) + m_block * kBlockM;
 
     Tensor gdO = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.do_ptr) + row_offset_do),
                              Shape<Int<kBlockM>, Int<kHeadDim>>{},
@@ -99,7 +100,7 @@ inline __device__ void compute_dot_do_o(const Params &params) {
     // we do atomicAdds, we use type float. The layouts are different. Check this.
     typename Kernel_traits::GmemTiledCopydQaccum gmem_tiled_copy_dQaccum;
     auto gmem_thr_copy_dQaccum = gmem_tiled_copy_dQaccum.get_thread_slice(tidx);
-
+#if 1
     Tensor tdOgdO = gmem_thr_copy_dO.partition_S(gdO);
     Tensor tdOgO = gmem_thr_copy_dO.partition_S(gO);
     Tensor tdQgdQaccum = gmem_thr_copy_dQaccum.partition_D(gdQaccum);
@@ -133,6 +134,7 @@ inline __device__ void compute_dot_do_o(const Params &params) {
         clear(zero);
         cute::copy(gmem_tiled_copy_dQaccum, zero, tdQgdQaccum);
     }
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
