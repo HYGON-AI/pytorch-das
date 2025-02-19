@@ -2,9 +2,7 @@
 #pragma once
 // Philox CUDA.
 
-#include <ATen/cuda/PhiloxUtils.cuh>
-
-namespace pytorch_flash{
+namespace pytorch_flash {
 
 struct ull2 {
     unsigned long long x;
@@ -14,9 +12,10 @@ struct ull2 {
 __forceinline__ __device__ uint2 mulhilo32(const unsigned int a, const unsigned int b) {
     uint2 *res;
     unsigned long long tmp;
-    asm ("mul.wide.u32 %0, %1, %2;\n\t"
-          : "=l"(tmp)
-          : "r"(a), "r"(b));
+    tmp = static_cast<unsigned long long>(a) * b;
+    // asm ("mul.wide.u32 %0, %1, %2;\n\t"
+    //       : "=l"(tmp)
+    //       : "r"(a), "r"(b));
     res = (uint2*)(&tmp);
     return *res;
 }
@@ -50,4 +49,4 @@ __forceinline__ __device__ uint4 philox(unsigned long long seed,
     return output;
 }
 
-} // namespace flash
+} // namespace pytorch_flash
