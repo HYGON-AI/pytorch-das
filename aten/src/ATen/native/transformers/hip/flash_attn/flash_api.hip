@@ -599,6 +599,7 @@ mha_varlen_fwd(const at::Tensor &q_,  // total_q x num_heads x head_size, total_
                const at::Tensor &cu_seqlens_q,  // b+1
                const at::Tensor &cu_seqlens_k,  // b+1
                c10::optional<at::Tensor> &seqused_k, // b. If given, only this many elements of each batch element's keys are used.
+               c10::optional<at::Tensor> &block_table_,
                c10::optional<at::Tensor> &alibi_slopes_, // num_heads or b x num_heads
                int max_seqlen_q,
                const int max_seqlen_k,
@@ -613,7 +614,6 @@ mha_varlen_fwd(const at::Tensor &q_,  // total_q x num_heads x head_size, total_
     at::Tensor q = q_;
     const float softcap = 0.;
     c10::optional<const at::Tensor> leftpad_k_ = c10::nullopt; // batch_size
-    c10::optional<at::Tensor> block_table_ = c10::nullopt; // batch_size x max_num_blocks_per_seq
     auto dprops = at::cuda::getCurrentDeviceProperties();
     // bool is_sm75 = dprops->major == 7 && dprops->minor == 5;
     // bool is_sm8x = dprops->major == 8 && dprops->minor >= 0;
@@ -2118,6 +2118,7 @@ mha_aot_varlen_fwd(const at::Tensor &q,  // total_q x num_heads x head_size, tot
                const at::Tensor &cu_seqlens_q,  // b+1
                const at::Tensor &cu_seqlens_k,  // b+1
                std::optional<at::Tensor> &seqused_k, // b. If given, only this many elements of each batch element's keys are used.
+               std::optional<at::Tensor> &block_table_,
                std::optional<at::Tensor> &alibi_slopes_, // num_heads or b x num_heads
                int max_seqlen_q,
                const int max_seqlen_k,
