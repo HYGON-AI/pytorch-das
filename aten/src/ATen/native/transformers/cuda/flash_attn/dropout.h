@@ -74,12 +74,7 @@ struct Dropout {
                                          int block_row_start, int block_col_start, int block_row_stride) {
         // convert shape from (4, MMA_M, MMA_N) to (8, MMA_M, MMA_N / 2)
         Tensor tensor = make_tensor(tensor_.data(), tensor_.layout());
-        // Tensor tensor = make_tensor(tensor_.data(), pytorch_flash::convert_layout_acc_dropout(tensor_.layout()));
-        // if (thread0())
-        // {
-        //     print("tensor_\n"); print(tensor_); print("\n");
-        //     // print("tensor\n"); print(tensor); print("\n");
-        // }
+        
         using T = typename Engine::value_type;
         auto encode_dropout = [](bool keep, T val) {
             if constexpr(encode_dropout_in_sign_bit) {
@@ -115,57 +110,6 @@ struct Dropout {
                 }
             }
         }
-        // #pragma unroll
-        // for (int nj = 0; nj < size<1>(tensor); ++nj) {
-        //     const int row_idx_base = block_row_start + mi * warp_row_stride;
-        //     const int row_idx = row_idx_base;
-        //     const int col_idx_base = col_idx_offset + nj * stride_between_each_repeat;
-        //     #pragma unroll
-        //     for (int j = 0; j < size<2>(tensor); ++j) {
-        //         const int col_idx = col_idx_base + j * stride_between_each_thread;
-        //         #pragma unroll
-        //         for (int mi = 0; mi < size<0>(tensor); ++mi) 
-        //         {
-        //             uint2 rowcol = make_uint2(row_idx, col_idx);
-        //             uint4 random_uint4 = pytorch_flash::philox(seed, reinterpret_cast<unsigned long long&>(rowcol), offset);
-        //             tensor(mi, make_coord(j, nj)) = 
-        //                 encode_dropout(rnd_8[0] <= p_dropout_in_uint8_t, tensor(mi, make_coord(j, nj)));
-        //         }
-
-        //     }
-        // }
-
-        // #if 1
-        // #pragma unroll
-        // for (int m = 0; m < size<1>(tensor); ++m, block_row_start += block_row_stride) {
-        //     uint2 rowcol = make_uint2(block_row_start, block_col_start);
-        //     #pragma unroll
-        //     for (int n = 0; n < size<2>(tensor); ++n, ++rowcol.y) {
-        //         uint4 random_uint4 = pytorch_flash::philox(seed, reinterpret_cast<unsigned long long&>(rowcol), offset);
-        //         // if (cute::thread0()) { printf("philox = %u, %d, %d, %d\n", random_uint4.x, random_uint4.y, random_uint4.z, random_uint4.w);}
-        //         uint8_t (&rnd_8)[16] = reinterpret_cast<uint8_t (&)[16]>(random_uint4);
-        //         // 16位类型的特殊实现：我们将阈值复制到32位值的低16位和高16位，然后使用f16x2比较指令来获取掩码。
-        //         // 掩码的低16位将是0xffff或0x0000，高16位也将是0xffff或0x0000，这取决于随机值是否小于阈值。
-        //         // 然后，我们在掩码和原始32位值之间进行位与运算。
-        //         // 我们利用了浮点比较等同于整数比较的事实，因为我们比较的是其最高8位为零的无符号整数。
-        //         #if 1
-        //         #pragma unroll
-        //         for (int i = 0; i < 4; i++) {
-        //             tensor(i, m, n) = encode_dropout(rnd_8[i] <= p_dropout_in_uint8_t, tensor(i, m, n));
-        //         }
-        //         Tensor tensor_uint32 = recast<uint32_t>(tensor(_, m, n));
-        //         // if (cute::thread0()) { printf("pos2: tensor_uint32 = 0x%x, 0x%x, 0x%x, 0x%x\n", tensor_uint32(0), tensor_uint32(1), tensor_uint32(2), tensor_uint32(3)); }
-        //         #else
-
-                
-        //         #endif
-
-        //         // if ((threadIdx.x == 0) && (blockIdx.x == 0) && (blockIdx.y == 0)) {
-        //         //     printf("n = %d, ph  Philox: %u, %u, %u, %u\n", n, rnd_8.x, rnd_8.y, rnd_8.z, rnd_8.w);
-        //         // }
-        //     }
-        // }
-        // #endif
     }
 
 
@@ -204,43 +148,6 @@ struct Dropout {
                 }
             }
         }
-
-        // for (int m = 0; m < size<1>(tensor); ++m, block_col_start += block_col_stride) {
-
-        // }
-
-        // #if 1
-        // #pragma unroll
-        // for (int m = 0; m < size<1>(tensor); ++m, block_row_start += block_row_stride) {
-        //     // uint2 rowcol = make_uint2(block_row_start, block_col_start);
-        //     uint2 colrow = make_uint2(block_col_start, block_row_start);
-        //     #pragma unroll
-        //     for (int n = 0; n < size<2>(tensor); ++n, ++colrow.y) {
-        //         uint4 random_uint4 = pytorch_flash::philox(seed, reinterpret_cast<unsigned long long&>(colrow), offset);
-        //         // if (cute::thread0()) { printf("philox = %u, %d, %d, %d\n", random_uint4.x, random_uint4.y, random_uint4.z, random_uint4.w);}
-        //         uint8_t (&rnd_8)[16] = reinterpret_cast<uint8_t (&)[16]>(random_uint4);
-        //         // 16位类型的特殊实现：我们将阈值复制到32位值的低16位和高16位，然后使用f16x2比较指令来获取掩码。
-        //         // 掩码的低16位将是0xffff或0x0000，高16位也将是0xffff或0x0000，这取决于随机值是否小于阈值。
-        //         // 然后，我们在掩码和原始32位值之间进行位与运算。
-        //         // 我们利用了浮点比较等同于整数比较的事实，因为我们比较的是其最高8位为零的无符号整数。
-        //         #if 1
-        //         #pragma unroll
-        //         for (int i = 0; i < 4; i++) {
-        //             tensor(i, m, n) = encode_dropout(rnd_8[i] <= p_dropout_in_uint8_t, tensor(i, m, n));
-        //         }
-        //         // Tensor tensor_uint32 = recast<uint32_t>(tensor(_, m, n));
-        //         // if (cute::thread0()) { printf("pos2: tensor_uint32 = 0x%x, 0x%x, 0x%x, 0x%x\n", tensor_uint32(0), tensor_uint32(1), tensor_uint32(2), tensor_uint32(3)); }
-        //         #else
-
-                
-        //         #endif
-
-        //         // if ((threadIdx.x == 0) && (blockIdx.x == 0) && (blockIdx.y == 0)) {
-        //         //     printf("n = %d, ph  Philox: %u, %u, %u, %u\n", n, rnd_8.x, rnd_8.y, rnd_8.z, rnd_8.w);
-        //         // }
-        //     }
-        // }
-        // #endif
     }
 
 

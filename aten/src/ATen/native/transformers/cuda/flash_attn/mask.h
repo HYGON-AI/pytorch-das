@@ -353,24 +353,14 @@ struct Mask {
                                 if (col_idx >= col_idx_limit_right) {
                                     tensor(mi, make_coord(j, nj)) = -INFINITY;
                                 }
-                                // else {
-                                //     if constexpr (!Has_alibi && !Is_local) {
-                                //         return;
-                                //     }
-                                // }
+                               
                             }
                             if constexpr (Is_local) {
                                 if (col_idx >= col_idx_limit_right || col_idx < col_idx_limit_left) {
                                     tensor(mi, make_coord(j, nj)) = -INFINITY;
                                 }
                             }
-                            // #if 1
-                            // if (cute::thread0())
-                            // {
-                            //     printf("in mask Is_even_MN = %d\n", Is_even_MN);
-                            // }
-                            // #enfif
-                            // if causal情况下mn也不是整数
+                            
                             if constexpr (!Causal_mask && !Is_local && !Is_even_MN) {
                                 // Causal and Local already handles MN masking
                                 if (col_idx >= max_seqlen_k) {
@@ -380,48 +370,6 @@ struct Mask {
                         }
                     }
                 }
-                // #pragma unroll
-                // for (int mi = 0; mi < size<0, 1>(tensor); ++mi) {
-                //     const int row_idx_base = row_idx_offset + mi * warp_row_stride;
-                //     #pragma unroll
-                //     for (int i = 0; i < size<0, 0>(tensor); ++i) {
-                //         const int row_idx = row_idx_base + i * 8;
-                //         const int col_idx_limit_left = std::max(0, row_idx + max_seqlen_k - max_seqlen_q - window_size_left);
-                //         const int col_idx_limit_right = std::min(max_seqlen_k, row_idx + 1 + max_seqlen_k - max_seqlen_q + window_size_right);
-                //         #pragma unroll
-                //         for (int nj = 0; nj < size<1, 1>(tensor); ++nj) {
-                //             const int col_idx_base = col_idx_offset + nj * 8;
-                //             #pragma unroll
-                //             for (int j = 0; j < size<1, 0>(tensor); ++j) {
-                //                 const int col_idx = col_idx_base + j;
-                //                 if constexpr (Has_alibi) {
-                //                     if constexpr (Is_causal) {
-                //                         tensor(make_coord(i, mi), make_coord(j, nj)) += alibi_slope * col_idx;
-                //                     } else {
-                //                         tensor(make_coord(i, mi), make_coord(j, nj)) -= alibi_slope * abs(row_idx + max_seqlen_k - max_seqlen_q - col_idx);
-
-                //                     }
-                //                 }
-                //                 if constexpr (Causal_mask) {
-                //                     if (col_idx >= col_idx_limit_right) {
-                //                         tensor(make_coord(i, mi), make_coord(j, nj)) = -INFINITY;
-                //                     }
-                //                 }
-                //                 if constexpr (Is_local) {
-                //                     if (col_idx >= col_idx_limit_right || col_idx < col_idx_limit_left) {
-                //                         tensor(make_coord(i, mi), make_coord(j, nj)) = -INFINITY;
-                //                     }
-                //                 }
-                //                 if constexpr (!Causal_mask && !Is_local && !Is_even_MN) {
-                //                     // Causal and Local already handles MN masking
-                //                     if (col_idx >= max_seqlen_k) {
-                //                         tensor(make_coord(i, mi), make_coord(j, nj)) = -INFINITY;
-                //                     }
-                //                 }
-                //             }
-                //         }
-                //     }
-                // }
             }
         }
     };
@@ -496,24 +444,12 @@ struct Mask {
                                 if (col_idx >= col_idx_limit_right) {
                                     tensor(mi, make_coord(j, nj)) = -INFINITY;
                                 }
-                                // else {
-                                //     if constexpr (!Has_alibi && !Is_local) {
-                                //         return;
-                                //     }
-                                // }
                             }
                             if constexpr (Is_local) {
                                 if (col_idx >= col_idx_limit_right || col_idx < col_idx_limit_left) {
                                     tensor(mi, make_coord(j, nj)) = -INFINITY;
                                 }
                             }
-                            // #if 1
-                            // if (cute::thread0())
-                            // {
-                            //     printf("in mask Is_even_MN = %d\n", Is_even_MN);
-                            // }
-                            // #enfif
-                            // if causal情况下mn也不是整数
                             if constexpr (!Causal_mask && !Is_local && !Is_even_MN) {
                                 // Causal and Local already handles MN masking
                                 if (col_idx >= max_seqlen_k) {

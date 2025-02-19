@@ -31,10 +31,6 @@ __device__ __forceinline__ void thread_reduce_(Tensor<Engine0, Layout0> const &t
         for (int ni = 1; ni < size<1>(tensor); ni++) {
             // float ori = summary(mi);
             summary(mi) = op(summary(mi), tensor(mi, ni));
-            // wangaq debug
-            // if (thread0()) {
-            //     printf("thread_reduce_ mi:%d ni:%d %7.4f %7.4f %7.4f\n", mi, ni, ori, tensor(mi, ni), summary(mi));
-            // }
         }
     }
 }
@@ -45,10 +41,6 @@ __device__ __forceinline__ void quad_allreduce_(Tensor<Engine0, Layout0> &dst, T
     #pragma unroll
     for (int i = 0; i < size(dst); i++){
         dst(i) = Allreduce<64>::run(src(i), op);
-        // if (blockIdx.x == 0) {
-        //     printf("tid:%3d A:%7.4f B:%7.4f \n", threadIdx.x,
-        //     src(i), dst(i));
-        // }
     }
 }
 
@@ -63,12 +55,6 @@ __device__ __forceinline__ void quad_allreduce_sum_(Tensor<Engine0, Layout0> &ds
         a = src(i);
         d = __builtin_amdgcn_mmac_f32_16x16x4f32(a, b, d);
         dst(i) = d.x;
-        // if (blockIdx.x == 0) {
-        //     printf("tid:%3d A:%7.4f B:%7.4f "
-        //     "D:%10.4f %10.4f %10.4f %10.4f sum:%7.4f\n", threadIdx.x,
-        //     a, b,
-        //     d[0], d[1], d[2], d[3], dst(i));
-        // }
     }
 }
 
@@ -87,12 +73,6 @@ __device__ __forceinline__ void quad_allreduce_with_mmac_(Tensor<Engine0, Layout
         dst(i) = op(dst(i), isnan(d.y) ? -INFINITY : d.y);
         dst(i) = op(dst(i), isnan(d.z) ? -INFINITY : d.z);
         dst(i) = op(dst(i), isnan(d.w) ? -INFINITY : d.w);
-        // if (blockIdx.x == 0) {
-        //     printf("tid:%3d A:%7.4f B:%7.4f "
-        //     "D:%10.4f %10.4f %10.4f %10.4f max:%7.4f\n", threadIdx.x,
-        //     a, b,
-        //     d[0], d[1], d[2], d[3], dst(i));
-        // }
     }
 }
 
@@ -152,37 +132,6 @@ __forceinline__ __device__ void scale_apply_exp2(Tensor<Engine0, Layout0> &tenso
     }
 }
 
-// Apply the exp to all the elements.
-// template <bool zero_init=true, typename Engine0, typename Layout0, typename Engine1, typename Layout1>
-// __forceinline__ __device__ void max_scale_exp2_sum(Tensor<Engine0, Layout0> &tensor, Tensor<Engine1, Layout1> &max, Tensor<Engine1, Layout1> &sum, const float scale) {
-//     static_assert(Layout0::rank == 2, "Only support 2D Tensor");
-//     static_assert(Layout1::rank == 1, "Only support 1D Tensor");
-//     CUTE_STATIC_ASSERT_V(size<0>(max) == size<0>(tensor));
-//     #pragma unroll
-//     for (int mi = 0; mi < size<0>(tensor); ++mi) {
-//         MaxOp<float> max_op;
-//         max(mi) = zero_init ? tensor(mi, 0) : max_op(max(mi), tensor(mi, 0));
-//         #pragma unroll
-//         for (int ni = 1; ni < size<1>(tensor); ni++) {
-//             max(mi) = max_op(max(mi), tensor(mi, ni));
-//         }
-//         max(mi) = Allreduce<4>::run(max(mi), max_op);
-//         // If max is -inf, then all elements must have been -inf (possibly due to masking).
-//         // We don't want (-inf - (-inf)) since that would give NaN.
-//         const float max_scaled = max(mi) == -INFINITY ? 0.f : max(mi) * scale;
-//         sum(mi) = 0;
-//         #pragma unroll
-//         for (int ni = 0; ni < size<1>(tensor); ++ni)  {
-//             // Instead of computing exp(x - max), we compute exp2(x * log_2(e) -
-//             // max * log_2(e)) This allows the compiler to use the ffma
-//             // instruction instead of fadd and fmul separately.
-//             tensor(mi, ni) = exp2f(tensor(mi, ni) * scale - max_scaled);
-//             sum(mi) += tensor(mi, ni);
-//         }
-//         SumOp<float> sum_op;
-//         sum(mi) = Allreduce<4>::run(sum(mi), sum_op);
-//     }
-// }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -198,23 +147,6 @@ struct Softmax {
     __forceinline__ __device__ void softmax_rescale_o(Tensor0 &acc_s, Tensor1 &acc_o, float softmax_scale_log2) {
         // Reshape acc_s from (MMA=4, MMA_M, MMA_N) to (nrow=(2, MMA_M), ncol=(2, MMA_N))
         Tensor scores = make_tensor(acc_s.data(), pytorch_flash::convert_layout_acc_rowcol(acc_s.layout()));
-        // wangaq debug
-        // __syncthreads();
-        // if (thread0()) {
-        //     printf("scores %7.4f %7.4f %7.4f %7.4f %7.4f %7.4f %7.4f %7.4f "
-        //     "%7.4f %7.4f %7.4f %7.4f %7.4f %7.4f %7.4f %7.4f "
-        //     "%7.4f %7.4f %7.4f %7.4f %7.4f %7.4f %7.4f %7.4f "
-        //     "%7.4f %7.4f %7.4f %7.4f %7.4f %7.4f %7.4f %7.4f\n", 
-        //     scores(0, 0),  scores(0, 1),  scores(0, 2),  scores(0, 3), 
-        //     scores(0, 4),  scores(0, 5),  scores(0, 6),  scores(0, 7), 
-        //     scores(0, 8),  scores(0, 9),  scores(0, 10), scores(0, 11), 
-        //     scores(0, 12), scores(0, 13), scores(0, 14), scores(0, 15),
-        //     scores(1, 0),  scores(1, 1),  scores(1, 2),  scores(1, 3), 
-        //     scores(1, 4),  scores(1, 5),  scores(1, 6),  scores(1, 7), 
-        //     scores(1, 8),  scores(1, 9),  scores(1, 10), scores(1, 11), 
-        //     scores(1, 12), scores(1, 13), scores(1, 14), scores(1, 15)
-        //     );
-        // }
         static_assert(decltype(size<0>(scores))::value == kNRows);
         if (Is_first) {
             pytorch_flash::template reduce_max</*zero_init=*/true>(scores, row_max);

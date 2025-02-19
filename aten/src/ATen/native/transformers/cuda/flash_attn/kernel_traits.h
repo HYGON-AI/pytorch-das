@@ -101,11 +101,7 @@ struct Flash_fwd_kernel_traits : public Base {
                     // This has to be kBlockKSmem, using kHeadDim gives wrong results for d=128
                     Layout<Shape<_8, Int<kBlockKSmem>>,
                            Stride<Int<kBlockKSmem>, _1>>{}));
-    // using SmemLayoutAtomQ = decltype(
-    //     composition(Swizzle<3, 2, 4>{},
-    //                 // This has to be kBlockKSmem, using kHeadDim gives wrong results for d=128
-    //                 Layout<Shape<_8, Int<32>>,
-    //                        Stride<Int<32>, _1>>{}));
+    
     using SmemLayoutQ = decltype(tile_to_shape(
         SmemLayoutAtomQ{},
         Shape<Int<kBlockM>, Int<kHeadDim>>{}));
@@ -708,18 +704,9 @@ struct Flash_bwd_kernel_traits : public Base {
     // TODO: generalize to other values of kBlockN
     // TODO: what should be the Swizzle here? 3 is faster than 1, and 1 is faster than 2
     static constexpr int kPBlockN = kBlockN;
-    // Temporarily disabling this for hdim 256 on sm86 and sm89
-    // static_assert(kBlockN >= 64);
-    // static_assert(kBlockN >= 32);
-    // TD [2023-03-19]: Idk why kPBlockN = 16 and kSwizzlePdS=3 is the fastest.
-    // static constexpr int kPBlockN = kBlockN >= 64 ? 64 : 32;
+    
     static_assert(kPBlockN == 16 || kPBlockN == 32 || kPBlockN == 64);
-    // static constexpr int kSwizzlePdS = kPBlockN == 16 ? 1 : (kPBlockN == 32 ? 2 : 3);
     static constexpr int kSwizzlePdS = 3;
-    // using SmemLayoutAtomPdS = decltype(
-    //     composition(Swizzle<kSwizzlePdS, 3, 3>{},
-    //                 Layout<Shape<Int<kBlockM>, Int<kPBlockN>>,
-    //                        Stride<Int<kPBlockN>, _1>>{}));
     using SmemLayoutAtomPdS = decltype(
         composition(Swizzle<2, 4, 2>{},
                     Layout<Shape<Int<kBlockM>, Int<4>>,
@@ -737,10 +724,6 @@ struct Flash_bwd_kernel_traits : public Base {
         composition(SmemLayoutQdO{}, make_layout(Shape<Int<kHeadDim>, Int<kBlockM>>{}, GenRowMajor{})));
     using SmemLayoutQdOtransposedNoSwizzle = decltype(get_nonswizzle_portion(SmemLayoutQdOtransposed{}));
 
-    // using SmemLayoutAtomdKV = decltype(
-    //     composition(Swizzle<kSwizzle, 3, 3>{},
-    //                 Layout<Shape<_8, Int<kBlockKSmem>>,
-    //                        Stride<Int<kBlockKSmem>, _1>>{}));
     using SmemLayoutAtomdKV = decltype(
         composition(Swizzle<2, 4, 2>{},
                     Layout<Shape<_8, Int<kBlockKSmem>>,
@@ -754,10 +737,6 @@ struct Flash_bwd_kernel_traits : public Base {
         composition(Swizzle<kSwizzle, 3, 3>{},
                     Layout<Shape<_8, Int<kBlockKSmem>>,
                            Stride<Int<kBlockKSmem>, _1>>{}));
-    // using SmemLayoutAtomdQ = decltype(
-    //     composition(Swizzle<2, 4, 2>{},
-    //                 Layout<Shape<_8, Int<kBlockKSmem>>,
-    //                        Stride<Int<kBlockKSmem>, _1>>{}));
     using SmemLayoutdQ = decltype(tile_to_shape(
         SmemLayoutAtomdQ{},
         make_shape(Int<kBlockM>{}, Int<kHeadDim>{})));
@@ -880,10 +859,6 @@ struct Flash_bwd_kernel_dq_traits : public Flash_bwd_kernel_traits<kHeadDim_, kB
                     Layout<Shape<_8, Int<kBlockKSmem>>,
                            Stride<Int<kBlockKSmem>, _1>>{}));
 
-    // using SmemLayoutAtomQdO = decltype(
-    //     composition(Swizzle<2, 4, 2>{},
-    //                 Layout<Shape<_8, Int<kBlockKSmem>>,
-    //                        Stride<Int<kBlockKSmem>, _1>>{}));
     using SmemLayoutQdO = decltype(tile_to_shape(
         SmemLayoutAtomQdO{},
         make_shape(Int<kBlockM>{}, Int<kHeadDim>{})));
@@ -892,10 +867,6 @@ struct Flash_bwd_kernel_dq_traits : public Flash_bwd_kernel_traits<kHeadDim_, kB
         composition(Swizzle<kSwizzle, 3, 3>{},
                     Layout<Shape<Int<kBlockM / kNWarps>, Int<kBlockKSmem>>,
                            Stride<Int<kBlockKSmem>, _1>>{}));
-    // using SmemLayoutAtomKV = decltype(
-    //     composition(Swizzle<2, 4, 2>{},
-    //                 Layout<Shape<Int<kBlockM / kNWarps>, Int<kBlockKSmem>>,
-    //                        Stride<Int<kBlockKSmem>, _1>>{}));
     using SmemLayoutKV = decltype(tile_to_shape(
         // SmemLayoutAtomQdO{},
         SmemLayoutAtomKV{},
@@ -920,10 +891,6 @@ struct Flash_bwd_kernel_dq_traits : public Flash_bwd_kernel_traits<kHeadDim_, kB
         composition(Swizzle<kSwizzlePdS, 3, 3>{},
                     Layout<Shape<Int<kBlockM>, Int<kPBlockN>>,
                            Stride<Int<kPBlockN>, _1>>{}));
-    // using SmemLayoutAtomPdS = decltype(
-    //     composition(Swizzle<2, 4, 2>{},
-    //                 Layout<Shape<Int<kBlockM>, Int<4>>,
-    //                        Stride<Int<4>, _1>>{}));
     using SmemLayoutPdS = decltype(tile_to_shape(
         SmemLayoutAtomPdS{},
         make_shape(Int<kBlockM>{}, Int<kBlockN>{})));
@@ -941,10 +908,6 @@ struct Flash_bwd_kernel_dq_traits : public Flash_bwd_kernel_traits<kHeadDim_, kB
         composition(Swizzle<kSwizzle, 3, 3>{},
                     Layout<Shape<_8, Int<kBlockKSmem>>,
                            Stride<Int<kBlockKSmem>, _1>>{}));
-    // using SmemLayoutAtomdQ = decltype(
-    //     composition(Swizzle<2, 4, 2>{},
-    //                 Layout<Shape<_8, Int<kBlockKSmem>>,
-    //                        Stride<Int<kBlockKSmem>, _1>>{}));
     using SmemLayoutdQ = decltype(tile_to_shape(
         SmemLayoutAtomdQ{},
         make_shape(Int<kBlockM>{}, Int<kHeadDim>{})));
@@ -1091,10 +1054,6 @@ struct Flash_bwd_kernel_trans_traits : public Base {
         composition(Swizzle<kSwizzlePdS, 3, 3>{},
                     Layout<Shape<Int<kBlockM>, Int<kPBlockN>>,
                            Stride<Int<kPBlockN>, _1>>{}));
-    // using SmemLayoutAtomPdS = decltype(
-    //     composition(Swizzle<2, 4, 2>{},
-    //                 Layout<Shape<Int<kBlockM>, Int<4>>,
-    //                        Stride<Int<4>, _1>>{}));
     using SmemLayoutPdS = decltype(tile_to_shape(
         SmemLayoutAtomPdS{},
         make_shape(Int<kBlockM>{}, Int<kBlockN>{})));
@@ -1306,10 +1265,6 @@ struct Flash_bwd_kernel_trans_16x64_traits : public Base {
                            Stride<Int<kBlockKSmem>, _1>>{});
 
 #endif
-    // using SmemLayoutAtomQdO = decltype(
-    //     composition(Swizzle<2, 4, 2>{},
-    //                 Layout<Shape<_8, Int<kBlockKSmem>>,
-    //                        Stride<Int<kBlockKSmem>, _1>>{}));
     using SmemLayoutQdO = decltype(tile_to_shape(
         SmemLayoutAtomQdO{},
         make_shape(Int<kBlockM>{}, Int<kHeadDim>{})));
@@ -1326,10 +1281,6 @@ struct Flash_bwd_kernel_trans_16x64_traits : public Base {
                            Stride<Int<kBlockKSmem>, _1>>{}));
 
 #endif
-    // using SmemLayoutAtomKV = decltype(
-    //     composition(Swizzle<2, 4, 2>{},
-    //                 Layout<Shape<Int<kBlockM / kNWarps>, Int<4>>,
-    //                        Stride<Int<4>, _1>>{}));
     using SmemLayoutKV = decltype(tile_to_shape(
         // SmemLayoutAtomQdO{},
         SmemLayoutAtomKV{},
@@ -1361,10 +1312,6 @@ struct Flash_bwd_kernel_trans_16x64_traits : public Base {
                     Layout<Shape<Int<kBlockM>, Int<kPBlockN>>,
                            Stride<Int<kPBlockN>, _1>>{}));
 #endif
-    // using SmemLayoutAtomPdS = decltype(
-    //     composition(Swizzle<2, 4, 2>{},
-    //                 Layout<Shape<Int<kBlockM>, Int<4>>,
-    //                        Stride<Int<4>, _1>>{}));
     using SmemLayoutPdS = decltype(tile_to_shape(
         SmemLayoutAtomPdS{},
         make_shape(Int<kBlockM>{}, Int<kBlockN>{})));
@@ -1570,10 +1517,7 @@ struct Flash_bwd_kernel_dq_16x64_traits : public Flash_bwd_kernel_traits<kHeadDi
                     Layout<Shape<_8, Int<kBlockKSmem>>,
                            Stride<Int<kBlockKSmem>, _1>>{}));
     using SmemLayoutV = Layout<Shape<Int<kBlockN*(kHeadDim/64)>, Int<64>>, Stride<Int<64>, _1>>;
-    // using SmemLayoutAtomQdO = decltype(
-    //     composition(Swizzle<2, 4, 2>{},
-    //                 Layout<Shape<_8, Int<kBlockKSmem>>,
-    //                        Stride<Int<kBlockKSmem>, _1>>{}));
+    
     using SmemLayoutQdO = decltype(tile_to_shape(
         SmemLayoutAtomQdO{},
         make_shape(Int<kBlockM>{}, Int<kHeadDim>{})));
@@ -1618,10 +1562,7 @@ struct Flash_bwd_kernel_dq_16x64_traits : public Flash_bwd_kernel_traits<kHeadDi
         composition(Swizzle<kSwizzlePdS, 3, 3>{},
                     Layout<Shape<Int<kBlockM>, Int<kPBlockN>>,
                            Stride<Int<kPBlockN>, _1>>{}));
-    // using SmemLayoutAtomPdS = decltype(
-    //     composition(Swizzle<2, 4, 2>{},
-    //                 Layout<Shape<Int<kBlockM>, Int<4>>,
-    //                        Stride<Int<4>, _1>>{}));
+
     using SmemLayoutPdS = decltype(tile_to_shape(
         SmemLayoutAtomPdS{},
         make_shape(Int<kBlockM>{}, Int<kBlockN>{})));
@@ -1639,10 +1580,6 @@ struct Flash_bwd_kernel_dq_16x64_traits : public Flash_bwd_kernel_traits<kHeadDi
         composition(Swizzle<kSwizzle, 3, 3>{},
                     Layout<Shape<_8, Int<kBlockKSmem>>,
                            Stride<Int<kBlockKSmem>, _1>>{}));
-    // using SmemLayoutAtomdQ = decltype(
-    //     composition(Swizzle<2, 4, 2>{},
-    //                 Layout<Shape<_8, Int<kBlockKSmem>>,
-    //                        Stride<Int<kBlockKSmem>, _1>>{}));
     using SmemLayoutdQ = decltype(tile_to_shape(
         SmemLayoutAtomdQ{},
         make_shape(Int<kBlockM>{}, Int<kHeadDim>{})));
