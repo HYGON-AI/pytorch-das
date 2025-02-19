@@ -1820,10 +1820,6 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
     // that needs masking when we read K and V from global memory. Moreover, iterating in reverse
     // might save us 1 register (we just need n_block instead of both n_block and n_block_max).
 
-<<<<<<< HEAD
-
-=======
->>>>>>> f7a93ab89b... [aten-cutlassfa] refactor for cutlass fa & optim
     // We move K and V to the last block.
     const int bidb_cache = params.cache_batch_idx == nullptr ? bidb : params.cache_batch_idx[bidb];
     const int *block_table = params.block_table == nullptr ? nullptr : params.block_table + bidb * params.block_table_batch_stride;
