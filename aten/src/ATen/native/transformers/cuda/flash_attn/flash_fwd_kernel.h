@@ -414,13 +414,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         Tensor tOrP = pytorch_flash::convert_layout_acc_Aregs(tiled_mma, rP, sAccs);
         Tensor TOrVtCoal = make_tensor(tOrVt.data(), make_shape(size<0>(tOrVt),size<1>(tOrVt),size<2>(tOrVt)));
         pytorch_flash::gemm_rs(acc_o, tOrP, TOrVtCoal, tOsVt, tiled_mma, smem_tiled_copy_V, smem_thr_copy_V);
-        // wangaq debug
-        // if (thread0()) {
-        //     printf("rP layout:"); print(rP.layout());printf("\n");
-        //     printf("tOrP layout:"); print(tOrP.layout());printf("\n");
-        //     printf("tOrVt layout:"); print(tOrVt.layout());printf("\n");
-        // }
-        // return;
+        
         #else
         pytorch_flash::gemm_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V);
         #endif
@@ -1293,24 +1287,7 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
     for (int i = 0; i < kStages; ++i) {
         lds_direct_copy<Is_even_K, Is_even_MN>(gK, sK, i, params.k_row_stride, params.d, binfo.actual_seqlen_k - n_block * kBlockN);
     }
-    // __builtin_amdgcn_sched_barrier(0);
-    // wangaq debug
-    // __syncthreads();
-    // if (thread0() && blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0) {
-    //     printf("params.d:%d\n", params.d);
-    //     // __half * tmp = reinterpret_cast<__half*>(sK.data().get());
-    //     // int col = 8;
-    //     // for (int i = 0; i < size(sK)/col; ++i) {
-    //     //     printf("K:%d nblock:%d ", i, n_block);
-    //     //     for (int j = 0; j < col; ++j) {
-    //     //         printf("%.4f ", __half2float(tmp[i*col+j]));
-    //     //     }
-    //     //     printf("\n");
-    //     // }
-    //     printf("tSrK rank:%d %d %d %d\n", rank(tSrK).value, size<0>(tSrK).value, size<1>(tSrK).value, size<2>(tSrK).value);
-    //     printf("tSsK rank:%d %d %d %d\n", rank(tSsK).value, size<0>(tSsK).value, size<1>(tSsK).value, size<2>(tSsK).value);
-    // }
-    // return;
+
 #if 1
     #pragma unroll
     for (int masking_step = 0; masking_step < n_masking_steps; ++masking_step, --n_block) {
@@ -1336,25 +1313,6 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
 
         Tensor acc_s = make_tensor(acc_s_ori.data(), convert_layout_acc(acc_s_ori.layout()));
 
-        // wangaq debug
-        // __syncthreads();
-        // if (blockIdx.x == 0) {
-        //     float * tmp = reinterpret_cast<float*>(acc_s.data());
-        //     printf("acc_s tid:%3d n_block:%d %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, n_block,
-        //     tmp[0], tmp[1], tmp[2], tmp[3], 
-        //     tmp[4], tmp[5], tmp[6], tmp[7],
-        //     tmp[8], tmp[9], tmp[10], tmp[11], 
-        //     tmp[12], tmp[13], tmp[14], tmp[15],
-        //     tmp[16], tmp[17], tmp[18], tmp[19], 
-        //     tmp[20], tmp[21], tmp[22], tmp[23],
-        //     tmp[24], tmp[25], tmp[26], tmp[27], 
-        //     tmp[28], tmp[29], tmp[30], tmp[31]
-        //     );
-        // }
-
         #if 1
         if constexpr (Is_softcap){
             apply_softcap(acc_s, params.softcap);
@@ -1371,42 +1329,12 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
             );
         }
 
-        // wangaq debug
-        // __syncthreads();
-        // if (thread0() && blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0) {
-        //     Element * tmp = reinterpret_cast<Element*>(sV.data().get());
-        //     int col = 32;
-        //     for (int i = 0; i < size(sV)/col; ++i) {
-        //         printf("V:%d nblock:%d ", i, n_block);
-        //         for (int j = 0; j < col; ++j) {
-        //             printf("%.4f ", float(tmp[i*col+j]));
-        //         }
-        //         printf("\n");
-        //     }
-        // }
         
         masking_step == 0
             ? softmax.template softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal || Is_local>(acc_s, acc_o, params.scale_softmax_log2)
             : softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal || Is_local>(acc_s, acc_o, params.scale_softmax_log2);
 
-        // wangaq debug
-        // __syncthreads();
-        // if (blockIdx.x == 0) {
-        //     float * tmp = reinterpret_cast<float*>(acc_s.data());
-        //     printf("exp_s tid:%d n_block:%d row_max:%10.4f %10.4f row_sum:%10.4f %10.4f | %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, n_block, softmax.row_max(0), softmax.row_max(1), softmax.row_sum(0), softmax.row_sum(1), 
-        //     tmp[0], tmp[1], tmp[2], tmp[3], 
-        //     tmp[4], tmp[5], tmp[6], tmp[7],
-        //     tmp[8], tmp[9], tmp[10], tmp[11], 
-        //     tmp[12], tmp[13], tmp[14], tmp[15],
-        //     tmp[16], tmp[17], tmp[18], tmp[19], 
-        //     tmp[20], tmp[21], tmp[22], tmp[23],
-        //     tmp[24], tmp[25], tmp[26], tmp[27], 
-        //     tmp[28], tmp[29], tmp[30], tmp[31]
-        //     );
-        // }
+        
 
         // Convert acc_s from fp32 to fp16/bf16
         Tensor rP = pytorch_flash::convert_type<Element>(acc_s);
@@ -1505,25 +1433,6 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
             }
         }
 
-        // wangaq debug
-        // __syncthreads();
-        // if (blockIdx.x == 0) {
-        //     float * tmp = reinterpret_cast<float*>(acc_o.data());
-        //     printf("acc_o tid:%d n_block:%d %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, n_block,
-        //     tmp[0], tmp[1], tmp[2], tmp[3], 
-        //     tmp[4], tmp[5], tmp[6], tmp[7],
-        //     tmp[8], tmp[9], tmp[10], tmp[11], 
-        //     tmp[12], tmp[13], tmp[14], tmp[15],
-        //     tmp[16], tmp[17], tmp[18], tmp[19], 
-        //     tmp[20], tmp[21], tmp[22], tmp[23],
-        //     tmp[24], tmp[25], tmp[26], tmp[27], 
-        //     tmp[28], tmp[29], tmp[30], tmp[31]
-        //     );
-        // }
-
         if (n_masking_steps > 1 && n_block <= n_block_min) {
             --n_block;
             break;
@@ -1556,31 +1465,6 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
 
         Tensor acc_s = make_tensor(acc_s_ori.data(), convert_layout_acc(acc_s_ori.layout()));
 
-        // wangaq debug
-        // __syncthreads();
-        // if (blockIdx.x == 0) {
-        //     float * tmp = reinterpret_cast<float*>(acc_s.data());
-        //     printf("acc_s tid:%d n_block:%d %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, n_block,
-        //     tmp[0], tmp[1], tmp[2], tmp[3], 
-        //     tmp[4], tmp[5], tmp[6], tmp[7],
-        //     tmp[8], tmp[9], tmp[10], tmp[11], 
-        //     tmp[12], tmp[13], tmp[14], tmp[15],
-        //     tmp[16], tmp[17], tmp[18], tmp[19], 
-        //     tmp[20], tmp[21], tmp[22], tmp[23],
-        //     tmp[24], tmp[25], tmp[26], tmp[27], 
-        //     tmp[28], tmp[29], tmp[30], tmp[31]
-        //     );
-        // }
-        
-        // __syncthreads();
-        // #pragma unroll
-        // for (int i = 0; i < kStages; ++i) {
-        //     lds_direct_copy<Is_even_K, /*Is_even_MN=*/true, _16x32>(gV, sV, i, params.v_row_stride, params.d);
-        // }
-        // asm volatile("s_waitcnt vmcnt(0) \n s_barrier");
         
         if constexpr (Is_softcap) {
             apply_softcap(acc_s, params.softcap);
@@ -1599,24 +1483,6 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
         
 
         softmax.template softmax_rescale_o</*Is_first=*/false,  /*Check_inf=*/ Is_local>(acc_s, acc_o, params.scale_softmax_log2);
-        // wangaq debug
-        // __syncthreads();
-        // if (blockIdx.x == 0) {
-        //     float * tmp = reinterpret_cast<float*>(acc_s.data());
-        //     printf("exp_s tid:%d n_block:%d row_max:%10.4f %10.4f row_sum:%10.4f %10.4f | %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, n_block, softmax.row_max(0), softmax.row_max(1), softmax.row_sum(0), softmax.row_sum(1), 
-        //     tmp[0], tmp[1], tmp[2], tmp[3], 
-        //     tmp[4], tmp[5], tmp[6], tmp[7],
-        //     tmp[8], tmp[9], tmp[10], tmp[11], 
-        //     tmp[12], tmp[13], tmp[14], tmp[15],
-        //     tmp[16], tmp[17], tmp[18], tmp[19], 
-        //     tmp[20], tmp[21], tmp[22], tmp[23],
-        //     tmp[24], tmp[25], tmp[26], tmp[27], 
-        //     tmp[28], tmp[29], tmp[30], tmp[31]
-        //     );
-        // }
 
         Tensor rP = pytorch_flash::convert_type<Element>(acc_s);
 
@@ -1699,24 +1565,6 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
             }
         }
         
-        // wangaq debug
-        // __syncthreads();
-        // if (blockIdx.x == 0) {
-        //     float * tmp = reinterpret_cast<float*>(acc_o.data());
-        //     printf("acc_o tid:%d n_block:%d %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
-        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, n_block,
-        //     tmp[0], tmp[1], tmp[2], tmp[3], 
-        //     tmp[4], tmp[5], tmp[6], tmp[7],
-        //     tmp[8], tmp[9], tmp[10], tmp[11], 
-        //     tmp[12], tmp[13], tmp[14], tmp[15],
-        //     tmp[16], tmp[17], tmp[18], tmp[19], 
-        //     tmp[20], tmp[21], tmp[22], tmp[23],
-        //     tmp[24], tmp[25], tmp[26], tmp[27], 
-        //     tmp[28], tmp[29], tmp[30], tmp[31]
-        //     );
-        // }
     }
 
     // Epilogue
@@ -1850,25 +1698,6 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
     Tensor lse = softmax.template normalize_softmax_lse<Is_dropout>(acc_o, params.scale_softmax, params.rp_dropout);
     
     S_BARRIER;
-    
-    // wangaq debug
-    // __syncthreads();
-    // if (blockIdx.x == 0) {
-    //     float * tmp = reinterpret_cast<float*>(acc_o.data());
-    //     printf("acc_o tid:%d n_block:%d 0:%10.4f 1:%10.4f 2:%10.4f 3:%10.4f 4:%10.4f 5:%10.4f 6:%10.4f 7:%10.4f "
-    //     "8:%10.4f 9:%10.4f 10:%10.4f 11:%10.4f 12:%10.4f 13:%10.4f 14:%10.4f 15:%10.4f "
-    //     "16:%10.4f 17:%10.4f 18:%10.4f 19:%10.4f 20:%10.4f 21:%10.4f 22:%10.4f 23:%10.4f "
-    //     "24:%10.4f 25:%10.4f 26:%10.4f 27:%10.4f 28:%10.4f 29:%10.4f 30:%10.4f 31:%10.4f\n", tidx, n_block,
-    //     // tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], tmp[5], tmp[6], tmp[7],
-    //     // tmp[8], tmp[9], tmp[10], tmp[11], tmp[12], tmp[13], tmp[14], tmp[15],
-    //     // tmp[16], tmp[17], tmp[18], tmp[19], tmp[20], tmp[21], tmp[22], tmp[23],
-    //     // tmp[24], tmp[25], tmp[26], tmp[27], tmp[28], tmp[29], tmp[30], tmp[31],
-    //     tmp[32], tmp[33], tmp[34], tmp[35], tmp[36], tmp[37], tmp[38], tmp[30],
-    //     tmp[40], tmp[41], tmp[42], tmp[43], tmp[44], tmp[45], tmp[46], tmp[47],
-    //     tmp[48], tmp[49], tmp[50], tmp[51], tmp[52], tmp[53], tmp[54], tmp[55],
-    //     tmp[56], tmp[57], tmp[58], tmp[59], tmp[60], tmp[61], tmp[62], tmp[63]
-    //     );
-    // }
 
     Tensor mO = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.o_ptr) + binfo_o_offset),
                             make_shape(binfo.actual_seqlen_q, params.h, params.d_value),
@@ -1899,11 +1728,7 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
                 col = (laneId / 16) + ni * 32;
                 #pragma unroll
                 for (int ei = 0; ei < size<0>(acc_o); ++ei) {
-                    // wangaq debug
-                    // if(thread(0, 0)) {
-                    //     printf("mi:%d ni:%d ei:%d row:%d col:%d acc_o:%.4f\n", 
-                    //     mi, ni, ei, row, col, acc_o(ei, mi, ni));
-                    // }
+                    
                     if (Is_even_K || col < params.d_value) {
                         gO(row, col) = pytorch_flash::convert_type<Element>(acc_o(ei, mi, ni));
                     } else 
