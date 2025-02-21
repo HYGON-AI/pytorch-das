@@ -414,7 +414,13 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         Tensor tOrP = pytorch_flash::convert_layout_acc_Aregs(tiled_mma, rP, sAccs);
         Tensor TOrVtCoal = make_tensor(tOrVt.data(), make_shape(size<0>(tOrVt),size<1>(tOrVt),size<2>(tOrVt)));
         pytorch_flash::gemm_rs(acc_o, tOrP, TOrVtCoal, tOsVt, tiled_mma, smem_tiled_copy_V, smem_thr_copy_V);
-        
+        // wangaq debug
+        // if (thread0()) {
+        //     printf("rP layout:"); print(rP.layout());printf("\n");
+        //     printf("tOrP layout:"); print(tOrP.layout());printf("\n");
+        //     printf("tOrVt layout:"); print(tOrVt.layout());printf("\n");
+        // }
+        // return;
         #else
         pytorch_flash::gemm_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V);
         #endif
@@ -862,6 +868,7 @@ inline __device__ void compute_attn_1rowblock_16x64(const Params &params, const 
         __syncthreads();
         cute::copy(tVrV, tVsV);
 
+        
         if (n_block > n_block_min) {
             pytorch_flash::copy</*Is_even_MN=*/true, Is_even_K>(gmem_tiled_copy_QKV, tKgK(_, _, _, n_block - 1), tKrK, tKVcKV, tKVpKV);
         }
@@ -936,6 +943,7 @@ inline __device__ void compute_attn_1rowblock_16x64(const Params &params, const 
         }
 
         Tensor acc_s = make_tensor(acc_s_ori.data(), convert_layout_acc(acc_s_ori.layout()));
+
         
         if constexpr (Is_softcap) {
             apply_softcap(acc_s, params.softcap);
@@ -988,6 +996,7 @@ inline __device__ void compute_attn_1rowblock_16x64(const Params &params, const 
 
         __syncthreads();
         pytorch_flash::gemm_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V);
+        
     }
 
     // Epilogue
@@ -1094,6 +1103,8 @@ inline __device__ void compute_attn_1rowblock_16x64(const Params &params, const 
     }
 }
 
+#define S_WAITCNT asm volatile("s_waitcnt vmcnt(3) \n s_barrier")
+#define S_BARRIER asm volatile("s_barrier")
 template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Return_softmax, typename Params,  typename index_t, typename Binfo>
 inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &params, const int bidb, const int bidh, const int m_block, index_t binfo_q_offset, index_t binfo_k_offset, index_t binfo_v_offset, index_t binfo_o_offset, const Binfo& binfo) {
 
@@ -1110,6 +1121,7 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
     constexpr int kBlockM = Kernel_traits::kBlockM;
     constexpr int kBlockN = Kernel_traits::kBlockN;
     constexpr int kHeadDim = Kernel_traits::kHeadDim;
+    constexpr int kHeadDimV = Kernel_traits::kHeadDimV;
     constexpr int kNWarps = Kernel_traits::kNWarps;
     constexpr int kStages = Kernel_traits::kStages;
 
@@ -1135,9 +1147,9 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
     if ((Is_causal || Is_local || !Is_even_MN) && n_block_max <= n_block_min) {
         Tensor mO = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.o_ptr)
                                               + binfo_o_offset),
-                                make_shape(binfo.actual_seqlen_q, params.h, params.d),
+                                make_shape(binfo.actual_seqlen_q, params.h, params.d_value),
                                 make_stride(params.o_row_stride, params.o_head_stride, _1{}));
-        Tensor gO = local_tile(mO(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
+        Tensor gO = local_tile(mO(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDimV>>{},
                               make_coord(m_block, 0));  // (kBlockM, kHeadDim)
 
         Tensor gLSE = get_lse_tile<ElementAccum, Params, kBlockM, Is_even_MN>(params, bidb, bidh, m_block, binfo);
@@ -1154,7 +1166,7 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
         Tensor tOpO = make_tensor<bool>(make_shape(size<2>(tOgO)));
         if (!Is_even_K) {
             #pragma unroll
-            for (int k = 0; k < size(tOpO); ++k) { tOpO(k) = get<1>(tOcO(0, 0, k)) < params.d; }
+            for (int k = 0; k < size(tOpO); ++k) { tOpO(k) = get<1>(tOcO(0, 0, k)) < params.d_value; }
         }
         // Clear_OOB_K must be false since we don't want to write zeros to gmem
         pytorch_flash::copy<Is_even_MN, Is_even_K, /*Clear_OOB_MN=*/false, /*Clear_OOB_K=*/false>(
@@ -1184,10 +1196,10 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
                             Shape<Int<kBlockN>, Int<kHeadDim>>{},
                             make_stride(params.k_row_stride, _1{}));
 
-    const index_t row_offset_v = binfo_k_offset + (n_block_max - 1) * kBlockN * params.v_row_stride 
+    const index_t row_offset_v = binfo_v_offset + (n_block_max - 1) * kBlockN * params.v_row_stride 
                                 + (bidh / params.h_h_k_ratio) * params.v_head_stride;
     Tensor gV = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.v_ptr) + row_offset_v),
-                            Shape<Int<kBlockN>, Int<kHeadDim>>{},
+                            Shape<Int<kBlockN>, Int<kHeadDimV>>{},
                             make_stride(params.v_row_stride, _1{}));
 
     Tensor gP = make_tensor(make_gmem_ptr(reinterpret_cast<Element *>(params.p_ptr) + row_offset_p),
@@ -1211,7 +1223,7 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
 
     Tensor tSgS  = thr_mma.partition_C(gP);
 
-    Tensor acc_o = partition_fragment_C(tiled_mma_for_gemm1, Shape<Int<kBlockM>, Int<kHeadDim>>{});  // MMA, MMA_M, MMA_K
+    Tensor acc_o = partition_fragment_C(tiled_mma_for_gemm1, Shape<Int<kBlockM>, Int<kHeadDimV>>{});  // MMA, MMA_M, MMA_K
 
     //
     // Copy Atom retiling
@@ -1276,11 +1288,29 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
     
     constexpr int k0_loops = size<2>(tSsK);
     constexpr int k1_loops = size<2>(tOsVt);
-    static_assert(k0_loops == k1_loops && kStages <= k0_loops, "kStages is error");
+    static_assert(kStages <= k0_loops && kStages <= k1_loops, "kStages is error");
     #pragma unroll
     for (int i = 0; i < kStages; ++i) {
         lds_direct_copy<Is_even_K, Is_even_MN>(gK, sK, i, params.k_row_stride, params.d, binfo.actual_seqlen_k - n_block * kBlockN);
     }
+    // __builtin_amdgcn_sched_barrier(0);
+    // wangaq debug
+    // __syncthreads();
+    // if (thread0() && blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0) {
+    //     printf("params.d:%d\n", params.d);
+    //     // __half * tmp = reinterpret_cast<__half*>(sK.data().get());
+    //     // int col = 8;
+    //     // for (int i = 0; i < size(sK)/col; ++i) {
+    //     //     printf("K:%d nblock:%d ", i, n_block);
+    //     //     for (int j = 0; j < col; ++j) {
+    //     //         printf("%.4f ", __half2float(tmp[i*col+j]));
+    //     //     }
+    //     //     printf("\n");
+    //     // }
+    //     printf("tSrK rank:%d %d %d %d\n", rank(tSrK).value, size<0>(tSrK).value, size<1>(tSrK).value, size<2>(tSrK).value);
+    //     printf("tSsK rank:%d %d %d %d\n", rank(tSsK).value, size<0>(tSsK).value, size<1>(tSsK).value, size<2>(tSsK).value);
+    // }
+    // return;
 #if 1
     #pragma unroll
     for (int masking_step = 0; masking_step < n_masking_steps; ++masking_step, --n_block) {
@@ -1290,21 +1320,40 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
         #pragma unroll
         for (int i = 0; i < k0_loops - kStages; ++i) {
             lds_direct_copy<Is_even_K, Is_even_MN>(gK, sK, kStages + i, params.k_row_stride, params.d, binfo.actual_seqlen_k - n_block * kBlockN);
-            asm volatile("s_waitcnt vmcnt(3) \n s_barrier");
+            S_WAITCNT;
             pytorch_flash::gemm_k_rs(acc_s_ori, tGrQ, tSrK, tSsK, tiled_mma, smem_tiled_copy_K, smem_thr_copy_K, i);
-            asm volatile("s_barrier");
+            S_BARRIER;
         }
 
         #pragma unroll
         for (int i = 0; i < kStages; ++i) { // tail kStages
-            lds_direct_copy<Is_even_K, Is_even_MN, _16x32>(gV, sV, i, params.v_row_stride, params.d, binfo.actual_seqlen_k - n_block * kBlockN);
-            asm volatile("s_waitcnt vmcnt(3) \n s_barrier");
+            lds_direct_copy<Is_even_K, Is_even_MN, _16x32>(gV, sV, i, params.v_row_stride, params.d_value, binfo.actual_seqlen_k - n_block * kBlockN);
+            S_WAITCNT;
             pytorch_flash::gemm_k_rs(acc_s_ori, tGrQ, tSrK, tSsK, tiled_mma, smem_tiled_copy_K, smem_thr_copy_K, k0_loops - kStages + i);
-            asm volatile("s_barrier");
+            S_BARRIER;
         }
         
 
         Tensor acc_s = make_tensor(acc_s_ori.data(), convert_layout_acc(acc_s_ori.layout()));
+
+        // wangaq debug
+        // __syncthreads();
+        // if (blockIdx.x == 0) {
+        //     float * tmp = reinterpret_cast<float*>(acc_s.data());
+        //     printf("acc_s tid:%3d n_block:%d %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, n_block,
+        //     tmp[0], tmp[1], tmp[2], tmp[3], 
+        //     tmp[4], tmp[5], tmp[6], tmp[7],
+        //     tmp[8], tmp[9], tmp[10], tmp[11], 
+        //     tmp[12], tmp[13], tmp[14], tmp[15],
+        //     tmp[16], tmp[17], tmp[18], tmp[19], 
+        //     tmp[20], tmp[21], tmp[22], tmp[23],
+        //     tmp[24], tmp[25], tmp[26], tmp[27], 
+        //     tmp[28], tmp[29], tmp[30], tmp[31]
+        //     );
+        // }
 
         #if 1
         if constexpr (Is_softcap){
@@ -1321,10 +1370,43 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
                 acc_s, n_block * kBlockN, row_idx_offset_, (kNWarps << 4)
             );
         }
+
+        // wangaq debug
+        // __syncthreads();
+        // if (thread0() && blockIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0) {
+        //     Element * tmp = reinterpret_cast<Element*>(sV.data().get());
+        //     int col = 32;
+        //     for (int i = 0; i < size(sV)/col; ++i) {
+        //         printf("V:%d nblock:%d ", i, n_block);
+        //         for (int j = 0; j < col; ++j) {
+        //             printf("%.4f ", float(tmp[i*col+j]));
+        //         }
+        //         printf("\n");
+        //     }
+        // }
         
         masking_step == 0
             ? softmax.template softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal || Is_local>(acc_s, acc_o, params.scale_softmax_log2)
             : softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal || Is_local>(acc_s, acc_o, params.scale_softmax_log2);
+
+        // wangaq debug
+        // __syncthreads();
+        // if (blockIdx.x == 0) {
+        //     float * tmp = reinterpret_cast<float*>(acc_s.data());
+        //     printf("exp_s tid:%d n_block:%d row_max:%10.4f %10.4f row_sum:%10.4f %10.4f | %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, n_block, softmax.row_max(0), softmax.row_max(1), softmax.row_sum(0), softmax.row_sum(1), 
+        //     tmp[0], tmp[1], tmp[2], tmp[3], 
+        //     tmp[4], tmp[5], tmp[6], tmp[7],
+        //     tmp[8], tmp[9], tmp[10], tmp[11], 
+        //     tmp[12], tmp[13], tmp[14], tmp[15],
+        //     tmp[16], tmp[17], tmp[18], tmp[19], 
+        //     tmp[20], tmp[21], tmp[22], tmp[23],
+        //     tmp[24], tmp[25], tmp[26], tmp[27], 
+        //     tmp[28], tmp[29], tmp[30], tmp[31]
+        //     );
+        // }
 
         // Convert acc_s from fp32 to fp16/bf16
         Tensor rP = pytorch_flash::convert_type<Element>(acc_s);
@@ -1355,23 +1437,54 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
 
         #pragma unroll
         for (int i = 0; i < k1_loops - kStages; ++i) {
-            lds_direct_copy<Is_even_K, Is_even_MN, _16x32>(gV, sV, kStages + i, params.v_row_stride, params.d, binfo.actual_seqlen_k - n_block * kBlockN);
-            asm volatile("s_waitcnt vmcnt(3) \n s_barrier");
+            lds_direct_copy<Is_even_K, Is_even_MN, _16x32>(gV, sV, kStages + i, params.v_row_stride, params.d_value, binfo.actual_seqlen_k - n_block * kBlockN);
+            S_WAITCNT;
             pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, i);
-            asm volatile("s_barrier");
+            S_BARRIER;
         }
         if (n_block > n_block_min) {
             gK.data() = gK.data() + (-int(kBlockN * params.k_row_stride));
             gV.data() = gV.data() + (-int(kBlockN * params.v_row_stride));
+            #if 1
             #pragma unroll
             for (int i = 0; i < kStages; ++i) { // tail kStages
                 lds_direct_copy<Is_even_K>(gK, sK, i, params.k_row_stride, params.d);
-                asm volatile("s_waitcnt vmcnt(3) \n s_barrier");
+                S_WAITCNT;
                 // __builtin_amdgcn_sched_barrier(0);
                 pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, k1_loops - kStages + i);
-                asm volatile("s_barrier");
+                S_BARRIER;
             }
-        } else if (kStages == 3)
+            #else
+            static_assert(k1_loops == 4 && kStages == 3, "kStages is error");
+            // k = 1
+            lds_direct_copy<Is_even_K>(gK, sK, 0, params.k_row_stride, params.d);
+            S_WAITCNT;
+            pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 1);
+            // k = 2
+            lds_direct_copy<Is_even_K>(gK, sK, 1, params.k_row_stride, params.d);
+            S_WAITCNT;
+            pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 2);
+            // k = 3
+            lds_direct_copy<Is_even_K>(gK, sK, 2, params.k_row_stride, params.d);
+            S_WAITCNT;
+            pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 3);
+            #endif
+        } else if (kStages == 4)
+        { // tail
+            // k = 0
+            asm volatile("s_waitcnt vmcnt(3) \n s_barrier");
+            pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 0);
+            // k = 1
+            asm volatile("s_waitcnt vmcnt(2) \n s_barrier");
+            pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 1);
+            // k = 2
+            asm volatile("s_waitcnt vmcnt(1) \n s_barrier");
+            pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 2);
+            // k = 3
+            asm volatile("s_waitcnt vmcnt(0) \n s_barrier");
+            pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 3);
+        } 
+        else if (kStages == 3)
         { // tail
             // k = 1
             asm volatile("s_waitcnt vmcnt(2) \n s_barrier");
@@ -1388,10 +1501,28 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
             #pragma unroll
             for (int i = 0; i < kStages; ++i) { // tail kStages
                 pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, k1_loops - kStages + i);
-                asm volatile("s_barrier");
+                S_BARRIER;
             }
         }
 
+        // wangaq debug
+        // __syncthreads();
+        // if (blockIdx.x == 0) {
+        //     float * tmp = reinterpret_cast<float*>(acc_o.data());
+        //     printf("acc_o tid:%d n_block:%d %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, n_block,
+        //     tmp[0], tmp[1], tmp[2], tmp[3], 
+        //     tmp[4], tmp[5], tmp[6], tmp[7],
+        //     tmp[8], tmp[9], tmp[10], tmp[11], 
+        //     tmp[12], tmp[13], tmp[14], tmp[15],
+        //     tmp[16], tmp[17], tmp[18], tmp[19], 
+        //     tmp[20], tmp[21], tmp[22], tmp[23],
+        //     tmp[24], tmp[25], tmp[26], tmp[27], 
+        //     tmp[28], tmp[29], tmp[30], tmp[31]
+        //     );
+        // }
 
         if (n_masking_steps > 1 && n_block <= n_block_min) {
             --n_block;
@@ -1408,22 +1539,48 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
         #pragma unroll
         for (int i = 0; i < k0_loops - kStages; ++i) {
             lds_direct_copy<Is_even_K>(gK, sK, kStages + i, params.k_row_stride, params.d);
-            asm volatile("s_waitcnt vmcnt(3) \n s_barrier");
+            S_WAITCNT;
             pytorch_flash::gemm_k_rs(acc_s_ori, tGrQ, tSrK, tSsK, tiled_mma, smem_tiled_copy_K, smem_thr_copy_K, i);
-            asm volatile("s_barrier");
+            S_BARRIER;
         }
 
         #pragma unroll
         for (int i = 0; i < kStages; ++i) { // tail kStages
-            lds_direct_copy<Is_even_K, /*Is_even_MN=*/true, _16x32>(gV, sV, i, params.v_row_stride, params.d);
-            asm volatile("s_waitcnt vmcnt(3) \n s_barrier");
+            lds_direct_copy<Is_even_K, /*Is_even_MN=*/true, _16x32>(gV, sV, i, params.v_row_stride, params.d_value);
+            S_WAITCNT;
             pytorch_flash::gemm_k_rs(acc_s_ori, tGrQ, tSrK, tSsK, tiled_mma, smem_tiled_copy_K, smem_thr_copy_K, k0_loops - kStages + i);
-            asm volatile("s_barrier");
+            S_BARRIER;
         }
         
         // __builtin_amdgcn_sched_barrier(1);
 
         Tensor acc_s = make_tensor(acc_s_ori.data(), convert_layout_acc(acc_s_ori.layout()));
+
+        // wangaq debug
+        // __syncthreads();
+        // if (blockIdx.x == 0) {
+        //     float * tmp = reinterpret_cast<float*>(acc_s.data());
+        //     printf("acc_s tid:%d n_block:%d %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, n_block,
+        //     tmp[0], tmp[1], tmp[2], tmp[3], 
+        //     tmp[4], tmp[5], tmp[6], tmp[7],
+        //     tmp[8], tmp[9], tmp[10], tmp[11], 
+        //     tmp[12], tmp[13], tmp[14], tmp[15],
+        //     tmp[16], tmp[17], tmp[18], tmp[19], 
+        //     tmp[20], tmp[21], tmp[22], tmp[23],
+        //     tmp[24], tmp[25], tmp[26], tmp[27], 
+        //     tmp[28], tmp[29], tmp[30], tmp[31]
+        //     );
+        // }
+        
+        // __syncthreads();
+        // #pragma unroll
+        // for (int i = 0; i < kStages; ++i) {
+        //     lds_direct_copy<Is_even_K, /*Is_even_MN=*/true, _16x32>(gV, sV, i, params.v_row_stride, params.d);
+        // }
+        // asm volatile("s_waitcnt vmcnt(0) \n s_barrier");
         
         if constexpr (Is_softcap) {
             apply_softcap(acc_s, params.softcap);
@@ -1442,6 +1599,24 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
         
 
         softmax.template softmax_rescale_o</*Is_first=*/false,  /*Check_inf=*/ Is_local>(acc_s, acc_o, params.scale_softmax_log2);
+        // wangaq debug
+        // __syncthreads();
+        // if (blockIdx.x == 0) {
+        //     float * tmp = reinterpret_cast<float*>(acc_s.data());
+        //     printf("exp_s tid:%d n_block:%d row_max:%10.4f %10.4f row_sum:%10.4f %10.4f | %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, n_block, softmax.row_max(0), softmax.row_max(1), softmax.row_sum(0), softmax.row_sum(1), 
+        //     tmp[0], tmp[1], tmp[2], tmp[3], 
+        //     tmp[4], tmp[5], tmp[6], tmp[7],
+        //     tmp[8], tmp[9], tmp[10], tmp[11], 
+        //     tmp[12], tmp[13], tmp[14], tmp[15],
+        //     tmp[16], tmp[17], tmp[18], tmp[19], 
+        //     tmp[20], tmp[21], tmp[22], tmp[23],
+        //     tmp[24], tmp[25], tmp[26], tmp[27], 
+        //     tmp[28], tmp[29], tmp[30], tmp[31]
+        //     );
+        // }
 
         Tensor rP = pytorch_flash::convert_type<Element>(acc_s);
 
@@ -1473,10 +1648,10 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
         // __builtin_amdgcn_sched_barrier(0x7F);
         #pragma unroll
         for (int i = 0; i < k1_loops - kStages; ++i) {
-            lds_direct_copy<Is_even_K, /*Is_even_MN=*/true, _16x32>(gV, sV, kStages + i, params.v_row_stride, params.d);
-            asm volatile("s_waitcnt vmcnt(3) \n s_barrier");
+            lds_direct_copy<Is_even_K, /*Is_even_MN=*/true, _16x32>(gV, sV, kStages + i, params.v_row_stride, params.d_value);
+            S_WAITCNT;
             pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, i);
-            asm volatile("s_barrier");
+            S_BARRIER;
         }
         
         // tail
@@ -1486,11 +1661,15 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
             #pragma unroll
             for (int i = 0; i < kStages; ++i) { // tail kStages
                 lds_direct_copy<Is_even_K>(gK, sK, i, params.k_row_stride, params.d);
-                asm volatile("s_waitcnt vmcnt(3) \n s_barrier");
+                S_WAITCNT;
                 pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, k1_loops - kStages + i);
-                asm volatile("s_barrier");
+                S_BARRIER;
             }
-        } else if (kStages == 3) { // tail
+        } else if (kStages == 4)
+        { // tail
+            // k = 0
+            asm volatile("s_waitcnt vmcnt(3) \n s_barrier");
+            pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 0);
             // k = 1
             asm volatile("s_waitcnt vmcnt(2) \n s_barrier");
             pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 1);
@@ -1500,15 +1679,44 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
             // k = 3
             asm volatile("s_waitcnt vmcnt(0) \n s_barrier");
             pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 3);
-        } else { // tail 
+        } else if (kStages == 3)
+        { // tail
+            // k = 1
+            asm volatile("s_waitcnt vmcnt(2) \n s_barrier");
+            pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 1);
+            // k = 2
+            asm volatile("s_waitcnt vmcnt(1) \n s_barrier");
+            pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 2);
+            // k = 3
+            asm volatile("s_waitcnt vmcnt(0) \n s_barrier");
+            pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, 3);
+        } else { // tail
             asm volatile("s_waitcnt vmcnt(0) \n s_barrier");
             #pragma unroll
             for (int i = 0; i < kStages; ++i) { // tail kStages
                 pytorch_flash::gemm_k_rs(acc_o, rP, tOrVt, tOsVt, tiled_mma_for_gemm1, smem_tiled_copy_V, smem_thr_copy_V, k1_loops - kStages + i);
-                asm volatile("s_barrier");
+                S_BARRIER;
             }
         }
         
+        // wangaq debug
+        // __syncthreads();
+        // if (blockIdx.x == 0) {
+        //     float * tmp = reinterpret_cast<float*>(acc_o.data());
+        //     printf("acc_o tid:%d n_block:%d %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f "
+        //     "%10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f %10.4f\n", tidx, n_block,
+        //     tmp[0], tmp[1], tmp[2], tmp[3], 
+        //     tmp[4], tmp[5], tmp[6], tmp[7],
+        //     tmp[8], tmp[9], tmp[10], tmp[11], 
+        //     tmp[12], tmp[13], tmp[14], tmp[15],
+        //     tmp[16], tmp[17], tmp[18], tmp[19], 
+        //     tmp[20], tmp[21], tmp[22], tmp[23],
+        //     tmp[24], tmp[25], tmp[26], tmp[27], 
+        //     tmp[28], tmp[29], tmp[30], tmp[31]
+        //     );
+        // }
     }
 
     // Epilogue
@@ -1641,17 +1849,35 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
     
     Tensor lse = softmax.template normalize_softmax_lse<Is_dropout>(acc_o, params.scale_softmax, params.rp_dropout);
     
-    asm volatile("s_barrier");
+    S_BARRIER;
     
+    // wangaq debug
+    // __syncthreads();
+    // if (blockIdx.x == 0) {
+    //     float * tmp = reinterpret_cast<float*>(acc_o.data());
+    //     printf("acc_o tid:%d n_block:%d 0:%10.4f 1:%10.4f 2:%10.4f 3:%10.4f 4:%10.4f 5:%10.4f 6:%10.4f 7:%10.4f "
+    //     "8:%10.4f 9:%10.4f 10:%10.4f 11:%10.4f 12:%10.4f 13:%10.4f 14:%10.4f 15:%10.4f "
+    //     "16:%10.4f 17:%10.4f 18:%10.4f 19:%10.4f 20:%10.4f 21:%10.4f 22:%10.4f 23:%10.4f "
+    //     "24:%10.4f 25:%10.4f 26:%10.4f 27:%10.4f 28:%10.4f 29:%10.4f 30:%10.4f 31:%10.4f\n", tidx, n_block,
+    //     // tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], tmp[5], tmp[6], tmp[7],
+    //     // tmp[8], tmp[9], tmp[10], tmp[11], tmp[12], tmp[13], tmp[14], tmp[15],
+    //     // tmp[16], tmp[17], tmp[18], tmp[19], tmp[20], tmp[21], tmp[22], tmp[23],
+    //     // tmp[24], tmp[25], tmp[26], tmp[27], tmp[28], tmp[29], tmp[30], tmp[31],
+    //     tmp[32], tmp[33], tmp[34], tmp[35], tmp[36], tmp[37], tmp[38], tmp[30],
+    //     tmp[40], tmp[41], tmp[42], tmp[43], tmp[44], tmp[45], tmp[46], tmp[47],
+    //     tmp[48], tmp[49], tmp[50], tmp[51], tmp[52], tmp[53], tmp[54], tmp[55],
+    //     tmp[56], tmp[57], tmp[58], tmp[59], tmp[60], tmp[61], tmp[62], tmp[63]
+    //     );
+    // }
 
     Tensor mO = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.o_ptr) + binfo_o_offset),
-                            make_shape(binfo.actual_seqlen_q, params.h, params.d),
+                            make_shape(binfo.actual_seqlen_q, params.h, params.d_value),
                             make_stride(params.o_row_stride, params.o_head_stride, _1{}));
-    Tensor gO = local_tile(mO(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDim>>{},
+    Tensor gO = local_tile(mO(_, bidh, _), Shape<Int<kBlockM>, Int<kHeadDimV>>{},
                            make_coord(m_block, 0));  // (kBlockM, kHeadDim)
     Tensor gLSE = get_lse_tile<ElementAccum, Params, kBlockM, Is_even_MN>(params, bidb, bidh, m_block, binfo);
 
-    Tensor caccO = make_identity_tensor(Shape<Int<kBlockM>, Int<kHeadDim>>{});    // (BLK_M,BLK_K) -> (blk_m,blk_k)
+    Tensor caccO = make_identity_tensor(Shape<Int<kBlockM>, Int<kHeadDimV>>{});    // (BLK_M,BLK_K) -> (blk_m,blk_k)
     Tensor taccOcO = thr_mma.partition_C(caccO);                           // (MMA,MMA_M,MMA_K)
     if (get<1>(taccOcO(0)) == 0) {
         #pragma unroll
@@ -1673,7 +1899,12 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
                 col = (laneId / 16) + ni * 32;
                 #pragma unroll
                 for (int ei = 0; ei < size<0>(acc_o); ++ei) {
-                    if (Is_even_K || col < params.d) {
+                    // wangaq debug
+                    // if(thread(0, 0)) {
+                    //     printf("mi:%d ni:%d ei:%d row:%d col:%d acc_o:%.4f\n", 
+                    //     mi, ni, ei, row, col, acc_o(ei, mi, ni));
+                    // }
+                    if (Is_even_K || col < params.d_value) {
                         gO(row, col) = pytorch_flash::convert_type<Element>(acc_o(ei, mi, ni));
                     } else 
                         gO(row, col) = Element(0.0);
@@ -1716,7 +1947,15 @@ inline __device__ void compute_attn_1rowblock_16x64_prefetch(const Params &param
     Tensor cO = make_identity_tensor(make_shape(size<0>(gO), size<1>(gO)));    // (BLK_M,BLK_K) -> (blk_m,blk_k)
     // Repeat the partitioning with identity layouts
     Tensor tOcO = gmem_thr_copy_O.partition_D(cO);                           // (ACPY,ACPY_M,ACPY_K) -> (blk_m,blk_k)
-    
+    // Tensor tOpO = make_tensor<bool>(make_shape(size<2>(taccOgO)));
+    // if constexpr (!Is_even_K) {
+    //     #pragma unroll
+    //     for (int k = 0; k < size(tOpO); ++k) { tOpO(k) = get<1>(tOcO(0, 0, k)) < params.d; }
+    // }
+    // // Clear_OOB_K must be false since we don't want to write zeros to gmem
+    // pytorch_flash::copy<Is_even_MN, Is_even_K, /*Clear_OOB_MN=*/false, /*Clear_OOB_K=*/false>(
+    //     gmem_tiled_copy_O, taccOrO, taccOgO, tOcO, tOpO, binfo.actual_seqlen_q - m_block * kBlockM
+    // );
     #pragma unroll
     for (int m = 0; m < size<1>(taccOrO); ++m) {
         if (Is_even_MN || (get<0>(tOcO(0, m, 0)) < (binfo.actual_seqlen_q - m_block * kBlockM))) {
@@ -1952,7 +2191,17 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
         for (int k = 0; k < size(tKVpKV); ++k) { tKVpKV(k) = get<1>(tKVcKV(0, 0, k)) < params.d; }
     }
 
-    
+    // Prologue
+
+    // Copy from Knew to K, optionally apply rotary embedding.
+    // typename Kernel_traits::GmemTiledCopyRotcossin gmem_tiled_copy_rotary;
+    // auto gmem_thr_copy_rotary = gmem_tiled_copy_rotary.get_thread_slice(tidx);
+    // typename Kernel_traits::GmemTiledCopyRotcossinCont gmem_tiled_copy_rotary_cont;
+    // auto gmem_thr_copy_rotary_cont = gmem_tiled_copy_rotary_cont.get_thread_slice(tidx);
+    // if (cute::thread0())
+    // {
+    //     printf("Append_KV = %d params.rotary_dim = %d\n", Append_KV, params.rotary_dim);
+    // }
     if constexpr (Append_KV) {
         typename Kernel_traits::GmemTiledCopyRotcossinPaged gmem_tiled_copy_rotary;
         auto gmem_thr_copy_rotary = gmem_tiled_copy_rotary.get_thread_slice(tidx);
@@ -2019,7 +2268,15 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
             pytorch_flash::copy_w_min_idx<Is_even_K>(
                 tVgVnew, tVgV, tKVcKV, tKVpKV, binfo.actual_seqlen_k - n_block * kBlockN, binfo.seqlen_k_cache - n_block * kBlockN
             );
-            
+            // __syncthreads();
+            // if (thread0())
+            // {
+            //     print(tVgVnew.layout());
+            //     print(tVgV.layout());
+            //     print(reshape_thread_tile(tVgVnew.layout()));
+            //     print(reshape_thread_tile(tVgV.layout()));
+            // }
+            // return;
             tVgVnew.data() = tVgVnew.data() + (-int(kBlockN * params.vnew_row_stride));
             if (params.rotary_dim == 0) {
                 pytorch_flash::copy_w_min_idx<Is_even_K>(
@@ -2113,11 +2370,25 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
         __syncthreads();
     }
 
+    // if (blockIdx.x == 0 && blockIdx.z == 0 && tidx == 0)
+    // {
+    //     printf("n_block_min = %d n_block_max = %d\n", n_block_min, n_block_max);    
+    // }
+
     int n_block = n_block_max - 1;
     auto tKrK = make_fragment_like(tKsK);
     // We don't need to clear the sK smem tiles since we'll mask out the scores anyway.
     pytorch_flash::copy<Is_even_MN, Is_even_K>(gmem_tiled_copy_KV, tKgK, tKrK, tKVcKV, tKVpKV,
                                        binfo.actual_seqlen_k - n_block * kBlockN);
+    // if (cute::thread0()) {
+    //     __syncthreads();
+    //     printf("tKrK = %f\n", float(tKrK(0)));
+    // }
+
+    // pytorch_flash::cp_async_wait<0>();
+    // __syncthreads();
+    // if (tidx == 0 && blockIdx.y == 0 && blockIdx.z == 0) { print(tKsK); }
+    // __syncthreads();
 
     clear(acc_o);
 
@@ -2161,9 +2432,24 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
                 gmem_tiled_copy_KV, tVgV, tVrV, tKVcKV, tKVpKV, binfo.actual_seqlen_k - n_block * kBlockN
             );
         }
-        
+        // __syncthreads();
+        // cute::cp_async_fence();
         pytorch_flash::gemm_rs(acc_s, tSrQ, tSrK, tSsK, tiled_mma, smem_tiled_copy_K, smem_thr_copy_K);
-        
+        // __syncthreads();
+        // pytorch_flash::gemm(
+        //     acc_s, tSrQ, tSrK, tSsQ, tSsK, tiled_mma, smem_tiled_copy_Q, smem_tiled_copy_K,
+        //     smem_thr_copy_Q, smem_thr_copy_K
+        // );
+        // if (blockIdx.y == 0 && blockIdx.z == 0 && tidx == 0) {
+        //     if (blockIdx.x == 0) {
+        //         print("first acc_s:"); print_tensor(acc_s); print("\n");
+        //         __syncthreads();
+        //     }
+        //     else {
+        //         print("second acc_s:"); print_tensor(acc_s); print("\n");
+        //         __syncthreads();
+        //     }
+        // }
         if constexpr (Is_softcap){
             apply_softcap(acc_s, params.softcap);
         }
@@ -2185,6 +2471,8 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
         // __syncthreads();
         cute::copy(tVrV, tVsV);
         __syncthreads();
+        // if (tidx == 0 && blockIdx.y == 0 && blockIdx.z == 0) { print(tVsV); }
+        // __syncthreads();
 
         if (n_block > n_block_min) {
             // Advance gK
@@ -2246,7 +2534,10 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
         
         pytorch_flash::gemm_rs(acc_s, tSrQ, tSrK, tSsK, tiled_mma, smem_tiled_copy_K, smem_thr_copy_K);
 
-        
+        // pytorch_flash::gemm(
+        //     acc_s, tSrQ, tSrK, tSsQ, tSsK, tiled_mma, smem_tiled_copy_Q, smem_tiled_copy_K,
+        //     smem_thr_copy_Q, smem_thr_copy_K
+        // );
         if constexpr (Is_softcap){
             apply_softcap(acc_s, params.softcap);
         }
@@ -2299,6 +2590,54 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
     // // Epilogue
 
     Tensor lse = softmax.template normalize_softmax_lse</*Is_dropout=*/false, Split>(acc_o, params.scale_softmax);
+    // if (cute::thread0()) { print(lse); }
+    // if (blockIdx.x == 0 && blockIdx.z == 0)
+    // {
+    //     printf("n_split_idx = %d lse = %f tidx = %d\n", n_split_idx, float(lse(0)), tidx);
+    // }
+    // if (blockIdx.x == 0 && blockIdx.z == 0 && tidx == 0)
+    // {
+    //     print("acc_o:"); print_tensor(acc_o); print("\n");
+    // }
+    // if (blockIdx.y == 0 && blockIdx.z == 0 && tidx < 16)
+    // {
+    //     if (blockIdx.x == 0) {
+    //         printf("first block\n");
+    //         // for (int i = 0; i < size<1>(acc_o); i++)
+    //         // {
+    //         //     for (int j = 0; j < size<2>(acc_o); j++)
+    //         //     {
+    //         //         for (int k = 0; k < size<0>(acc_o); k++)
+    //         //         {
+    //         //             printf(" i = %d j = %d k = %d %f", i, k, k, acc_o(k, i, j));
+    //         //         }
+    //         //         printf("\n");
+    //         //     }
+    //         // }
+    //         // __syncthreads();
+    //         acc_o(0) = 1.0;
+    //         // printf("split %d %f \n",tidx, acc_o(0));
+    //     }
+    //     else {
+    //         printf("second block\n");
+    //         // for (int i = 0; i < size<1>(acc_o); i++)
+    //         // {
+    //         //     for (int j = 0; j < size<2>(acc_o); j++)
+    //         //     {
+    //         //         for (int k = 0; k < size<0>(acc_o); k++)
+    //         //         {
+    //         //             printf(" i = %d j = %d k = %d %f", i, k, k, acc_o(k, i, j));
+    //         //         }
+    //         //         printf("\n");
+    //         //     }
+    //         // }
+    //         acc_o(0) = 0.5;
+    //         // printf("split %d %f \n",tidx, acc_o(0));
+    //         __syncthreads();
+    //     }
+        
+    // }
+
     
     // Tensor sOaccum = make_tensor(sAccs.data() + size(sAccs), typename Kernel_traits::SmemLayoutO{}); // (SMEM_M,SMEM_N)
     Tensor sOaccum = make_tensor(make_smem_ptr(reinterpret_cast<ElementO *>(smem_)), typename Kernel_traits::SmemLayoutO{}); // (SMEM_M,SMEM_N)
@@ -2372,6 +2711,10 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
         gmem_tiled_copy_Oaccum, tOrOaccum, tOgOaccum, tOcO, tOpO, binfo.actual_seqlen_q - m_block * kBlockM
     );
 
+    // __syncthreads();
+    // if (tidx == 0 && blockIdx.y == 0 && blockIdx.z == 0) { 
+    //     printf("row_offset_oaccum = %d, bidx = %d, gOaccum = %p gOaccum = %f\n", row_offset_oaccum, blockIdx.x, (uint64_t)(&gOaccum(0)), float(gOaccum(0))); 
+    // }
 #endif
 }
 
@@ -2517,6 +2860,12 @@ inline __device__ void combine_attn_seqk_parallel(const Params &params) {
     Tensor gLSEaccum = make_tensor(make_gmem_ptr(reinterpret_cast<ElementAccum *>(params.softmax_lseaccum_ptr) + row_offset_lse),
                                    Shape<Int<kMaxSplits>, Int<kBlockM>>{},
                                    make_stride(lse_size, _1{}));
+    // if (cute::thread0())
+    // {
+    //     print("gLSEaccum:");
+    //     print_tensor(gLSEaccum);
+    //     print("\n");
+    // }
 
     // LSE format is different depending on params.unpadded_lse and params.seqlenq_ngroups_swapped, see comment in get_lse_tile.
     // This tensor's layout maps row_offset_lse to {bidb, bidh, q_offset}.
@@ -2534,7 +2883,11 @@ inline __device__ void combine_attn_seqk_parallel(const Params &params) {
     // 1
     constexpr int kNLsePerThread = (kMaxSplits * kBlockM + kNThreads - 1) / kNThreads;
 
-    
+    // if (cute::thread0())
+    // {
+    //     printf("kNLsePerThread = %d \n", kNLsePerThread);
+    // }
+    // 8
     // Read the LSE values from gmem and store them in shared memory, then transpose them.
     constexpr int kRowsPerLoadLSE = kNThreads / kBlockM; 
     #pragma unroll
@@ -2546,6 +2899,7 @@ inline __device__ void combine_attn_seqk_parallel(const Params &params) {
         if (row < kMaxSplits) { sLSE[row][col] = lse; }
         // if (bidx == 0 && tidx < 64) { printf("tidx = %d, row = %d, col = %d, lse = %f\n", tidx, row, col, lse); }
     }
+    // if (bidx == 1 && tidx < 32) { printf("tidx = %d, row_offset_lse = %d, lse = %f\n", tidx, row_offset_lse, lse_accum(0)); }
     __syncthreads();
 
     Tensor lse_accum = make_tensor<ElementAccum>(Shape<Int<kNLsePerThread>>{});
@@ -2595,6 +2949,9 @@ inline __device__ void combine_attn_seqk_parallel(const Params &params) {
         } else {
             gLSE(tidx / kRowsPerLoadTranspose) = lse_logsum;
         }
+        // gLSE(tidx / kRowsPerLoadTranspose) = lse_logsum;
+        // const index_t lse_offset = row_offset_lse + tidx / kRowsPerLoadTranspose;
+        // printf("tidx = %d params.unpadded_lse = %d gLSE(tidx / kRowsPerLoadTranspose)  = %p  \n", tidx, params.unpadded_lse, (uint64_t)(&gLSE(tidx / kRowsPerLoadTranspose)));
     }
     // Store the scales exp(lse - lse_logsum) in shared memory.
     #pragma unroll
@@ -2622,6 +2979,12 @@ inline __device__ void combine_attn_seqk_parallel(const Params &params) {
     Tensor tOrOaccum = make_tensor<ElementAccum>(shape(tOgOaccum));
     clear(tOrO);
 
+    // if (bidx * kBlockM == 64 || bidx * kBlockM == 0)
+    // {
+        
+    //         // printf("tidx = %d row_offset_oaccum = %d gOaccum %p gOaccum = %f\n", tidx, row_offset_oaccum, (uint64_t)(&gOaccum(0)), float(gOaccum(0)));
+    // }
+
     // Predicates
     Tensor cOaccum = make_identity_tensor(Shape<Int<kBlockM>, Int<kHeadDim>>{});
     // Repeat the partitioning with identity layouts
@@ -2637,6 +3000,15 @@ inline __device__ void combine_attn_seqk_parallel(const Params &params) {
         pytorch_flash::copy</*Is_even_MN=*/false, Is_even_K>(
             gmem_tiled_copy_Oaccum, tOgOaccum, tOrOaccum, tOcOaccum, tOpOaccum, params.b * params.h * params.seqlen_q - bidx * kBlockM
         );
+        // __syncthreads();
+
+        // if (bidx * kBlockM == 64 || bidx * kBlockM == 0)
+        // {
+        //     if (tidx == 0)
+        //     {
+        //         printf("tOrOaccum %f\n", float(tOrOaccum(0)));
+        //     }
+        // }
         #pragma unroll
         for (int m = 0; m < size<1>(tOrOaccum); ++m) {
             int row = get<0>(tOcOaccum(0, m, 0));
@@ -2649,6 +3021,16 @@ inline __device__ void combine_attn_seqk_parallel(const Params &params) {
                     // auto temp = tOrO(i, m, k);
                     tOrO(i, m, k) += lse_scale * tOrOaccum(i, m, k);
 
+                    // if (split == 1) {
+                    //     if (cute::abs(tOrO(i, m, k) - tOrOaccum(i, m, k)) > 1e-3)
+                    //     {
+                    //         printf("bidx = %d error temp = %f lse_scale * tOrOaccum(i, m, k) = %f tOrOaccum(i, m, k) = %f tOrO(i, m, k) = %f lse_scale = %f\n",bidx * kBlockM, float(temp), lse_scale * tOrOaccum(i, m, k), float(tOrOaccum(i, m, k)), float(tOrO(i, m, k)), lse_scale);
+                    //     }
+                    // }
+                    // if (bidx == 2 && tidx == 0)
+                    // {
+                    //     printf("split = %d %d %d %d tOrOaccum(i, m, k) = %f tOrO(i, m, k) = %f lse_scale = %f\n", split, i, m, k, float(tOrOaccum(i, m, k)), float(tOrO(i, m, k)), lse_scale);
+                    // }
                 }
 
             }
@@ -2656,7 +3038,57 @@ inline __device__ void combine_attn_seqk_parallel(const Params &params) {
         }
         tOgOaccum.data() = tOgOaccum.data() + params.b * params.h * params.seqlen_q * params.d_rounded;
     }
+    // for (int split = 0; split < params.num_splits; ++split) {
+    //     pytorch_flash::copy</*Is_even_MN=*/false, Is_even_K>(
+    //         gmem_tiled_copy_Oaccum, tOgOaccum, tOrOaccum, tOcOaccum, tOpOaccum, params.b * params.h * params.seqlen_q - bidx * kBlockM
+    //     );
+    //     __syncthreads();
+    //     #pragma unroll
+    //     for (int m = 0; m < size<1>(tOrOaccum); ++m) {
+    //         int row = get<0>(tOcOaccum(0, m, 0));
+    //         ElementAccum lse_scale = sLSE[split][row];
+    //         if (lse_scale != 0.5)
+    //         {
+    //             printf("error lse_scale\n");
+    //         }
+    //         #pragma unroll
+    //         for (int k = 0; k < size<2>(tOrOaccum); ++k) {
+    //             #pragma unroll
+    //             for (int i = 0; i < size<0>(tOrOaccum); ++i) {
+    //                 auto temp = tOrO(i, m, k);
+    //                 tOrO(i, m, k) += lse_scale * tOrOaccum(i, m, k);
+
+    //                 // if (split == 1) {
+    //                 //     if (cute::abs(tOrO(i, m, k) - tOrOaccum(i, m, k)) > 1e-3)
+    //                 //     {
+    //                 //         printf("bidx = %d error temp = %f lse_scale * tOrOaccum(i, m, k) = %f tOrOaccum(i, m, k) = %f tOrO(i, m, k) = %f lse_scale = %f\n",bidx * kBlockM, float(temp), lse_scale * tOrOaccum(i, m, k), float(tOrOaccum(i, m, k)), float(tOrO(i, m, k)), lse_scale);
+    //                 //     }
+    //                 // }
+    //                 // if (bidx == 2 && tidx == 0)
+    //                 // {
+    //                 //     printf("split = %d %d %d %d tOrOaccum(i, m, k) = %f tOrO(i, m, k) = %f lse_scale = %f\n", split, i, m, k, float(tOrOaccum(i, m, k)), float(tOrO(i, m, k)), lse_scale);
+    //                 // }
+    //             }
+
+    //         }
+    //         // if (cute::thread0()) { printf("lse_scale = %f, %f\n", sLSE[split][0], sLSE[split][1]);}
+    //     }
+    //     tOgOaccum.data() = tOgOaccum.data() + params.b * params.h * params.seqlen_q * params.d_rounded;
+    // }
+    // if (cute::thread0()) { print_tensor(tOrO); }
+    
+    // Tensor mO = make_tensor(make_gmem_ptr(reinterpret_cast<Element*>(params.o_ptr) + 
+    // ));
+    // __syncthreads();
     Tensor rO = pytorch_flash::convert_type<Element>(tOrO);
+    // if (bidx * kBlockM == 64 || bidx * kBlockM == 0)
+    // {
+    //     if (tidx == 0)
+    //     {
+    //         printf("rO %f\n", float(rO(0)));
+    //     }
+    // }
+    // Write to gO
     #pragma unroll
     for (int m = 0; m < size<1>(rO); ++m) {
         const int idx = bidx * kBlockM + get<0>(tOcOaccum(0, m, 0));
@@ -2675,6 +3107,11 @@ inline __device__ void combine_attn_seqk_parallel(const Params &params) {
                                             Shape<Int<decltype(size<0>(rO))::value>>{}, Stride<_1>{});
                     // TODO: Should check if this is using vectorized store, but it seems pretty fast
                     copy(rO(_, m, k), gO);
+                    // __syncthreads();
+                    // if (bidx == 0 && tidx == 0) { printf("tidx = %d, idx = %d, batch_idx = %d, head_idx = %d, row = %d, col = %d\n", tidx, idx, batch_idx, head_idx, row, col); print(rO(_, m, k)); 
+                    //     print_tensor(gO);
+                    // }
+                    // reinterpret_cast<uint64_t *>(o_ptr)[col / 4] = recast<uint64_t>(rO)(0, m, k);
                 }
             }
         }
