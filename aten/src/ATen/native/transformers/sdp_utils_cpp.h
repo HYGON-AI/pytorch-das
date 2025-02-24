@@ -570,6 +570,7 @@ inline int switch_aotriton_fa_enable() {
     switch_aotriton_fa_value = c10::stoi(switch_aotriton_fa_str);
   }
   #ifndef USE_AOTRITON_FA
+  TORCH_WARN_ONCE("Aotriton flash attention has been compile-time disabled.");
   return 0;
   #else
   return switch_aotriton_fa_value;
