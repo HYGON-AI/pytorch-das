@@ -874,7 +874,7 @@ endif()
 
 # We are currenlty not using alibi attention for Flash So we disable this
 # feature by default We dont currently document this feature because we don't
-# Suspect users building from source will need this
+# Suspect users building from source will need taten/src/ATen/native/transformers/cuda/attention.cuhis
 add_definitions(-DFLASHATTENTION_DISABLE_ALIBI)
 
 # CAVEAT: Again, Flash Attention2 will error while building for sm52 while Mem
@@ -890,7 +890,7 @@ cmake_dependent_option(
 # USE_FLASH_ATTENTION -> USE_ROCM -> Dependencies.cmake -> aotriton.cmake
 #
 if(USE_ROCM)
-  if(USE_FLASH_ATTENTION OR USE_MEM_EFF_ATTENTION)
+  if((USE_FLASH_ATTENTION OR USE_MEM_EFF_ATTENTION) AND USE_AOTRITON_FA)
     include(cmake/External/aotriton.cmake)
   endif()
 endif()

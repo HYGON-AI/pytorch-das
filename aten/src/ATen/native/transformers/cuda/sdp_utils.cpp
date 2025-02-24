@@ -235,8 +235,6 @@ bool check_flash_attention_hardware_support(sdp_params const& params, bool debug
       return false;
     }
   }
-#else
-  return false;
 #endif
 #else
   if (!check_sm_version<sm80, sm90>(dprops)) {

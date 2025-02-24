@@ -950,6 +950,7 @@ _flash_attention_forward(
             cumulative_sequence_length_q.value(),
             cumulative_sequence_length_k.value(),
             seqused_k, /*seqused_k*/
+            block_table,
             alibi_slopes, /*alibi_slopes*/
             max_seqlen_batch_q,
             max_seqlen_batch_k,
@@ -969,6 +970,7 @@ _flash_attention_forward(
             cumulative_sequence_length_q.value(),
             cumulative_sequence_length_k.value(),
             seqused_k, /*seqused_k*/
+            block_table,
             alibi_slopes, /*alibi_slopes*/
             max_seqlen_batch_q,
             max_seqlen_batch_k,
