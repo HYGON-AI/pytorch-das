@@ -663,7 +663,7 @@ class ComboKernel(Kernel):
         signature: List[Any],
         argdefs: List[str],
         pointwise_with_reduce: bool = False,
-        signature: Optional[List[Any]] = None,
+        #signature: Optional[List[Any]] = None,
     ) -> str:
         can_use_32bit = all(k.index_dtype == "tl.int32" for k in self.sub_kernels)
         size_dtype = "tl.int32" if can_use_32bit else "tl.int64"
