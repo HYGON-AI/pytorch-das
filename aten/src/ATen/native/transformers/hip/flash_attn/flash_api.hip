@@ -10,8 +10,6 @@
 
 #include <cutlass/numeric_types.h>
 #include <ATen/native/transformers/hip/flash_attn/flash_api.h>
-#include <ATen/native/transformers/hip/flash_attn/flash.h>
-#include <ATen/native/transformers/hip/flash_attn/static_switch.h>
 
 #include <c10/core/ScalarType.h>
 #define TORCH_ASSERT_ONLY_METHOD_OPERATORS
