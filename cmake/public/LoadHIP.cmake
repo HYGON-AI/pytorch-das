@@ -157,7 +157,7 @@ if(HIP_FOUND)
   find_package_and_print_version(hipcub REQUIRED)
   find_package_and_print_version(rocthrust REQUIRED)
   find_package_and_print_version(hipsolver REQUIRED)
-  find_package_and_print_version(hiprtc REQUIRED)
+  #find_package_and_print_version(hiprtc REQUIRED)
 
   if(UNIX)
     find_package_and_print_version(rccl)
