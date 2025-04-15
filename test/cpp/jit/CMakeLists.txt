@@ -143,8 +143,9 @@ if(USE_CUDA)
   endif()
 elseif(USE_ROCM)
   target_link_libraries(test_jit PRIVATE
-    hiprtc::hiprtc
-    hip::amdhip64
+    ${PYTORCH_HIP_LIBRARIES}
+    #hiprtc::hiprtc
+    #hip::amdhip64
     ${TORCH_CUDA_LIBRARIES})
 
   target_compile_definitions(test_jit PRIVATE USE_ROCM)
