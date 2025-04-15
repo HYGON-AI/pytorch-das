@@ -12,7 +12,7 @@ from torch.testing._internal.inductor_utils import GPU_TYPE, HAS_GPU
 
 
 try:
-    import triton
+    import triton  # @manual
 except ImportError:
     if __name__ == "__main__":
         sys.exit(0)
@@ -66,7 +66,7 @@ class TestCoordinateDescentTuner(TestCase):
         """
 
         # size hint for x being 1 limits the max XBLOCK we try to be 1
-        tuner = CoordescTuner(size_hints=[1])
+        tuner = CoordescTuner(size_hints={"x": 1})
         baseline_config = triton.Config({"XBLOCK": 1}, num_warps=8, num_stages=1)
 
         def func(config):
@@ -102,7 +102,7 @@ class TestCoordinateDescentTuner(TestCase):
 
     def test_value_too_large(self):
         # Simulate a reduction
-        size_hints = [2**20, 2**20]
+        size_hints = {"x": 2**20, "y": 2**20}
 
         tuner = CoordescTuner(size_hints=size_hints)
 

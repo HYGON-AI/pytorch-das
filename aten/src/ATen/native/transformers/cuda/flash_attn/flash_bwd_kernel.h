@@ -428,7 +428,8 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
         cute::copy(smem_tiled_copy_KV, tdPsV, tdPrV_copy_view);
     }
 
-    pytorch_flash::Dropout dropout(params.rng_state[0], params.rng_state[1], params.p_dropout_in_uint8_t,
+    const auto [seed, offset] = at::cuda::philox::unpack(params.philox_args);
+    pytorch_flash::Dropout dropout(seed, offset, params.p_dropout_in_uint8_t,
                            bidb, bidh, tidx, params.h);
 
     clear(acc_dv);

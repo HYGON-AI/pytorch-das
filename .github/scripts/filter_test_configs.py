@@ -39,9 +39,9 @@ SUPPORTED_PERIODICAL_MODES: Dict[str, Callable[[Optional[str]], bool]] = {
 }
 
 # The link to the published list of disabled jobs
-DISABLED_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/disabled-jobs.json?versionId=sxzMTP57qj.Vwz8dN1glkTK560Txq9W3"
+DISABLED_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/disabled-jobs.json?versionId=pQg1WJZKNqoisT5kAGG9Wmbuns5zBdBc"
 # and unstable jobs
-UNSTABLE_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/unstable-jobs.json?versionId=8f1.4S3MupuHXH8t0waxyGnPsGHJYdv9"
+UNSTABLE_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/unstable-jobs.json?versionId=ddADM6lf9NqVTA0APn69zl3M7nMda4DH"
 
 # Some constants used to handle disabled and unstable jobs
 JOB_NAME_SEP = "/"
@@ -332,7 +332,7 @@ def process_jobs(
         # The job name from github is in the PLATFORM / JOB (CONFIG) format, so breaking
         # it into its two components first
         current_platform, _ = (n.strip() for n in job_name.split(JOB_NAME_SEP, 1) if n)
-    except ValueError as error:
+    except ValueError:
         warnings.warn(f"Invalid job name {job_name}, returning")
         return test_matrix
 
