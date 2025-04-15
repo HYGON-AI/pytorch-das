@@ -8,14 +8,19 @@ on:
       - reopened
     branches-ignore:
       - nightly
+  push:
+    tags:
+      # TODO: Remove me later
+      -  ciflow/inductor-cu126/*
   workflow_dispatch:
 
 jobs:
   bc_linter:
+    if: github.repository_owner == 'pytorch'
     runs-on: ubuntu-latest
     steps:
       - name: Run BC Lint Action
-        uses: pytorch/test-infra/.github/actions/bc-lint@release/2.5
+        uses: pytorch/test-infra/.github/actions/bc-lint@release/2.6
         with:
           repo: ${{ github.event.pull_request.head.repo.full_name }}
           base_sha: ${{ github.event.pull_request.base.sha }}

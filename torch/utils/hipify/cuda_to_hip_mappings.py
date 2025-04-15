@@ -55,6 +55,12 @@ if os.path.isfile(rocm_version_h):
             patch = int(match.group(1))
     rocm_version = (major, minor, patch)
 
+_IS_FBCODE = os.environ.get("IS_FBCODE", "0") == "1"
+
+# FBCODE compiles against rccl sources instead of an installed rccl package.
+# The header location is src/rccl.h versus rccl/rccl.h, respectively.
+_RCCL_HEADER = "<rccl.h>" if _IS_FBCODE else "<rccl/rccl.h>"
+
 # List of math functions that should be replaced inside device code only.
 MATH_TRANSPILATIONS = collections.OrderedDict(
     [
@@ -643,7 +649,7 @@ CUDA_INCLUDE_MAP = collections.OrderedDict(
         ("cufft.h", ("hipfft/hipfft.h", CONV_INCLUDE, API_BLAS)),
         ("cufftXt.h", ("hipfft/hipfftXt.h", CONV_INCLUDE, API_BLAS)),
         # PyTorch also has a source file named "nccl.h", so we need to "<"">" to differentiate
-        ("<nccl.h>", ("<rccl/rccl.h>", CONV_INCLUDE, API_RUNTIME)),
+        ("<nccl.h>", (_RCCL_HEADER, CONV_INCLUDE, API_RUNTIME)),
         ("nvrtc.h", ("hip/hiprtc.h", CONV_INCLUDE, API_RTC)),
         ("thrust/system/cuda", ("thrust/system/hip", CONV_INCLUDE, API_BLAS)),
         ("cub/util_allocator.cuh", ("hipcub/hipcub.hpp", CONV_INCLUDE, API_BLAS)),
@@ -4201,6 +4207,8 @@ CUDA_IDENTIFIER_MAP = collections.OrderedDict(
         ("cudaStreamBeginCapture", ("hipStreamBeginCapture", CONV_TYPE, API_RUNTIME)),
         ("cudaStreamEndCapture", ("hipStreamEndCapture", CONV_TYPE, API_RUNTIME)),
         ("cudaGraphInstantiate", ("hipGraphInstantiate", CONV_TYPE, API_RUNTIME)),
+        ("cudaGraphInstantiateWithFlags", ("hipGraphInstantiateWithFlags", CONV_TYPE, API_RUNTIME)),
+        ("cudaGraphInstantiateFlagAutoFreeOnLaunch", ("hipGraphInstantiateFlagAutoFreeOnLaunch", CONV_TYPE, API_RUNTIME)),
         ("cudaGraphDestroy", ("hipGraphDestroy", CONV_TYPE, API_RUNTIME)),
         ("cudaGraphExecDestroy", ("hipGraphExecDestroy", CONV_TYPE, API_RUNTIME)),
         ("cudaGraphLaunch", ("hipGraphLaunch", CONV_TYPE, API_RUNTIME)),
@@ -5066,6 +5074,7 @@ CUDA_IDENTIFIER_MAP = collections.OrderedDict(
             "cudaLaunchCooperativeKernel",
             ("hipLaunchCooperativeKernel", CONV_EXEC, API_RUNTIME),
         ),
+        ("cudaLaunchHostFunc", ("hipLaunchHostFunc", CONV_EXEC, API_RUNTIME, HIP_UNSUPPORTED)),
         (
             "cudaSetupArgument",
             ("hipSetupArgument", CONV_EXEC, API_RUNTIME, HIP_UNSUPPORTED),
@@ -6726,6 +6735,7 @@ CUDA_IDENTIFIER_MAP = collections.OrderedDict(
             "cublasGetVersion_v2",
             ("hipblasGetVersion_v2", CONV_MATH_FUNC, API_BLAS, HIP_UNSUPPORTED),
         ),
+        ("cublasSetWorkspace", ("hipblasSetWorkspace", CONV_MATH_FUNC, API_BLAS)),
         ("cublasSetStream", ("hipblasSetStream", CONV_MATH_FUNC, API_BLAS)),
         ("cublasGetStream", ("hipblasGetStream", CONV_MATH_FUNC, API_BLAS)),
         ("cublasSetStream_v2", ("hipblasSetStream_v2", CONV_MATH_FUNC, API_BLAS)),
@@ -7965,6 +7975,7 @@ CUDA_IDENTIFIER_MAP = collections.OrderedDict(
         ("cub::BlockLoad", ("hipcub::BlockLoad", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::BlockStore", ("hipcub::BlockStore", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::BlockRakingLayout", ("hipcub::BlockRakingLayout", CONV_SPECIAL_FUNC, API_RUNTIME)),
+        ("cub::BlockRadixSort", ("hipcub::BlockRadixSort", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::Uninitialized", ("hipcub::Uninitialized", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::RowMajorTid", ("hipcub::RowMajorTid", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::CachingDeviceAllocator", ("hipcub::CachingDeviceAllocator", CONV_SPECIAL_FUNC, API_RUNTIME)),
@@ -7976,6 +7987,7 @@ CUDA_IDENTIFIER_MAP = collections.OrderedDict(
         ("cub::DeviceSegmentedRadixSort", ("hipcub::DeviceSegmentedRadixSort", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::DeviceSegmentedReduce", ("hipcub::DeviceSegmentedReduce", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::DeviceSelect", ("hipcub::DeviceSelect", CONV_SPECIAL_FUNC, API_RUNTIME)),
+        ("cub::FpLimits", ("hipcub::FpLimits", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::KeyValuePair", ("hipcub::KeyValuePair", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::BLOCK_REDUCE_RAKING_COMMUTATIVE_ONLY", ("hipcub::BLOCK_REDUCE_RAKING_COMMUTATIVE_ONLY", CONV_SPECIAL_FUNC, API_RUNTIME)),
         ("cub::Max", ("hipcub::Max", CONV_SPECIAL_FUNC, API_RUNTIME)),
@@ -7996,6 +8008,7 @@ CUDA_IDENTIFIER_MAP = collections.OrderedDict(
         ("nvtxRangePop", ("roctxRangePop", CONV_OTHER, API_ROCTX)),
         ("nvtxRangeStartA", ("roctxRangeStartA", CONV_OTHER, API_ROCTX)),
         ("nvtxRangeEnd", ("roctxRangeStop", CONV_OTHER, API_ROCTX)),
+        ("nvtxRangeId_t", ("int", CONV_OTHER, API_ROCTX)),
         ("nvmlReturn_t", ("rsmi_status_t", CONV_OTHER, API_ROCMSMI)),
         ("NVML_SUCCESS", ("RSMI_STATUS_SUCCESS", CONV_OTHER, API_ROCMSMI)),
         ("NVML_P2P_CAPS_INDEX_READ", ("RSMI_STATUS_SUCCESS", CONV_OTHER, API_ROCMSMI)),
@@ -8612,6 +8625,7 @@ PYTORCH_SPECIFIC_MAPPINGS = collections.OrderedDict(
 
 CAFFE2_SPECIFIC_MAPPINGS = collections.OrderedDict(
     [
+        ("PYTORCH_NO_CUDA_MEMORY_CACHING", ("PYTORCH_NO_CUDA_MEMORY_CACHING", API_CAFFE2)),
         ("cuda_stream", ("hip_stream", API_CAFFE2)),
         # if the header is a native hip folder (under hip directory),
         # there is no need to add a hip path to it; the trie in hipify script
