@@ -3888,7 +3888,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::allreduce_impl(
       OpType::ALLREDUCE,
       profilingTitle);
 }
-
+}
 c10::intrusive_ptr<Work> ProcessGroupNCCL::allreduce(
     std::vector<at::Tensor>& tensors,
     const AllreduceOptions& opts) {
