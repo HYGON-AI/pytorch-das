@@ -346,7 +346,8 @@ CUDA_TYPE_NAME_MAP = collections.OrderedDict(
         ("cudaStream_t", ("hipStream_t", CONV_TYPE, API_RUNTIME)),
         ("cudaPointerAttributes", ("hipPointerAttribute_t", CONV_TYPE, API_RUNTIME)),
         ("cudaDeviceAttr", ("hipDeviceAttribute_t", CONV_TYPE, API_RUNTIME)),
-        ("cudaDeviceProp", ("hipDeviceProp_t", CONV_TYPE, API_RUNTIME)),
+        ("cudaDeviceProp", ("hipDeviceProp_t_v2" if rocm_version >= (6, 1, 0) else "hipDeviceProp_t", CONV_TYPE, API_RUNTIME)),
+        ("hipDeviceProp_t",("hipDeviceProp_t_v2" if rocm_version >= (6, 1, 0) else "hipDeviceProp_t", CONV_TYPE, API_RUNTIME)),
         (
             "cudaDeviceP2PAttr",
             ("hipDeviceP2PAttribute", CONV_TYPE, API_RUNTIME, HIP_UNSUPPORTED),
@@ -2882,7 +2883,8 @@ CUDA_IDENTIFIER_MAP = collections.OrderedDict(
             "cuDeviceComputeCapability",
             ("hipDeviceComputeCapability", CONV_DEVICE, API_DRIVER),
         ),
-        ("cuDeviceGetProperties", ("hipGetDeviceProperties", CONV_DEVICE, API_DRIVER)),
+        ("cuDeviceGetProperties", ("hipGetDeviceProperties_v2" if rocm_version >= (6, 1, 0) else "hipGetDeviceProperties", CONV_DEVICE, API_DRIVER)),
+        ("hipGetDeviceProperties", ("hipGetDeviceProperties_v2" if rocm_version >= (6, 1, 0) else "hipGetDeviceProperties", CONV_DEVICE, API_DRIVER)),
         ("cuLinkAddData", ("hipLinkAddData", CONV_MODULE, API_DRIVER, HIP_UNSUPPORTED)),
         ("cuLinkAddFile", ("hipLinkAddFile", CONV_MODULE, API_DRIVER, HIP_UNSUPPORTED)),
         (
@@ -4914,7 +4916,11 @@ CUDA_IDENTIFIER_MAP = collections.OrderedDict(
         ),
         (
             "cudaGetDeviceProperties",
-            ("hipGetDeviceProperties", CONV_DEVICE, API_RUNTIME),
+            ("hipGetDeviceProperties_v2" if rocm_version >= (6, 1, 0) else "hipGetDeviceProperties", CONV_DEVICE, API_RUNTIME),
+        ),
+        (
+            "hipGetDeviceProperties",
+            ("hipGetDeviceProperties_v2" if rocm_version >= (6, 1, 0) else "hipGetDeviceProperties", CONV_DEVICE, API_RUNTIME),
         ),
         ("cudaDeviceGetPCIBusId", ("hipDeviceGetPCIBusId", CONV_DEVICE, API_RUNTIME)),
         (
