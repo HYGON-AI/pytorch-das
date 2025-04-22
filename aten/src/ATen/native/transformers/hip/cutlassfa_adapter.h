@@ -4,13 +4,18 @@
 
 #ifdef USE_ROCM
 #include <dlfcn.h>
+#include <filesystem>
 #include <iostream>
+#include <fnmatch.h>
 #include <vector>
 #include <ATen/hip/HIPContext.h>
 #include <c10/core/ScalarType.h>
 #include <ATen/core/Tensor.h>
 #include <c10/util/Exception.h>
 #include <c10/util/CallOnce.h>
+
+
+namespace fs = std::filesystem;
 
 typedef std::vector<at::Tensor> (*mha_fwd_func)(at::Tensor , const at::Tensor, const at::Tensor,
                                                 c10::optional<at::Tensor>, c10::optional<at::Tensor>,
@@ -49,6 +54,51 @@ typedef std::vector<at::Tensor> (*mha_varlen_bwd_func)(const at::Tensor , const 
 //                                                 c10::optional<at::Tensor>, c10::optional<at::Tensor>,c10::optional<at::Tensor>, c10::optional<at::Tensor>,
 //                                                 c10::optional<at::Tensor>, c10::optional<at::Tensor>,
 //                                                 const float, bool, int, int, const float, bool, int);
+//
+//
+//
+//
+
+
+// 查找匹配的动态库文件
+std::string find_matching_libraries(const fs::path& directory, const std::string& pattern) {
+    bool found = false;
+    std::string file_path = "";
+    for (const auto& entry : fs::directory_iterator(directory)) {
+        if (entry.is_regular_file()) { // 只处理普通文件
+            std::string file_name = entry.path().filename().string();
+            if (fnmatch(pattern.c_str(), file_name.c_str(), 0) == 0) { // 匹配通配符
+                file_path = entry.path().string();
+                found = true;
+                break;
+            }
+        }
+    }
+
+    if (!found) {
+        TORCH_CHECK(false, "No matching libraries found for flash_attn_2_cuda*.so");
+    }
+    return file_path;
+}
+
+std::string print_library_path() {
+    Dl_info info;
+    std::string path;
+    if (dladdr(reinterpret_cast<void*>(&print_library_path), &info)) {
+        path = std::string(info.dli_fname);
+    } else {
+	TORCH_CHECK(false, "Error: Unable to retrieve library path.");
+    }
+    return path;
+}
+
+std::string get_so_path() {
+  auto c_so_path = print_library_path();
+  fs::path c_so_fs(c_so_path);
+  auto lib_fs = c_so_fs.parent_path().parent_path().parent_path();
+  auto fa_so_p = find_matching_libraries(lib_fs, "flash_attn_2_cuda*.so");
+  return fa_so_p;
+}
 
 namespace sdp {
 
@@ -62,7 +112,9 @@ public:
     mha_varlen_bwd_func mha_varlen_bwd = nullptr;
     // mha_fwd_kvcache_func mha_fwd_kvcache = nullptr;
     CUTLASSFA() {
-      handle = dlopen("flash_attn_2_cuda.so", RTLD_LAZY);
+
+      auto fa_so_p = get_so_path();
+      handle = dlopen(fa_so_p.c_str(), RTLD_LAZY);
       if(!handle){
         TORCH_CHECK(false, "Not load library for Cutlass Fa so");
       }
@@ -90,7 +142,6 @@ public:
     CUTLASSFA& operator=(CUTLASSFA&&) = delete;
 private:
     void* handle;
-    
     ~CUTLASSFA(){
         dlclose(handle);
     }
