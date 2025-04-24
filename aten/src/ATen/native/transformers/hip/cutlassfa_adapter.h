@@ -93,10 +93,17 @@ std::string print_library_path() {
 }
 
 std::string get_so_path() {
-  auto c_so_path = print_library_path();
-  fs::path c_so_fs(c_so_path);
-  auto lib_fs = c_so_fs.parent_path().parent_path().parent_path();
-  auto fa_so_p = find_matching_libraries(lib_fs, "flash_attn_2_cuda*.so");
+  std::string fa_so_p;
+  auto* e_fa_so = std::getenv("FA_SO_PATH");
+
+  if (e_fa_so) {
+    fa_so_p = std::string(e_fa_so);
+  } else {
+    auto c_so_path = print_library_path();
+    fs::path c_so_fs(c_so_path);
+    auto lib_fs = c_so_fs.parent_path().parent_path().parent_path();
+    fa_so_p = find_matching_libraries(lib_fs, "flash_attn_2_cuda*.so");
+  }
   return fa_so_p;
 }
 
