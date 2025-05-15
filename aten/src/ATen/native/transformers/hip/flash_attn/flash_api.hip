@@ -8,7 +8,6 @@
 #include <ATen/hip/HIPContext.h>
 #include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
 
-#include <cutlass/numeric_types.h>
 #include <ATen/native/transformers/hip/flash_attn/flash_api.h>
 
 #include <c10/core/ScalarType.h>
@@ -90,7 +89,7 @@ prepare_philox_arguments(float p_dropout, int64_t counter_offset) {
   return { seed_t, offset_t, philox_state, use_philox_state };
 }
 
-
+#endif
 }
 
 
@@ -161,7 +160,6 @@ mha_varlen_fwd(const at::Tensor &q_,  // total_q x num_heads x head_size, total_
     at::Tensor q = q_;
     const float softcap = 0.;
     c10::optional<const at::Tensor> leftpad_k_ = c10::nullopt; // batch_size
-    c10::optional<at::Tensor> block_table_ = c10::nullopt; // batch_size x max_num_blocks_per_seq
     
     auto& cfa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
     std::vector<at::Tensor> res = cfa.mha_varlen_fwd(q, k, v, out_, cu_seqlens_q, cu_seqlens_k, seqused_k,
@@ -905,9 +903,102 @@ mha_aot_varlen_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
   return { dq, dk, dv, softmax_d };
 }
 
-} // namespace pytorch_fmha
+#else
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+mha_aot_fwd(const at::Tensor &q,         // batch_size x seqlen_q x num_heads x head_size
+        const at::Tensor &k,         // batch_size x seqlen_k x num_heads_k x head_size
+        const at::Tensor &v,         // batch_size x seqlen_k x num_heads_k x head_size
+        std::optional<at::Tensor> &out_,             // batch_size x seqlen_q x num_heads x head_size
+        std::optional<at::Tensor> &alibi_slopes_, // num_heads or batch_size x num_heads
+        const float p_dropout,
+        const float softmax_scale,
+        bool is_causal,
+        int window_size_left,
+        int window_size_right,
+        const bool return_softmax,
+        std::optional<at::Generator> gen_)
+    {
+        return {at::Tensor(),at::Tensor(),at::Tensor(),at::Tensor(),at::Tensor(),at::Tensor(),at::Tensor(),at::Tensor()};
+    }
 
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+mha_aot_varlen_fwd(const at::Tensor &q,  // total_q x num_heads x head_size, total_q := \sum_{i=0}^{b} s_i
+               const at::Tensor &k,  // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i
+               const at::Tensor &v,  // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i
+               std::optional<at::Tensor> &out_, // total_q x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
+               const at::Tensor &cu_seqlens_q,  // b+1
+               const at::Tensor &cu_seqlens_k,  // b+1
+               std::optional<at::Tensor> &seqused_k, // b. If given, only this many elements of each batch element's keys are used.
+               std::optional<at::Tensor> &block_table_, // batch_size x max_num_blocks_per_seq
+               std::optional<at::Tensor> &alibi_slopes_, // num_heads or b x num_heads
+               int max_seqlen_q,
+               const int max_seqlen_k,
+               const float p_dropout,
+               const float softmax_scale,
+               const bool zero_tensors,
+               bool is_causal,
+               int window_size_left,
+               int window_size_right,
+               const bool return_softmax,
+               std::optional<at::Generator> gen_) 
+    {
+        return {at::Tensor(),at::Tensor(),at::Tensor(),at::Tensor(),at::Tensor(),at::Tensor(),at::Tensor(),at::Tensor()};
+
+    }
+
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+mha_aot_bwd(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x head_size_og
+        const at::Tensor &q,   // batch_size x seqlen_q x num_heads x head_size
+        const at::Tensor &k,   // batch_size x seqlen_k x num_heads_k x head_size
+        const at::Tensor &v,   // batch_size x seqlen_k x num_heads_k x head_size
+        const at::Tensor &out,   // batch_size x seqlen_q x num_heads x head_size
+        const at::Tensor &softmax_lse,     // b x h x seqlen_q
+        std::optional<at::Tensor> &dq_,   // batch_size x seqlen_q x num_heads x head_size
+        std::optional<at::Tensor> &dk_,   // batch_size x seqlen_k x num_heads_k x head_size
+        std::optional<at::Tensor> &dv_,   // batch_size x seqlen_k x num_heads_k x head_size
+        std::optional<at::Tensor> &alibi_slopes_, // num_heads or batch_size x num_heads
+        const float p_dropout,         // probability to drop
+        const float softmax_scale,
+        const bool is_causal,
+        int window_size_left,
+        int window_size_right,
+        const bool deterministic,
+        const at::Tensor philox_seed,
+        const at::Tensor philox_offset)
+    {
+        return {at::Tensor(), at::Tensor(), at::Tensor(), at::Tensor()};
+    }
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+mha_aot_varlen_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
+               const at::Tensor &q,   // total_q x num_heads x head_size, total_q := \sum_{i=0}^{b} s_i
+               const at::Tensor &k,   // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i
+               const at::Tensor &v,   // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i
+               const at::Tensor &out,   // total_q x num_heads x head_size
+               const at::Tensor &softmax_lse,     // b x h x s   softmax logsumexp
+               std::optional<at::Tensor> &dq_,   // total_q x num_heads x head_size, total_q := \sum_{i=0}^{b} s_i
+               std::optional<at::Tensor> &dk_,   // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i
+               std::optional<at::Tensor> &dv_,   // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i
+               const at::Tensor &cu_seqlens_q,  // b+1
+               const at::Tensor &cu_seqlens_k,  // b+1
+               std::optional<at::Tensor> &alibi_slopes_, // num_heads or b x num_heads
+               const int max_seqlen_q,
+               const int max_seqlen_k,          // max sequence length to choose the kernel
+               const float p_dropout,         // probability to drop
+               const float softmax_scale,
+               const bool zero_tensors,
+               const bool is_causal,
+               int window_size_left,
+               int window_size_right,
+               const bool deterministic,
+               const at::Tensor philox_seed,
+               const at::Tensor philox_offset)
+    {
+        return {at::Tensor(), at::Tensor(), at::Tensor(), at::Tensor()};
+    }
 #endif
+
 
 }
 
