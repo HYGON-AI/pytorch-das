@@ -194,9 +194,7 @@ if(USE_FLASH_ATTENTION)
   list(APPEND ATen_ATTENTION_KERNEL_SRCS ${flash_attention_cuda_kernels_cu})
 
   list(APPEND native_transformers_hip_hip ${flash_attention_hip_hip})
-  list(APPEND native_transformers_hip_hip ${flash_attention_hip_kernels_hip})
   list(APPEND native_transformers_src_hip_hip ${flash_attention_src_hip_hip})
-  list(APPEND ATen_ATTENTION_KERNEL_SRCS ${flash_attention_hip_kernels_hip})
 endif()
 
 if(USE_MEM_EFF_ATTENTION)

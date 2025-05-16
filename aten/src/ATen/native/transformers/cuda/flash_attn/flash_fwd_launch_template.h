@@ -339,6 +339,15 @@ void run_mha_fwd_hdim192(Flash_fwd_params &params, cudaStream_t stream) {
 }
 
 template<typename T, bool Is_causal>
+void run_mha_fwd_hdim192_hdim128(Flash_fwd_params &params, cudaStream_t stream) {
+#if 1
+    DROPOUT_SWITCH(params.p_dropout < 1.f, Is_dropout, [&] {
+        run_flash_fwd_16x64_prefetch<Flash_fwd_kernel_16x64_prefetch_traits</*Headdim*/192, 64, 64, 4, false, /*Share_Q_K_smem_=*/true, T, 3, /*HeaddimV*/128>, Is_dropout, Is_causal>(params, stream);
+    });
+#endif
+}
+
+template<typename T, bool Is_causal>
 void run_mha_fwd_hdim224(Flash_fwd_params &params, cudaStream_t stream) {
 #if 1
     constexpr static int Headdim = 224;
