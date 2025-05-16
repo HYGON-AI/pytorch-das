@@ -51,6 +51,7 @@ constexpr int H_DIM = 1;
 constexpr int D_DIM = 2;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
 struct Qkv_params {
     using index_t = int64_t;
     // The QKV matrices.
@@ -173,6 +174,8 @@ struct Flash_fwd_params : public Qkv_params {
 
     bool unpadded_lse;  // For varlen paths: LSE is in [nheads, total_seqlen_q] format instead of [b, nheads, seqlen_q].
     bool seqlenq_ngroups_swapped;  // q has been transposed from (b, 1, (nheads_kv ngroups), d) to (b, ngroups, nheads_kv, d).
+    
+    int d_value, d_value_rounded;
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -220,7 +223,10 @@ struct Flash_bwd_params : public Flash_fwd_params {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 template<typename T, int Headdim, bool Is_causal> void run_mha_fwd_(Flash_fwd_params &params, cudaStream_t stream);
+template<typename T, int Headdim, int HeaddimV, bool Is_causal> void run_mha_fwd_mla_(Flash_fwd_params &params, cudaStream_t stream);
 template<typename T, int Headdim, bool Is_causal> void run_mha_fwd_splitkv_dispatch(Flash_fwd_params &params, cudaStream_t stream);
 
 template<typename T, int Headdim, bool Is_causal> void run_mha_bwd_(Flash_bwd_params &params, cudaStream_t stream);
+template<typename T, int Headdim, int HeaddimV, bool Is_causal> void run_mha_bwd_mla_(Flash_bwd_params &params, cudaStream_t stream);
+
 }

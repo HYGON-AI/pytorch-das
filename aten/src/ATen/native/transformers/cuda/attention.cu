@@ -702,9 +702,20 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, c10::SymInt, c10::SymInt, Tensor, Ten
   // Query -> Query(Batch x Q_seq_len  x Num_heads x Dim_per_head)
   // Key   -> Key  (Batch x KV_seq_len x Num_heads x Dim_per_head)
   // Value -> Value(Batch x KV_seq_len x Num_heads x Dim_per_head)
-  Tensor q_t = query.transpose(1, 2);
-  Tensor k_t = key.transpose(1, 2);
-  Tensor v_t = value.transpose(1, 2);
+  auto* v = std::getenv("USE_FA_BHSD");
+  Tensor q_t;
+  Tensor k_t;
+  Tensor v_t;
+  if(v && std::string(v) == "1") {
+    q_t = query;//bhsd
+    k_t = key;
+    v_t = value;
+  } else {
+    q_t = query.transpose(1, 2);
+    k_t = key.transpose(1, 2);
+    v_t = value.transpose(1, 2);
+  }
+
 
   auto
       [output,
@@ -727,7 +738,13 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, c10::SymInt, c10::SymInt, Tensor, Ten
               std::nullopt,
               std::nullopt);
   // Reshape output to convert nnz to batch_size and seq_len
-  Tensor attention = output.transpose(1,2);
+  Tensor attention;
+  if(v && std::string(v) == "1") {
+    attention = output;
+  } else {
+    attention = output.transpose(1,2);
+  }
+
 
   return std::make_tuple(attention, logsumexp, Tensor(), Tensor(), max_seqlen_batch_q, max_seqlen_batch_k, philox_seed, philox_offset, debug_attn_mask);
 }

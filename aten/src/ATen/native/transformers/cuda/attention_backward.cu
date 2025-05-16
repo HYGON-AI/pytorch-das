@@ -871,12 +871,20 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> _scaled_dot_product_flash_attenti
     return std::make_tuple(Tensor{}, Tensor{}, Tensor{});
   }
 
-  Tensor q_t = query.transpose(1, 2);
-  Tensor k_t = key.transpose(1, 2);
-  Tensor v_t = value.transpose(1, 2);
-
-  Tensor grad_out_t = grad_out_.transpose(1,2);
-  Tensor out_t = out.transpose(1,2);
+  auto* v = std::getenv("USE_FA_BHSD");
+  Tensor q_t = query;
+  Tensor k_t = key;
+  Tensor v_t = value;
+  Tensor grad_out_t = grad_out_;
+  Tensor out_t = out;
+  if(v && std::string(v) == "1"){}
+  else {
+    q_t = query.transpose(1, 2);
+    k_t = key.transpose(1, 2);
+    v_t = value.transpose(1, 2);
+    grad_out_t = grad_out_.transpose(1,2);
+    out_t = out.transpose(1,2);
+  }
 
   auto [grad_q, grad_k, grad_v] = at::_flash_attention_backward(
     grad_out_t,
@@ -895,9 +903,13 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> _scaled_dot_product_flash_attenti
     philox_offset,
     scale);
 
-  grad_q = grad_q.transpose(1,2);
-  grad_k = grad_k.transpose(1,2);
-  grad_v = grad_v.transpose(1,2);
+  if(v && std::string(v) == "1"){}
+  else{
+    grad_q = grad_q.transpose(1,2);
+    grad_k = grad_k.transpose(1,2);
+    grad_v = grad_v.transpose(1,2);
+  }
+
 
   return std::make_tuple(std::move(grad_q), std::move(grad_k), std::move(grad_v));
 }

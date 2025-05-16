@@ -1051,6 +1051,7 @@ if(USE_ROCM)
     list(APPEND HIP_HIPCC_FLAGS --gpu-max-threads-per-block=1024)
 
     list(APPEND HIP_CXX_FLAGS -DHIP_ENABLE_WARP_SYNC_BUILTINS)
+    list(APPEND HIP_CXX_FLAGS -DBF162FLOAT_USE_ASM)
     list(APPEND HIP_CXX_FLAGS -mno-fma)
     #TODO: extreme performance?
     # list(APPEND HIP_CXX_FLAGS -ffast-math)
