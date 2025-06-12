@@ -41,7 +41,7 @@ jobs:
       GPU_ARCH_TYPE: cpu-s390x
     steps:
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.6
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.7
         with:
           submodules: false
           no-sudo: true
@@ -57,3 +57,12 @@ jobs:
       - name: Build Docker Image
         run: |
           .ci/docker/manywheel/build.sh manylinuxs390x-builder:cpu-s390x
+
+      - name: Cleanup docker
+        if: cancelled()
+        shell: bash
+        run: |
+          # if podman build command is interrupted,
+          # it can leave a couple of processes still running.
+          # order them to stop for clean shutdown.
+          docker system prune --build -f || true

@@ -277,6 +277,10 @@ class ValueCache {
  public:
   ValueCache() = default;
   ValueCache(const ValueCache&) = delete;
+  ValueCache& operator==(const ValueCache&) = delete;
+  ValueCache(ValueCache&&) = default;
+  ValueCache& operator==(ValueCache&&) = delete;
+  ~ValueCache() = default;
 
   template <CallType C>
   void store(const typename Config<C>::key_t&, typename Config<C>::ephemeral_t);
@@ -599,8 +603,7 @@ static PyTypeObject TraceContextType = {
 
 class gil_and_restore_thread {
  public:
-  gil_and_restore_thread()
-      : gil_(), initial_thread_state_{PyThreadState_Get()} {}
+  gil_and_restore_thread() : initial_thread_state_{PyThreadState_Get()} {}
   ~gil_and_restore_thread() {
     PyThreadState_Swap(initial_thread_state_);
 
@@ -859,7 +862,14 @@ void PythonTracer::recordPyCall(
       // `PyFrame_FastToLocals` which forces the interpreter to materialize
       // the full dict of locals.
       auto locals = THPObjectPtr(PyFrame_GetLocals(frame));
+
+#if PY_MAJOR_VERSION < 3 || (PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION < 13)
       auto self = THPObjectPtr(PyDict_GetItemString(locals, "self"));
+#else
+      // In Python-3.13+ `PyFrame_GetLocals()` returns instance of
+      // PyFrameLocalsProxy_Type See PEP 667 for more info
+      auto self = THPObjectPtr(PyMapping_GetItemString(locals, "self"));
+#endif
       Py_INCREF(self.get());
       auto back = THPFrameObjectPtr(PyFrame_GetBack(frame));
       TORCH_INTERNAL_ASSERT(back != nullptr);
@@ -867,7 +877,11 @@ void PythonTracer::recordPyCall(
           frame, self.get(), back.get());
     } else if (code.get() == optimizer_hook_) {
       auto locals = THPObjectPtr(PyFrame_GetLocals(frame));
+#if PY_MAJOR_VERSION < 3 || (PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION < 13)
       auto self = THPObjectPtr(PyDict_GetItemString(locals, "self"));
+#else
+      auto self = THPObjectPtr(PyMapping_GetItemString(locals, "self"));
+#endif
       Py_INCREF(self.get());
       auto back = THPFrameObjectPtr(PyFrame_GetBack(frame));
       TORCH_INTERNAL_ASSERT(back != nullptr);
@@ -987,13 +1001,17 @@ class PostProcess {
 
     ska::flat_hash_map<size_t, stack_t> stacks;
     auto& state = get_state<E>();
+    // We already own the GIL at this point
     for (const auto& enter : enters) {
       auto fields_it = state.fields_.find(enter.key_);
       if (fields_it != state.fields_.end()) {
         while (!state.exits_.empty() &&
                state.exits_.top().t_ < enter.enter_t_) {
           auto& exit = state.exits_.top();
-          pop(stacks[exit.python_tid_], exit.t_);
+          auto& tstack = stacks[exit.python_tid_];
+          if (!tstack.empty()) {
+            pop(tstack, exit.t_);
+          }
           state.exits_.pop();
         }
         out.push_back(Result::create(

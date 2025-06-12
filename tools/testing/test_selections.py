@@ -4,13 +4,17 @@ import math
 import os
 import subprocess
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, TYPE_CHECKING
 
 from tools.stats.import_test_stats import get_disabled_tests
 from tools.testing.test_run import ShardedTest, TestRun
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 IS_MEM_LEAK_CHECK = os.getenv("PYTORCH_TEST_CUDA_MEM_LEAK_CHECK", "0") == "1"
 BUILD_ENVIRONMENT = os.getenv("BUILD_ENVIRONMENT", "")
@@ -120,9 +124,9 @@ def get_duration(
 
     if included:
         return included_classes_duration
-    assert (
-        excluded
-    ), f"TestRun {test} is not full file but doesn't have included or excluded classes"
+    assert excluded, (
+        f"TestRun {test} is not full file but doesn't have included or excluded classes"
+    )
     if file_duration is None:
         return None
     return file_duration - excluded_classes_duration
@@ -136,9 +140,9 @@ def shard(
 ) -> None:
     # Modifies sharded_jobs in place
     if len(sharded_jobs) == 0:
-        assert (
-            len(pytest_sharded_tests) == 0
-        ), "No shards provided but there are tests to shard"
+        assert len(pytest_sharded_tests) == 0, (
+            "No shards provided but there are tests to shard"
+        )
         return
 
     round_robin_index = 0

@@ -19,7 +19,7 @@ jobs:
   get-label-type:
     if: github.repository_owner == 'pytorch'
     name: get-label-type
-    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.6
+    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.7
     with:
       triggering_actor: ${{ github.triggering_actor }}
       issue_owner: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
@@ -41,6 +41,9 @@ jobs:
           { config: "default", shard: 2, num_shards: 4, runner: "linux.arm64.2xlarge" },
           { config: "default", shard: 3, num_shards: 4, runner: "linux.arm64.2xlarge" },
           { config: "default", shard: 4, num_shards: 4, runner: "linux.arm64.2xlarge" },
+          { config: "default", shard: 1, num_shards: 3, runner: "linux.arm64.m7g.4xlarge" },
+          { config: "default", shard: 2, num_shards: 3, runner: "linux.arm64.m7g.4xlarge" },
+          { config: "default", shard: 3, num_shards: 3, runner: "linux.arm64.m7g.4xlarge" },
         ]}
     secrets: inherit
 

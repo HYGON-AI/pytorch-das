@@ -45,7 +45,7 @@ class TestMultipleWrapping(FSDPTest):
         inner_model = InnerModel(device)
         model = FSDP(inner_model).to(device_type.type)
         optim = SGD(model.parameters(), lr=0.1)
-        for i in range(3):
+        for _ in range(3):
             input = torch.rand((1, 5), dtype=torch.float).to(device_type.type)
             input.requires_grad = True
             output = model(input)
@@ -61,7 +61,9 @@ class TestMultipleWrapping(FSDPTest):
         self.assertEqual(output, rewrapped_output)
 
 
-devices = ("cuda", "hpu")
-instantiate_device_type_tests(TestMultipleWrapping, globals(), only_for=devices)
+devices = ("cuda", "hpu", "xpu")
+instantiate_device_type_tests(
+    TestMultipleWrapping, globals(), only_for=devices, allow_xpu=True
+)
 if __name__ == "__main__":
     run_tests()

@@ -7,9 +7,14 @@ namespace torch::accelerator {
 void initModule(PyObject* module) {
   auto m = py::handle(module).cast<py::module>();
 
-  m.def("_accelerator_getAccelerator", []() {
-    // If no accelerator is currently available, raise an exception.
-    return c10::Device(at::getAccelerator(true).value());
+  m.def("_accelerator_getAccelerator", []() -> std::optional<c10::Device> {
+    // If no accelerator was available at compile time, return None.
+    auto acc = at::getAccelerator(false);
+    if (acc.has_value()) {
+      return acc.value();
+    } else {
+      return std::nullopt;
+    }
   });
 
   m.def("_accelerator_deviceCount", []() {
@@ -65,8 +70,9 @@ void initModule(PyObject* module) {
   });
 
   m.def("_accelerator_synchronizeDevice", [](c10::DeviceIndex device_index) {
-    const auto device_type = at::getAccelerator(true).value();
-    if (!torch::utils::is_device_initialized(device_type)) {
+    const auto device_type = at::accelerator::getAccelerator(true).value();
+    if (torch::utils::is_device_lazy_init_supported(device_type) &&
+        !torch::utils::is_device_initialized(device_type)) {
       return;
     }
     torch::utils::maybe_initialize_device(device_type);

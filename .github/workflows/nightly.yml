@@ -5,7 +5,8 @@ on:
     - cron: 0 0 * * *
   push:
     tags:
-      # NOTE: Doc build pipelines should only get triggered on release candidate builds
+      # Final Release tags look like: v1.11.0
+      - v[0-9]+.[0-9]+.[0-9]+
       # Release candidate tags look like: v1.11.0-rc1
       - v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+
       - ciflow/nightly/*
@@ -19,7 +20,7 @@ concurrency:
 jobs:
   get-label-type:
     name: get-label-type
-    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.6
+    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.7
     if: ${{ (github.event_name != 'schedule' || github.repository == 'pytorch/pytorch') && github.repository_owner == 'pytorch' }}
     with:
       triggering_actor: ${{ github.triggering_actor }}
@@ -47,52 +48,42 @@ jobs:
       runner_prefix: "${{ needs.get-label-type.outputs.label-type }}"
       build-environment: linux-jammy-py3.9-gcc11
       docker-image: ${{ needs.docs-build.outputs.docker-image }}
-      push: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.event.ref, 'refs/tags/v') }}
+      push: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (startsWith(github.event.ref, 'refs/tags/v') && !contains(github.event.ref, 'rc')) }}
       run-doxygen: true
     secrets:
       GH_PYTORCHBOT_TOKEN: ${{ secrets.GH_PYTORCHBOT_TOKEN }}
 
-  update-vision-commit-hash:
+  update-commit-hashes:
     runs-on: ubuntu-latest
     environment: update-commit-hash
-    if: ${{ github.event_name == 'schedule' && github.repository_owner == 'pytorch' }}
+    strategy:
+      matrix:
+        include:
+          - repo-name: vision
+            repo-owner: pytorch
+            branch: main
+            pin-folder: .github/ci_commit_pins
+          - repo-name: audio
+            repo-owner: pytorch
+            branch: main
+            pin-folder: .github/ci_commit_pins
+          - repo-name: executorch
+            repo-owner: pytorch
+            branch: main
+            pin-folder: .ci/docker/ci_commit_pins
+          - repo-name: triton
+            repo-owner: triton-lang
+            branch: main
+            pin-folder: .ci/docker/ci_commit_pins
+    # Allow this to be triggered on either a schedule or on workflow_dispatch to allow for easier testing
+    if: github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     steps:
-      - name: update-vision-commit-hash
-        uses: pytorch/test-infra/.github/actions/update-commit-hash@release/2.6
+      - name: "${{ matrix.repo-owner }}/${{ matrix.repo-name }} update-commit-hash"
+        uses: pytorch/test-infra/.github/actions/update-commit-hash@release/2.7
         with:
-          repo-name: vision
-          branch: main
-          pin-folder: .github/ci_commit_pins
-          test-infra-ref: main
-          updatebot-token: ${{ secrets.UPDATEBOT_TOKEN }}
-          pytorchbot-token: ${{ secrets.GH_PYTORCHBOT_TOKEN }}
-
-  update-audio-commit-hash:
-    runs-on: ubuntu-latest
-    environment: update-commit-hash
-    if: ${{ github.event_name == 'schedule' && github.repository_owner == 'pytorch' }}
-    steps:
-      - name: update-audio-commit-hash
-        uses: pytorch/test-infra/.github/actions/update-commit-hash@release/2.6
-        with:
-          repo-name: audio
-          branch: main
-          pin-folder: .github/ci_commit_pins
-          test-infra-ref: main
-          updatebot-token: ${{ secrets.UPDATEBOT_TOKEN }}
-          pytorchbot-token: ${{ secrets.GH_PYTORCHBOT_TOKEN }}
-
-  update-executorch-commit-hash:
-    runs-on: ubuntu-latest
-    environment: update-commit-hash
-    if: ${{ github.event_name == 'schedule' && github.repository_owner == 'pytorch' }}
-    steps:
-      - name: update-executorch-commit-hash
-        uses: pytorch/test-infra/.github/actions/update-commit-hash@release/2.6
-        with:
-          repo-name: executorch
-          branch: main
-          pin-folder: .ci/docker/ci_commit_pins
-          test-infra-ref: main
+          repo-owner: ${{ matrix.repo-owner }}
+          repo-name: ${{ matrix.repo-name }}
+          branch: ${{ matrix.branch }}
+          pin-folder: ${{ matrix.pin-folder}}
           updatebot-token: ${{ secrets.UPDATEBOT_TOKEN }}
           pytorchbot-token: ${{ secrets.GH_PYTORCHBOT_TOKEN }}
