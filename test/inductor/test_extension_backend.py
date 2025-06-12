@@ -7,6 +7,7 @@ import torch
 import torch._dynamo
 import torch.utils.cpp_extension
 from torch._C import FileCheck
+from torch.testing._internal.common_utils import skipIfWindows
 
 try:
     from extension_backends.cpp.extension_codegen_backend import (  # @manual=fbcode//caffe2/test/inductor/extension_backends:extension_codegen_backend  # noqa: B950
@@ -89,9 +90,9 @@ class BaseExtensionBackendTests(TestCase):
 
         torch.testing._internal.common_utils.remove_cpp_extensions_build_root()
 
+        cls.lock.release()
         if os.path.exists(cls.lock_file):
             os.remove(cls.lock_file)
-        cls.lock.release()
 
     def setUp(self):
         torch._dynamo.reset()
@@ -113,6 +114,7 @@ class BaseExtensionBackendTests(TestCase):
 
 @unittest.skipIf(IS_FBCODE, "cpp_extension doesn't work in fbcode right now")
 class ExtensionBackendTests(BaseExtensionBackendTests):
+    @skipIfWindows
     def test_open_device_registration(self):
         torch.utils.rename_privateuse1_backend("extension_device")
         torch._register_device_module("extension_device", self.module)

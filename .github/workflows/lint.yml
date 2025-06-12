@@ -1,4 +1,5 @@
 name: Lint
+# Workflow that runs lint checks and also unittests for tools, and scripts.
 
 on:
   pull_request:
@@ -18,14 +19,14 @@ jobs:
   get-label-type:
     if: github.repository_owner == 'pytorch'
     name: get-label-type
-    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.6
+    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.7
     with:
       triggering_actor: ${{ github.triggering_actor }}
       issue_owner: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
       curr_branch: ${{ github.head_ref || github.ref_name }}
 
   lintrunner-clang:
-    uses: pytorch/test-infra/.github/workflows/linux_job.yml@release/2.6
+    uses: pytorch/test-infra/.github/workflows/linux_job.yml@release/2.7
     needs: get-label-type
     with:
       timeout: 120
@@ -42,7 +43,7 @@ jobs:
         .github/scripts/lintrunner.sh
 
   lintrunner-noclang:
-    uses: pytorch/test-infra/.github/workflows/linux_job.yml@release/2.6
+    uses: pytorch/test-infra/.github/workflows/linux_job.yml@release/2.7
     needs: get-label-type
     with:
       timeout: 120
@@ -58,7 +59,7 @@ jobs:
         .github/scripts/lintrunner.sh
 
   quick-checks:
-    uses: pytorch/test-infra/.github/workflows/linux_job.yml@release/2.6
+    uses: pytorch/test-infra/.github/workflows/linux_job.yml@release/2.7
     needs: get-label-type
     with:
       timeout: 120
@@ -102,7 +103,7 @@ jobs:
     if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'skip-pr-sanity-checks')
     steps:
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.6
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.7
         with:
           submodules: false
           fetch-depth: -1
@@ -115,7 +116,7 @@ jobs:
           bash .github/scripts/pr-sanity-check.sh
 
   workflow-checks:
-    uses: pytorch/test-infra/.github/workflows/linux_job.yml@release/2.6
+    uses: pytorch/test-infra/.github/workflows/linux_job.yml@release/2.7
     needs: get-label-type
     with:
       timeout: 120
@@ -132,7 +133,7 @@ jobs:
 
         export RELEASE_VERSION_TAG="2.3"
         # Regenerate workflows
-        export RELEASE_VERSION_TAG=2.6
+        export RELEASE_VERSION_TAG=2.7
         .github/scripts/generate_ci_workflows.py
 
         RC=0
@@ -156,7 +157,7 @@ jobs:
         exit $RC
 
   toc:
-    uses: pytorch/test-infra/.github/workflows/linux_job.yml@release/2.6
+    uses: pytorch/test-infra/.github/workflows/linux_job.yml@release/2.7
     needs: get-label-type
     with:
       timeout: 120
@@ -196,7 +197,7 @@ jobs:
   test-tools:
     name: Test tools
     if: ${{ github.repository == 'pytorch/pytorch' }}
-    uses: pytorch/test-infra/.github/workflows/linux_job.yml@release/2.6
+    uses: pytorch/test-infra/.github/workflows/linux_job.yml@release/2.7
     needs: get-label-type
     with:
       timeout: 120
@@ -210,16 +211,17 @@ jobs:
         conda activate "${CONDA_ENV}"
 
         # Test tools
-        PYTHONPATH=$(pwd) pytest tools/test/test_*.py
-        PYTHONPATH=$(pwd) pytest .github/scripts/test_*.py
+        PYTHONPATH=$(pwd) pytest tools/stats
+        PYTHONPATH=$(pwd) pytest tools/test -o "python_files=test*.py"
+        PYTHONPATH=$(pwd) pytest .github/scripts -o "python_files=test*.py"
 
   test_run_test:
     name: Test `run_test.py` is usable without boto3
     if: ${{ github.repository == 'pytorch/pytorch' }}
-    runs-on: linux.20_04.4x
+    runs-on: linux.24_04.4x
     steps:
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.6
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.7
         with:
           submodules: false
           fetch-depth: 1
@@ -232,7 +234,7 @@ jobs:
       - name: Install dependencies
         run: |
           python3 -m pip install --upgrade pip
-          pip install pytest-rerunfailures==11.1.* pytest-flakefinder==1.1.* pytest-xdist==3.3.* expecttest==0.2.* fbscribelogger==0.1.* numpy==1.24.*
+          pip install pytest-rerunfailures==11.1.* pytest-flakefinder==1.1.* pytest-xdist==3.3.* expecttest==0.3.* fbscribelogger==0.1.* numpy==1.24.*
           pip install torch --pre --index-url https://download.pytorch.org/whl/nightly/cpu/
       - name: Run run_test.py (nonretryable)
         run: |
@@ -242,7 +244,7 @@ jobs:
   test_collect_env:
     if: ${{ github.repository == 'pytorch/pytorch' }}
     name: Test collect_env
-    runs-on: linux.20_04.4x
+    runs-on: linux.24_04.4x
     strategy:
       matrix:
         test_type: [with_torch, without_torch, older_python_version]
@@ -250,25 +252,32 @@ jobs:
       # [see note: pytorch repo ref]
       # deep clone (fetch-depth 0) required, to allow us to use git log
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.6
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.7
         with:
           submodules: false
           fetch-depth: 1
-      - name: Setup Python 3.6
+      - name: Get min python version
+        id: get-min-python-version
+        if: matrix.test_type == 'older_python_version'
+        run: |
+          set -eou pipefail
+          # Generate PyTorch version to use
+          echo "MIN_PYTHON_VERSION=$(python3 .github/scripts/get_ci_variable.py --min-python-version)" >> "${GITHUB_OUTPUT}"
+      - name: Setup Old Python version
         if: matrix.test_type == 'older_python_version'
         uses: actions/setup-python@v4
         with:
-          python-version: '3.6'
+          python-version: 3.8
           architecture: x64
           check-latest: false
           cache: pip
           cache-dependency-path: |
             **/requirements.txt
-      - name: Setup Python 3.9
+      - name: Setup Min Python version
         if: matrix.test_type != 'older_python_version'
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: ${{ steps.get-min-python-version.outputs.MIN_PYTHON_VERSION }}
           architecture: x64
           check-latest: false
           cache: pip

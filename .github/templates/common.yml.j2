@@ -4,11 +4,7 @@
 {%- set download_artifact_action = "actions/download-artifact@v4.1.7" -%}
 
 {%- set timeout_minutes = 240 -%}
-
-# NOTE: If testing pytorch/builder changes you can change this variable to change what pytorch/builder reference
-#       the binary builds will check out
-{%- set builder_repo = "pytorch/builder" -%}
-{%- set builder_branch = "release/2.6" -%}
+{%- set timeout_minutes_windows_binary = 300 -%}
 
 {%- macro concurrency(build_environment) -%}
 concurrency:
@@ -36,7 +32,7 @@ concurrency:
 {%- macro setup_ec2_windows() -%}
       !{{ display_ec2_information() }}
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.6
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.7
         continue-on-error: true
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
@@ -84,7 +80,7 @@ concurrency:
 
 {%- macro checkout(submodules="recursive", deep_clone=True, directory="", repository="pytorch/pytorch", branch="", checkout_pr_head=True) -%}
       - name: Checkout !{{ 'PyTorch' if repository == "pytorch/pytorch" else repository }}
-        uses: malfet/checkout@silent-checkout
+        uses: actions/checkout@v4
         with:
       {%- if branch %}
           ref: !{{ branch }}
@@ -102,7 +98,7 @@ concurrency:
       {%- if directory %}
           path: !{{ directory }}
       {%- endif %}
-          quiet-checkout: true
+          show-progress: false
       - name: Clean !{{ 'PyTorch' if repository == "pytorch/pytorch" else repository }} checkout
         run: |
           # Remove any artifacts from the previous checkouts

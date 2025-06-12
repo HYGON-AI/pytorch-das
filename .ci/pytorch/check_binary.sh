@@ -60,16 +60,6 @@ else
 fi
 
 ###############################################################################
-# Setup XPU ENV
-###############################################################################
-if [[ "$DESIRED_CUDA" == 'xpu' ]]; then
-  set +u
-  # Refer https://www.intel.com/content/www/us/en/developer/articles/tool/pytorch-prerequisites-for-intel-gpus.html
-  source /opt/intel/oneapi/compiler/latest/env/vars.sh
-  source /opt/intel/oneapi/pti/latest/env/vars.sh
-fi
-
-###############################################################################
 # Check GCC ABI
 ###############################################################################
 
@@ -387,7 +377,7 @@ fi
 ###############################################################################
 # Check for C++ ABI compatibility between gcc7 and gcc9 compiled binaries
 ###############################################################################
-if [[ "$(uname)" == 'Linux' && ("$PACKAGE_TYPE" == 'conda' || "$PACKAGE_TYPE" == 'manywheel')]]; then
+if [[ "$(uname)" == 'Linux' &&  "$PACKAGE_TYPE" == 'manywheel' ]]; then
   pushd /tmp
   python -c "import torch; exit(0 if torch.compiled_with_cxx11_abi() else (0 if torch._C._PYBIND11_BUILD_ABI == '_cxxabi1011' else 1))"
   popd

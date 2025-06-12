@@ -388,11 +388,8 @@ class TestFSDPFineTune(FSDPTest):
         )
         torch.manual_seed(self.rank + 1)
         losses = []
-        for idx in range(6):
+        for _ in range(6):
             frozen_input = torch.randn((4, 4), device=device_type, requires_grad=False)
-            learnable_input = torch.randn(
-                (4, 4), device=device_type, requires_grad=True
-            )
             for _model, _optim in ((model, model_optim), (ref_model, ref_model_optim)):
                 loss = _model(frozen_input, frozen_input).sum()
                 losses.append(loss)
@@ -407,7 +404,9 @@ class TestFSDPFineTune(FSDPTest):
                     self.assertEqual(param, ref_param)
 
 
-devices = ("cuda", "hpu")
-instantiate_device_type_tests(TestFSDPFineTune, globals(), only_for=devices)
+devices = ("cuda", "hpu", "xpu")
+instantiate_device_type_tests(
+    TestFSDPFineTune, globals(), only_for=devices, allow_xpu=True
+)
 if __name__ == "__main__":
     run_tests()

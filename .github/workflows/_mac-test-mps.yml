@@ -41,7 +41,7 @@ jobs:
       reenabled-issues: ${{ steps.filter.outputs.reenabled-issues }}
     steps:
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.6
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.7
         with:
           submodules: false
 
@@ -66,10 +66,10 @@ jobs:
           sysctl machdep.cpu.brand_string kern.osproductversion
 
       - name: Checkout PyTorch
-        uses: malfet/checkout@silent-checkout
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          quiet-checkout: true
+          show-progress: false
 
       - name: Clean checkout
         run: |
@@ -82,7 +82,7 @@ jobs:
           use-gha: true
 
       - name: Setup miniconda
-        uses: pytorch/test-infra/.github/actions/setup-miniconda@release/2.6
+        uses: pytorch/test-infra/.github/actions/setup-miniconda@release/2.7
         with:
           python-version: ${{ inputs.python-version }}
           environment-file: .github/requirements/conda-env-${{ runner.os }}-${{ runner.arch }}
@@ -152,6 +152,7 @@ jobs:
           set -e
 
           ${CONDA_RUN} python3 test/run_test.py --mps --verbose
+          MTL_CAPTURE_ENABLED=1 ${CONDA_RUN} python3 test/test_mps.py --verbose -k test_metal_capture
 
       - name: Print remaining test logs
         shell: bash
@@ -169,4 +170,4 @@ jobs:
       - name: Clean up disk space
         if: always()
         continue-on-error: true
-        uses: pytorch/test-infra/.github/actions/check-disk-space@release/2.6
+        uses: pytorch/test-infra/.github/actions/check-disk-space@release/2.7

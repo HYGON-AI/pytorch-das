@@ -1,5 +1,4 @@
 # Owner(s): ["module: unknown"]
-
 import contextlib
 import copy
 import inspect
@@ -12,7 +11,6 @@ from collections import defaultdict
 from collections.abc import Sequence
 from functools import partial
 from importlib import import_module
-from typing import Dict, List
 
 import torch
 import torch._prims as prims
@@ -67,7 +65,6 @@ from torch.testing._internal.common_utils import (
     skipIfTorchInductor,
     slowTest,
     suppress_warnings,
-    TEST_WITH_ASAN,
     TEST_WITH_ROCM,
     TEST_WITH_TORCHDYNAMO,
     TEST_WITH_TORCHINDUCTOR,
@@ -76,6 +73,7 @@ from torch.testing._internal.common_utils import (
     TestCase,
     unMarkDynamoStrictTest,
 )
+from torch.testing._internal.inductor_utils import maybe_skip_size_asserts
 from torch.utils._python_dispatch import TorchDispatchMode
 from torch.utils._pytree import tree_map
 
@@ -195,7 +193,6 @@ meta_consistency_out_dtype_mismatch_xfails = {
     xfail("lu_solve"),
     xfail("lu_unpack"),
     xfail("matmul"),
-    xfail("mean"),
     xfail("mm"),
     xfail("mode"),
     xfail("msort"),
@@ -499,7 +496,6 @@ class TestCommon(TestCase):
         skip_view_consistency=False,
     ):
         # NOTE: this test works by comparing the reference
-        ex = None
         if op.name in self.skip_ref_ops_hcu:                                                         # ###
             device_type = torch.device(device).type
             if device_type == 'cuda':
@@ -507,6 +503,7 @@ class TestCommon(TestCase):
                 if "K100_AI" in device_name:
                     raise unittest.SkipTest(f"{op.name} are not supported on K100_AI.")               ###
         for sample in op.reference_inputs(device, dtype, requires_grad=False):
+            ex = None
             if (
                 isinstance(sample.input, torch.Tensor)
                 and sample.input.numel() == 0
@@ -678,7 +675,6 @@ class TestCommon(TestCase):
             )
         self._ref_test_helper(contextlib.nullcontext, device, dtype, op)
 
-    @unittest.skipIf(TEST_WITH_ASAN, "Skipped under ASAN")
     @onlyCUDA
     @ops(python_ref_db)
     @parametrize("executor", ["aten"])
@@ -1206,7 +1202,8 @@ class TestCommon(TestCase):
         sample = first_sample(self, op.sample_inputs(device, dtype))
 
         # Call op to get prototype for out arguments
-        expect = op(sample.input, *sample.args, **sample.kwargs)
+        with maybe_skip_size_asserts(op):
+            expect = op(sample.input, *sample.args, **sample.kwargs)
         any_requires_grad = False
 
         def set_requires_grad(x):
@@ -1227,7 +1224,7 @@ class TestCommon(TestCase):
             "functions with out=... arguments don't support automatic "
             "differentiation, but one of the arguments requires grad."
         )
-        with self.assertRaises(RuntimeError, msg=msg):
+        with self.assertRaises(RuntimeError, msg=msg), maybe_skip_size_asserts(op):
             op(sample.input, *sample.args, **sample.kwargs, out=out)
 
     @ops(filter(reduction_dtype_filter, ops_and_refs), dtypes=(torch.int16,))
@@ -1543,7 +1540,7 @@ class TestCommon(TestCase):
         unsupported_dtypes = set()
         supported_backward_dtypes = set()
         unsupported_backward_dtypes = set()
-        dtype_error: Dict[torch.dtype, Exception] = {}
+        dtype_error: dict[torch.dtype, Exception] = {}
 
         def unsupported(dtype, e):
             dtype_error[dtype] = e
@@ -1748,7 +1745,7 @@ class TestCommon(TestCase):
     def test_meta_consistency_out_dtype_mismatch(self, device, dtype, op):
         samples = op.sample_inputs(device, dtype)
 
-        for i, sample in enumerate(samples):
+        for sample in samples:
             input, args, kwargs = (sample.input, sample.args, sample.kwargs)
 
             try:
@@ -2007,7 +2004,7 @@ class TestCompositeCompliance(TestCase):
                         output_grads_copy.append(output_grad.detach().clone())
                         output_grads.append(torch._lazy_clone(output_grad))
 
-                    input_grads = torch.autograd.grad(
+                    torch.autograd.grad(
                         results,
                         leaf_tensors,
                         output_grads,
@@ -2051,7 +2048,7 @@ class TestCompositeCompliance(TestCase):
             for sample in op.sample_inputs(device, dtype, requires_grad=False):
                 inp = sample.input
                 outs = op(inp, *sample.args, **sample.kwargs)
-                if not isinstance(outs, (tuple, List)):
+                if not isinstance(outs, (tuple, list)):
                     outs = [outs]
 
                 # for all outputs that are views of the input, we should be able to replay the
@@ -2639,8 +2636,6 @@ fake_backward_skips = {
 }
 
 fake_backward_xfails = {skip(s) for s in fake_backward_skips} | {
-    xfail("fft.ihfftn"),  # Mismatch in aten._conj_physical.default
-    xfail("fft.ihfft2"),  # Mismatch in aten._conj_physical.default
     skip("nn.functional.ctc_loss"),
 }
 
@@ -2850,7 +2845,7 @@ class TestFakeTensor(TestCase):
     def _test_fake_crossref_helper(self, device, dtype, op, context):
         samples = op.sample_inputs(device, dtype, requires_grad=True)
 
-        for iter, sample in enumerate(samples):
+        for sample in samples:
             args = [sample.input] + list(sample.args)
             kwargs = sample.kwargs
 
@@ -2867,8 +2862,10 @@ class TestFakeTensor(TestCase):
                 with torch._subclasses.CrossRefFakeMode(
                     ignore_op_fn=lambda fn: fn in common_skip_ops, check_aliasing=True
                 ):
-                    with warnings.catch_warnings(), context(), torch.autograd.set_multithreading_enabled(
-                        False
+                    with (
+                        warnings.catch_warnings(),
+                        context(),
+                        torch.autograd.set_multithreading_enabled(False),
                     ):
                         composite_compliance.compute_expected_grads(
                             op.get_op(),
