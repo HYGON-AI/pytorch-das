@@ -228,7 +228,7 @@ class LayerNorm(Module):
 class FuseLayerNorm(Module):
     __constants__ = ['normalized_shape', 'eps']
     eps: float
-    normalized_shape: Tuple[int, ...]
+    normalized_shape: tuple[int, ...]
 
     def __init__(self, normalized_shape: _shape_t, eps: float = 1e-5, device=None, dtype=None ):
         super(FuseLayerNorm, self).__init__()
@@ -252,7 +252,7 @@ class FuseLnDropout(Module):
     __constants__ = ['normalized_shape', 'eps', 'p']
     p: float
     eps: float
-    normalized_shape: Tuple[int, ...]
+    normalized_shape: tuple[int, ...]
 
     def __init__(self, normalized_shape: _shape_t ,p: float = 0.5, eps: float = 1e-5, device=None, dtype=None):
         super(FuseLnDropout, self).__init__()
@@ -277,7 +277,7 @@ class FuseLnAddDropout(Module):
     __constants__ = ['normalized_shape', 'eps', 'p']
     p: float
     eps: float
-    normalized_shape: Tuple[int, ...]
+    normalized_shape: tuple[int, ...]
 
     def __init__(self, normalized_shape: _shape_t, p: float = 0.5, eps: float = 1e-5, device=None, dtype=None ):
         super(FuseLnAddDropout, self).__init__()
@@ -302,7 +302,7 @@ class FuseLnAddDropoutBias(Module):
     __constants__ = ['normalized_shape', 'p', 'eps']
     eps: float
     p: float
-    normalized_shape: Tuple[int, ...]
+    normalized_shape: tuple[int, ...]
     def __init__(self, normalized_shape: _shape_t, p: float = 0.5, eps: float = 1e-5, device=None, dtype=None ):
         super(FuseLnAddDropoutBias, self).__init__()
         if isinstance(normalized_shape, numbers.Integral):
@@ -338,7 +338,7 @@ class RMSNorm(Module):
 
 class FuseRMSNorm(Module):
     __constants__ = ["normalized_shape", 'eps']
-    normalized_shape: Tuple[int, ...]
+    normalized_shape: tuple[int, ...]
     eps: float
     def __init__(self, normalized_shape: _shape_t, eps: float = 1e-5, device=None, dtype=None):
         super(FuseRMSNorm, self).__init__()
@@ -358,7 +358,7 @@ class FuseRMSNorm(Module):
 
 class FuseRNDropout(Module):
     __constants__ = ["normalized_shape", 'eps', 'p']
-    normalized_shape: Tuple[int, ...]
+    normalized_shape: tuple[int, ...]
     eps: float
     p: float
     def __init__(self, normalized_shape: _shape_t, p: float = 0.5, eps: float = 1e-5, device=None, dtype=None):
@@ -380,7 +380,7 @@ class FuseRNDropout(Module):
 
 class FuseRNAddDropout(Module):
     __constants__ = ["normalized_shape", 'eps', 'p']
-    normalized_shape: Tuple[int, ...]
+    normalized_shape: tuple[int, ...]
     eps: float
     p: float
     def __init__(self, normalized_shape: _shape_t, p: float = 0.5, eps: float = 1e-5, device=None, dtype=None):
@@ -402,7 +402,7 @@ class FuseRNAddDropout(Module):
 
 class FuseRNAddDropoutBias(Module):
     __constants__ = ["normalized_shape", 'eps', 'p']
-    normalized_shape: Tuple[int, ...]
+    normalized_shape: tuple[int, ...]
     eps: float
     p: float
     def __init__(self, normalized_shape: _shape_t, p: float = 0.5, eps: float = 1e-5, device=None, dtype=None):
