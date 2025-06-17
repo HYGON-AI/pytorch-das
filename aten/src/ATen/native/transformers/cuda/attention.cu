@@ -725,9 +725,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, c10::SymInt, c10::SymInt, Tensor, Ten
       max_seqlen_batch_k == max_seqlen_batch_v,
       "Key and Value must have the same sequence length");
 
-  // Query -> Query(Batch x Q_seq_len  x Num_heads x Dim_per_head)
-  // Key   -> Key  (Batch x KV_seq_len x Num_heads x Dim_per_head)
-  // Value -> Value(Batch x KV_seq_len x Num_heads x Dim_per_head)
+  
   auto* v = std::getenv("USE_FA_BHSD");
   Tensor q_t;
   Tensor k_t;
@@ -737,11 +735,13 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, c10::SymInt, c10::SymInt, Tensor, Ten
     k_t = key;
     v_t = value;
   } else {
+  // Query -> Query(Batch x Q_seq_len  x Num_heads x Dim_per_head)
+  // Key   -> Key  (Batch x KV_seq_len x Num_heads x Dim_per_head)
+  // Value -> Value(Batch x KV_seq_len x Num_heads x Dim_per_head)
     q_t = query.transpose(1, 2);
     k_t = key.transpose(1, 2);
     v_t = value.transpose(1, 2);
   }
-
 
   auto
       [output,
@@ -1060,7 +1060,6 @@ _flash_attention_forward(
       "cumulative_sequence_length_q and cumulative_sequence_length_k must be both set or both not set");
   Tensor output, q_padded, k_padded, v_padded, logsumexp, output_shape,
       philox_seed, philox_offset, debug_attn_mask;
-  #ifdef USE_ROCM
   if (cumulative_sequence_length_q.has_value()) {
     std::tie(
         output,
@@ -1117,8 +1116,6 @@ _flash_attention_forward(
             return_debug_mask, /*return_softmax (this is used for testing)*/
             std::nullopt);
   }
-  #endif
-
   debug_attn_mask =
       return_debug_mask ? debug_attn_mask : at::empty({0}, query.options());
   return std::make_tuple(

@@ -37,14 +37,13 @@
 
 #include <c10/util/Exception.h>
 
-#include <ATen/native/transformers/hip/cutlassfa_adapter.h>
 // AOTriton headers
+#if USE_AOTRITON_FA
 #include <aotriton/config.h>
 #include <aotriton/flash.h>
 #include <aotriton/runtime.h>
-
+#endif
 #if AOTRITON_VERSION_MINOR != 9
-#error "This adaptor code is only tested with AOTriton 0.9.x"
 #endif
 
 namespace pytorch_flash {
@@ -91,7 +90,7 @@ prepare_philox_arguments(float p_dropout, int64_t counter_offset) {
   return { seed_t, offset_t, philox_state, use_philox_state };
 }
 
-#endif
+
 }
 
 
@@ -767,7 +766,8 @@ mha_varlen_bwd_aot(const at::Tensor &dout,  // total_q x num_heads, x head_size
   }
 
   return { dq, dk, dv, softmax_d };
+#endif  // USE_FLASH_ATTENTION
+
 }
 } // namespace pytorch_flash
 
-#endif  // USE_FLASH_ATTENTION

@@ -1319,6 +1319,7 @@ def _set_rocm_fa_preferred_backend(arg: torch._C._ROCmFABackend): ...
 
 class _ROCmFABackend:
     Default: _ROCmFABackend
+    Cutlass: _ROCmFABackend
     AOTriton: _ROCmFABackend
     Ck: _ROCmFABackend
 

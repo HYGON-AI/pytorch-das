@@ -181,6 +181,9 @@ file(GLOB flash_attention_cuda_cpp
 
 # flash_attention hip sources
 file(GLOB flash_attention_hip_hip "native/transformers/hip/flash_attn/*.hip")
+# add_subdirectory(native/transformers/hip/flash_attn/cutlass)
+file(GLOB flash_attention_hip_cutlass_hip "native/transformers/hip/flash_attn/cutlass/*.hip")
+list(APPEND native_transformers_hip_hip ${flash_attention_hip_cutlass_hip})
 # if USE_FLASH_ATTENTION is set, ensure CK instances get generated
 if(USE_FLASH_ATTENTION)
   if(DEFINED ENV{USE_CK_FLASH_ATTENTION})
