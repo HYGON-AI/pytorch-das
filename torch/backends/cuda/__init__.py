@@ -273,6 +273,7 @@ def preferred_blas_library(
 
 _ROCmFABackends = {
     "default": torch._C._ROCmFABackend.Default,
+    "cutlass": torch._C._ROCmFABackend.Cutlass,
     "aotriton": torch._C._ROCmFABackend.AOTriton,
     "ck": torch._C._ROCmFABackend.Ck,
 }
