@@ -95,7 +95,6 @@ std::string print_library_path() {
 std::string get_so_path() {
   std::string fa_so_p;
   auto* e_fa_so = std::getenv("FA_SO_PATH");
-
   if (e_fa_so) {
     fa_so_p = std::string(e_fa_so);
   } else {
@@ -123,7 +122,7 @@ public:
       auto fa_so_p = get_so_path();
       handle = dlopen(fa_so_p.c_str(), RTLD_LAZY);
       if(!handle){
-        TORCH_CHECK(false, "Not load library for Cutlass Fa so");
+        TORCH_CHECK(false, "Can't load library for Cutlass Fa so");
       }
       mha_fwd = (mha_fwd_func)dlsym(handle, "mha_fwd");
       mha_bwd = (mha_bwd_func)dlsym(handle, "mha_bwd");
@@ -134,7 +133,7 @@ public:
       const char* dlsym_error = dlerror();
       if (dlsym_error) {
           dlclose(handle);
-          TORCH_CHECK(false, "无法获取flash-attn 函数符号: ");
+          TORCH_CHECK(false, "Can't get the function symbol of flash-attn!");
       }
     }
 

@@ -456,9 +456,10 @@ class TORCH_API Context {
       ? at::BlasBackend::Cublaslt
       : at::BlasBackend::Default;
   at::ROCmFABackend rocm_fa_preferred_backend =
-      c10::utils::check_env("TORCH_ROCM_FA_PREFER_CK") == true
-      ? at::ROCmFABackend::Ck
-      : at::ROCmFABackend::Default;
+      // c10::utils::check_env("TORCH_ROCM_FA_PREFER_AOT") == true
+      c10::utils::check_env("USE_AOTRITON_FA") == true
+      ? at::ROCmFABackend::AOTriton
+      : at::ROCmFABackend::Cutlass;
 #ifdef C10_MOBILE
   bool release_original_weights = true;
 #else

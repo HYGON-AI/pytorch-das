@@ -7,12 +7,14 @@
 
 namespace at {
 
-enum class ROCmFABackend : int8_t { Default, AOTriton, Ck };
+enum class ROCmFABackend : int8_t { Default, Cutlass, AOTriton, Ck};
 
 inline std::string ROCmFABackendToString(at::ROCmFABackend backend) {
   switch (backend) {
     case ROCmFABackend::Default:
       return "at::ROCmFABackend::Default";
+    case ROCmFABackend::Cutlass:
+      return "at::ROCmFABackend::Cutlass";
     case ROCmFABackend::AOTriton:
       return "at::ROCmFABackend::AOTriton";
     case ROCmFABackend::Ck:
