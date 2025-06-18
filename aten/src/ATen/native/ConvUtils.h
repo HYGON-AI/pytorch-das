@@ -376,6 +376,10 @@ inline bool miopen_conv_use_channels_last(const at::Tensor& input, const at::Ten
         );
 
   bool can_use_miopen_channels_last_3d = false;
+  can_use_miopen_channels_last_3d=PYTORCH_MIOPEN_SUGGEST_NHWC &&  *PYTORCH_MIOPEN_SUGGEST_NHWC && (
+            ( (input.is_contiguous(at::MemoryFormat::ChannelsLast3d)) ||
+            (weight.is_contiguous(at::MemoryFormat::ChannelsLast3d)) )
+        );
 
   return can_use_miopen_channels_last_2d || can_use_miopen_channels_last_3d;
 }
