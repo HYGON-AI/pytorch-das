@@ -428,6 +428,21 @@ void Context::setROCmFAPreferredBackend(at::ROCmFABackend b) {
       return false;
     }();
     if(!ck_unsupported) rocm_fa_preferred_backend = b;
+  } else if(b == at::ROCmFABackend::Cutlass) {
+    static const bool ck_unsupported = []() {
+      static const std::vector<std::string> archs = {
+          "gfx906",  "gfx926"
+      };
+      for (auto index: c10::irange(detail::getCUDAHooks().deviceCount())) {
+        if (!detail::getCUDAHooks().isGPUArch(index, archs)) {
+          TORCH_WARN_ONCE(
+            "Attempting to use Cutlass on an unsupported architecture! Cannot set backend to Cutlass");
+          return true;
+        }
+      }
+      return false;
+    }();
+    if(!ck_unsupported) rocm_fa_preferred_backend = b;
   }
   else {
      rocm_fa_preferred_backend = b;

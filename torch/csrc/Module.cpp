@@ -2248,6 +2248,7 @@ Call this whenever a new thread is created in order to propagate values from
 
   py::enum_<at::ROCmFABackend>(py_module, "_ROCmFABackend")
       .value("Default", at::ROCmFABackend::Default)
+      .value("Cutlass", at::ROCmFABackend::Cutlass)
       .value("AOTriton", at::ROCmFABackend::AOTriton)
       .value("Ck", at::ROCmFABackend::Ck);
 
