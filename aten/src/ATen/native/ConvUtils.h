@@ -366,7 +366,7 @@ inline bool miopen_conv_use_channels_last(const at::Tensor& input, const at::Ten
   // TODO: Remove PYTORCH_MIOPEN_SUGGEST_NHWC once ROCm officially supports NHWC in MIOpen
   // See #64427
   static std::optional<bool> PYTORCH_MIOPEN_SUGGEST_NHWC = c10::utils::check_env("PYTORCH_MIOPEN_SUGGEST_NHWC");
-  static std::optional<bool> PYTORCH_MIOPEN_SUGGEST_NHWC = c10::utils::check_env("PYTORCH_MIOPEN_SUGGEST_NDHWC");
+  static std::optional<bool> PYTORCH_MIOPEN_SUGGEST_NDHWC = c10::utils::check_env("PYTORCH_MIOPEN_SUGGEST_NDHWC");
 
   auto input_memory_format = input.suggest_memory_format();
   auto weight_memory_format = weight.suggest_memory_format();
