@@ -84,6 +84,8 @@ def get_hcu_version(sha: Optional[str] = None) -> str:
     hcu_version += "+das.opt1"
     #abi
     #hcu_version += "." + get_abi()
+    if os.getenv('PYTORCH_CUSTOM_SUFFIX'):
+        hcu_version += "." + str(os.getenv('PYTORCH_CUSTOM_SUFFIX'))
     if os.getenv("ROCM_PATH"):
         rocm_path = os.getenv('ROCM_PATH', "")
         rocm_version_path = os.path.join(rocm_path, '.info', "rocm_version")
@@ -92,8 +94,8 @@ def get_hcu_version(sha: Optional[str] = None) -> str:
         rocm_version=lines[0].replace(".", "")
         #rocm_version=lines[0][:-2].replace(".", "")
         hcu_version += ".dtk" + rocm_version
-    if os.getenv('PYTORCH_CUSTOM_SUFFIX'):
-        hcu_version += "." + str(os.getenv('PYTORCH_CUSTOM_SUFFIX'))
+    # if os.getenv('PYTORCH_CUSTOM_SUFFIX'):
+    #     hcu_version += "." + str(os.getenv('PYTORCH_CUSTOM_SUFFIX'))
     return hcu_version
 
 if __name__ == "__main__":
