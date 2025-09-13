@@ -11,6 +11,8 @@ from setuptools import distutils  # type: ignore[import]
 
 UNKNOWN = "Unknown"
 RELEASE_PATTERN = re.compile(r"/v[0-9]+(\.[0-9]+)*(-rc[0-9]+)?/")
+IS_NIGHTLY = os.getenv("IS_NIGHTLY", "0") == "1"
+_dev_version = None
 
 
 def get_sha(pytorch_root: str | Path) -> str:
@@ -60,6 +62,8 @@ def get_torch_version(sha: str | None = None) -> str:
     pytorch_root = Path(__file__).absolute().parent.parent
     version = open(pytorch_root / "version.txt").read().strip()
 
+    if IS_NIGHTLY:
+        version = _dev_version
     if os.getenv("PYTORCH_BUILD_VERSION"):
         assert os.getenv("PYTORCH_BUILD_NUMBER") is not None
         build_number = int(os.getenv("PYTORCH_BUILD_NUMBER", ""))
@@ -74,9 +78,16 @@ def get_torch_version(sha: str | None = None) -> str:
     return version
 
 def get_hcu_version(sha: Optional[str] = None) -> str:
+    global _dev_version
+    if _dev_version is not None:
+        return _dev_version
     pytorch_root = Path(__file__).parent.parent
     hcu_version = open(pytorch_root / "version.txt", "r").read().strip()
 
+    if IS_NIGHTLY:
+        import time
+        hcu_version += ".dev" + os.getenv("BUILD_DATE", time.strftime("%Y%m%d"))
+        _dev_version = hcu_version
     if sha != UNKNOWN:
         if sha is None:
             sha = get_sha(pytorch_root)
@@ -126,12 +137,13 @@ if __name__ == "__main__":
     # Attempt to get tag first, fall back to sha if a tag was not found
     tagged_version = get_tag(pytorch_root)
     sha = get_sha(pytorch_root)
+    hcu_version = get_hcu_version(sha)
     if tagged_version == UNKNOWN:
         version = get_torch_version(sha)
     else:
         version = tagged_version
 
-    hcu_version = get_hcu_version(sha)
+    # hcu_version = get_hcu_version(sha)
 
     with open(version_path, "w") as f:
         f.write("from typing import Optional\n\n")
