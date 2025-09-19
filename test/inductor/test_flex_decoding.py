@@ -297,8 +297,8 @@ class TestFlexDecoding(InductorTestCase):
             score_mod is not None or block_mask is not None
         ), "Must provide score_mod or block_mask"
         assert Q_H % KV_H == 0
-        if TEST_WITH_ROCM and Q_H != KV_H:
-            self.skipTest("enable_gqa=True is unsupported on ROCM, for now")
+        # if TEST_WITH_ROCM and Q_H != KV_H:
+        #     self.skipTest("enable_gqa=True is unsupported on ROCM, for now")
         q = torch.randn(
             (Q_B, Q_H, Q_S, Q_D),
             dtype=dtype,
