@@ -51,6 +51,7 @@ from torch.testing._internal.common_utils import (
     TestCase,
     torch_to_numpy_dtype_dict,
     xfailIfTorchDynamo,
+    TEST_WITH_ROCM,
 )
 from torch.utils import _pytree as pytree
 
