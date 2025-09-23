@@ -325,8 +325,8 @@ def autograd_cache_key(
         # tracing through the graph with the autograd engine.
         import triton
 
-        if triton.__version__ < "3.2.0":
-            raise BypassAOTAutogradCache("AOTAutogradCache requires triton 3.2.0")
+        # if triton.__version__ < "3.2.0":
+        #     raise BypassAOTAutogradCache("AOTAutogradCache requires triton 3.2.0")
 
     details = AOTAutogradCacheDetails(gm, example_inputs, config, fx_config)
     pickler = AOTAutogradCachePickler(gm)
