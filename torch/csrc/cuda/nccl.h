@@ -18,6 +18,8 @@
 #define HAS_NCCL_BF16_DATATYPE 0
 #endif
 
+bool isSendrecvStreamWithComputeEnabled();
+
 namespace torch::cuda::nccl {
 
 /* The following are copied from <nccl.h> and redefined in torch::cuda::nccl
