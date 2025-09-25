@@ -887,6 +887,18 @@ bool isAllreduceStreamWithComputeEnabled() {
     const char* env = std::getenv("ALLREDUCE_STREAM_WITH_COMPUTE");
     return env && std::string(env) == "1";
 }
+bool isReduceScatterBaseStreamWithComputeEnabled() {
+    const char* env = std::getenv("ReduceScatter_Base_STREAM_WITH_COMPUTE");
+    return env && std::string(env) == "1";
+}
+bool isAllgatherBaseStreamWithComputeEnabled() {
+    const char* env = std::getenv("Allgather_Base_STREAM_WITH_COMPUTE");
+    return env && std::string(env) == "1";
+}
+bool isAllTOAllStreamWithComputeEnabled() {
+    const char* env = std::getenv("AllTOAll_STREAM_WITH_COMPUTE");
+    return env && std::string(env) == "1";
+}
 
 ProcessGroupNCCL::ProcessGroupNCCL(
     c10::intrusive_ptr<Store> store,
@@ -3303,7 +3315,12 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::collective(
   // Used many times below, so we stash the unordered_map lookup
   auto ncclStream = ncclStreams_.at(key);
 
-  if (!(opType == c10d::OpType::ALLREDUCE && isAllreduceStreamWithComputeEnabled())){
+  //if (!(opType == c10d::OpType::ALLREDUCE && isAllreduceStreamWithComputeEnabled())){
+  if (!((opType == c10d::OpType::ALLREDUCE && isAllreduceStreamWithComputeEnabled()) || 
+        (opType == c10d::OpType::_REDUCE_SCATTER_BASE && isReduceScatterBaseStreamWithComputeEnabled()) ||
+        (opType == c10d::OpType::_ALLGATHER_BASE && isAllgatherBaseStreamWithComputeEnabled()) ||
+        (opType == c10d::OpType::ALLTOALL && isAllTOAllStreamWithComputeEnabled())
+        )){
     // First let NCCL streams wait for input tensors allocation streams
     syncStream(device, ncclEvents_[key], ncclStream);
   } else {
@@ -3720,8 +3737,15 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::pointToPoint(
 
   // Used many times below, so we stash the unordered_map lookup
   auto ncclStream = ncclStreams_.at(key);
-  // First let NCCL streams wait for input tensors allocation streams
-  syncStream(device, ncclEvents_[key], ncclStream);
+
+  if (!((opType == c10d::OpType::SEND && isSendrecvStreamWithComputeEnabled()) ||
+       (opType == c10d::OpType::RECV && isSendrecvStreamWithComputeEnabled()))) {
+    // First let NCCL streams wait for input tensors allocation streams
+    syncStream(device, ncclEvents_[key], ncclStream);
+  } else {
+    // Enable send,recv and compute in the same stream using Sendrecv_STREAM_WITH_COMPUTE=1
+    ncclStream = at::cuda::getCurrentCUDAStream(tensor.device().index());
+  }
 
   // Work itself will create the CUDA events on all GPUs of tensors
   c10::intrusive_ptr<ProcessGroupNCCL::WorkNCCL> work;
@@ -4671,33 +4695,65 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::_reduce_scatter_base(
   // in a clever way. This setting is added for libraries like FSDP which uses
   // `reduce_scatter_tensor`.
   bool avoidRecordStreams = avoidRecordStreams_ || (!opts.asyncOp);
-
-  return collective(
-      inputTensor,
-      outputTensor,
-      [&](at::Tensor& input,
-          at::Tensor& output,
-          ncclComm_t comm,
-          at::cuda::CUDAStream& stream) {
-        if (!avoidRecordStreams) {
-          c10::cuda::CUDACachingAllocator::recordStream(
-              output.storage().data_ptr(), stream);
-        }
-        auto ncclDataType = getNcclDataType(input.scalar_type());
-        auto ncclReduceOp =
-            getNcclReduceOp(opts.reduceOp, input, ncclDataType, comm);
-        return ncclReduceScatter(
-            input.data_ptr(),
-            output.data_ptr(),
-            output.numel(),
-            ncclDataType,
-            ncclReduceOp,
-            comm,
-            stream.stream());
-      },
-      OpType::_REDUCE_SCATTER_BASE,
-      "nccl:_reduce_scatter_base",
-      avoidRecordStreams);
+ 
+  if(isReduceScatterBaseStreamWithComputeEnabled()){
+    return collective(
+        inputTensor,
+        outputTensor,
+        [&](at::Tensor& input,
+            at::Tensor& output,
+            ncclComm_t comm,
+            at::cuda::CUDAStream& stream) {
+          if (!avoidRecordStreams) {
+            c10::cuda::CUDACachingAllocator::recordStream(
+                output.storage().data_ptr(), stream);
+          }
+          auto ncclDataType = getNcclDataType(input.scalar_type());
+          auto ncclReduceOp =
+              getNcclReduceOp(opts.reduceOp, input, ncclDataType, comm);
+          int device = input.device().index();
+          const auto localstream =at::cuda::getCurrentCUDAStream(device);
+          return ncclReduceScatter(
+              input.data_ptr(),
+              output.data_ptr(),
+              output.numel(),
+              ncclDataType,
+              ncclReduceOp,
+              comm,
+              localstream.stream());
+        },
+        OpType::_REDUCE_SCATTER_BASE,
+        "nccl:_reduce_scatter_base",
+        avoidRecordStreams);
+  }
+  else{
+    return collective(
+    inputTensor,
+    outputTensor,
+    [&](at::Tensor& input,
+        at::Tensor& output,
+        ncclComm_t comm,
+        at::cuda::CUDAStream& stream) {
+      if (!avoidRecordStreams) {
+        c10::cuda::CUDACachingAllocator::recordStream(
+            output.storage().data_ptr(), stream);
+      }
+      auto ncclDataType = getNcclDataType(input.scalar_type());
+      auto ncclReduceOp =
+          getNcclReduceOp(opts.reduceOp, input, ncclDataType, comm);
+      return ncclReduceScatter(
+          input.data_ptr(),
+          output.data_ptr(),
+          output.numel(),
+          ncclDataType,
+          ncclReduceOp,
+          comm,
+          stream.stream());
+    },
+    OpType::_REDUCE_SCATTER_BASE,
+    "nccl:_reduce_scatter_base",
+    avoidRecordStreams);
+  }
 }
 
 c10::intrusive_ptr<Work> ProcessGroupNCCL::reduce_scatter_tensor_coalesced(
@@ -4867,24 +4923,49 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::alltoall_base(
 
     // avoidRecordStreams_ note: collective() will stash inputTensors and
     // outputTensors.
-    return collective(
-        inputTensor,
-        outputTensor,
-        [&](at::Tensor& input,
-            at::Tensor& output,
-            ncclComm_t comm,
-            at::cuda::CUDAStream& stream) {
-          // See [Sync Streams].
-          if (!avoidRecordStreams_) {
-            c10::cuda::CUDACachingAllocator::recordStream(
-                output.storage().data_ptr(), stream);
-          }
-          torch::cuda::nccl::all2all_single_equal_split(
-              input, output, this->getSize(), comm, stream);
-          return ncclSuccess;
-        },
-        OpType::ALLTOALL_BASE,
-        "nccl:all_to_all");
+    if(isAllTOAllStreamWithComputeEnabled()){
+      return collective(
+          inputTensor,
+          outputTensor,
+          [&](at::Tensor& input,
+              at::Tensor& output,
+              ncclComm_t comm,
+              at::cuda::CUDAStream& stream) {
+            // See [Sync Streams].
+            if (!avoidRecordStreams_) {
+              c10::cuda::CUDACachingAllocator::recordStream(
+                  output.storage().data_ptr(), stream);
+            }
+            int device = input.device().index();
+            auto localstream =at::cuda::getCurrentCUDAStream(device);
+            torch::cuda::nccl::all2all_single_equal_split(
+                input, output, this->getSize(), comm, localstream);
+            return ncclSuccess;
+          },
+          OpType::ALLTOALL_BASE,
+          "nccl:all_to_all");
+    }
+    else{
+      return collective(
+          inputTensor,
+          outputTensor,
+          [&](at::Tensor& input,
+              at::Tensor& output,
+              ncclComm_t comm,
+              at::cuda::CUDAStream& stream) {
+            // See [Sync Streams].
+            if (!avoidRecordStreams_) {
+              c10::cuda::CUDACachingAllocator::recordStream(
+                  output.storage().data_ptr(), stream);
+            }
+            torch::cuda::nccl::all2all_single_equal_split(
+                input, output, this->getSize(), comm, stream);
+            return ncclSuccess;
+          },
+          OpType::ALLTOALL_BASE,
+          "nccl:all_to_all");
+    }
+
   } else {
     c10d::checkSplitSizes(inputSplitSizes, inputTensor, size_);
     c10d::checkSplitSizes(outputSplitSizes, outputTensor, size_);
@@ -4909,41 +4990,82 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::alltoall_base(
 
     // avoidRecordStreams_ note: collective() will stash inputTensors and
     // outputTensors.
-    return collective(
-        inputTensor,
-        outputTensor,
-        [&](at::Tensor& input,
-            at::Tensor& output,
-            ncclComm_t comm,
-            at::cuda::CUDAStream& stream) {
-          std::vector<size_t> send_lengths(size_);
-          std::vector<size_t> recv_lengths(size_);
-          std::vector<size_t> send_offsets(size_);
-          std::vector<size_t> recv_offsets(size_);
-          c10d::computeLengthsAndOffsets(
-              inputSplitSizes, input, &send_lengths, &send_offsets);
-          c10d::computeLengthsAndOffsets(
-              outputSplitSizes, output, &recv_lengths, &recv_offsets);
-          // See [Sync Streams].
-          if (!avoidRecordStreams_) {
-            c10::cuda::CUDACachingAllocator::recordStream(
-                output.storage().data_ptr(), stream);
-          }
-          torch::cuda::nccl::all2all_single_unequal_split(
-              input.data_ptr(),
-              send_lengths.data(),
-              send_offsets.data(),
-              output.data_ptr(),
-              recv_lengths.data(),
-              recv_offsets.data(),
-              input.element_size(),
-              input.scalar_type(),
-              comm,
-              stream);
-          return ncclSuccess;
-        },
-        OpType::ALLTOALL_BASE,
-        "nccl:all_to_all");
+    if(isAllTOAllStreamWithComputeEnabled()){
+      return collective(
+          inputTensor,
+          outputTensor,
+          [&](at::Tensor& input,
+              at::Tensor& output,
+              ncclComm_t comm,
+              at::cuda::CUDAStream& stream) {
+            std::vector<size_t> send_lengths(size_);
+            std::vector<size_t> recv_lengths(size_);
+            std::vector<size_t> send_offsets(size_);
+            std::vector<size_t> recv_offsets(size_);
+            c10d::computeLengthsAndOffsets(
+                inputSplitSizes, input, &send_lengths, &send_offsets);
+            c10d::computeLengthsAndOffsets(
+                outputSplitSizes, output, &recv_lengths, &recv_offsets);
+            // See [Sync Streams].
+            if (!avoidRecordStreams_) {
+              c10::cuda::CUDACachingAllocator::recordStream(
+                  output.storage().data_ptr(), stream);
+            }
+            int device = input.device().index();
+            auto localstream =at::cuda::getCurrentCUDAStream(device);
+            torch::cuda::nccl::all2all_single_unequal_split(
+                input.data_ptr(),
+                send_lengths.data(),
+                send_offsets.data(),
+                output.data_ptr(),
+                recv_lengths.data(),
+                recv_offsets.data(),
+                input.element_size(),
+                input.scalar_type(),
+                comm,
+                localstream);
+            return ncclSuccess;
+          },
+          OpType::ALLTOALL_BASE,
+          "nccl:all_to_all");
+    }
+    else{
+      return collective(
+          inputTensor,
+          outputTensor,
+          [&](at::Tensor& input,
+              at::Tensor& output,
+              ncclComm_t comm,
+              at::cuda::CUDAStream& stream) {
+            std::vector<size_t> send_lengths(size_);
+            std::vector<size_t> recv_lengths(size_);
+            std::vector<size_t> send_offsets(size_);
+            std::vector<size_t> recv_offsets(size_);
+            c10d::computeLengthsAndOffsets(
+                inputSplitSizes, input, &send_lengths, &send_offsets);
+            c10d::computeLengthsAndOffsets(
+                outputSplitSizes, output, &recv_lengths, &recv_offsets);
+            // See [Sync Streams].
+            if (!avoidRecordStreams_) {
+              c10::cuda::CUDACachingAllocator::recordStream(
+                  output.storage().data_ptr(), stream);
+            }
+            torch::cuda::nccl::all2all_single_unequal_split(
+                input.data_ptr(),
+                send_lengths.data(),
+                send_offsets.data(),
+                output.data_ptr(),
+                recv_lengths.data(),
+                recv_offsets.data(),
+                input.element_size(),
+                input.scalar_type(),
+                comm,
+                stream);
+            return ncclSuccess;
+          },
+          OpType::ALLTOALL_BASE,
+          "nccl:all_to_all");
+    }
   }
 }
 
@@ -5379,29 +5501,57 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::_allgather_base(
   // in a clever way. This setting is added for libraries like FSDP which uses
   // `all_gather_into_tensor`.
   bool avoidRecordStreams = avoidRecordStreams_ || (!opts.asyncOp);
-
-  return collective(
-      input_tensor,
-      output_tensor,
-      [&](at::Tensor& input,
-          at::Tensor& output,
-          ncclComm_t comm,
-          at::cuda::CUDAStream& stream) {
-        if (!avoidRecordStreams) {
-          c10::cuda::CUDACachingAllocator::recordStream(
-              output.storage().data_ptr(), stream);
-        }
-        return ncclAllGather(
-            input.data_ptr(),
-            output.data_ptr(),
-            input.numel(),
-            getNcclDataType(input.scalar_type()),
-            comm,
-            stream.stream());
-      },
-      OpType::_ALLGATHER_BASE,
-      "nccl:_all_gather_base",
-      avoidRecordStreams);
+  
+  if(isAllgatherBaseStreamWithComputeEnabled()){
+    return collective(
+        input_tensor,
+        output_tensor,
+        [&](at::Tensor& input,
+            at::Tensor& output,
+            ncclComm_t comm,
+            at::cuda::CUDAStream& stream) {
+          int device = input.device().index();
+          const auto localstream =at::cuda::getCurrentCUDAStream(device);
+          if (!avoidRecordStreams) {
+            c10::cuda::CUDACachingAllocator::recordStream(
+                output.storage().data_ptr(), localstream);
+          }
+          return ncclAllGather(
+              input.data_ptr(),
+              output.data_ptr(),
+              input.numel(),
+              getNcclDataType(input.scalar_type()),
+              comm,
+              localstream.stream());
+        },
+        OpType::_ALLGATHER_BASE,
+        "nccl:_all_gather_base",
+        avoidRecordStreams);
+  }
+  else{
+    return collective(
+        input_tensor,
+        output_tensor,
+        [&](at::Tensor& input,
+            at::Tensor& output,
+            ncclComm_t comm,
+            at::cuda::CUDAStream& stream) {
+          if (!avoidRecordStreams) {
+            c10::cuda::CUDACachingAllocator::recordStream(
+                output.storage().data_ptr(), stream);
+          }
+          return ncclAllGather(
+              input.data_ptr(),
+              output.data_ptr(),
+              input.numel(),
+              getNcclDataType(input.scalar_type()),
+              comm,
+              stream.stream());
+        },
+        OpType::_ALLGATHER_BASE,
+        "nccl:_all_gather_base",
+        avoidRecordStreams);
+  }
 }
 
 // Create a memory allocator for NCCL. This allocator is used to allocate memory
