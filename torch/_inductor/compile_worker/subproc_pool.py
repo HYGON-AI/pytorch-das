@@ -4,6 +4,7 @@ import logging
 import multiprocessing
 import os
 import pickle
+import cloudpickle
 import struct
 import subprocess
 import sys
@@ -96,10 +97,10 @@ class SubprocPickler:
     """
 
     def dumps(self, obj: object) -> bytes:
-        return pickle.dumps(obj, pickle.HIGHEST_PROTOCOL)
+        return cloudpickle.dumps(obj, pickle.HIGHEST_PROTOCOL)
 
     def loads(self, data: bytes) -> object:
-        return pickle.loads(data)
+        return cloudpickle.loads(data)
 
 
 class SubprocKind(Enum):
