@@ -240,6 +240,13 @@ cublasHandle_t getCurrentCUDABlasHandle() {
     hipblas_mode = HIPBLAS_ATOMICS_ALLOWED;
   }
   TORCH_CUDABLAS_CHECK(hipblasSetAtomicsMode(handle, hipblas_mode));
+  hipblasMath_t mode_tf32;
+  if (at::globalContext().allowTF32CuBLAS()) {
+    mode_tf32 = HIPBLAS_XF32_XDL_MATH;
+  } else {
+    mode_tf32 = HIPBLAS_DEFAULT_MATH;
+  }
+  TORCH_CUDABLAS_CHECK(hipblasSetMathMode(handle, mode_tf32));
 #endif
   return handle;
 }
