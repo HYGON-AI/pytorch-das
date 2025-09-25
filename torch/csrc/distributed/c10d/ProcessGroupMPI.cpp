@@ -50,8 +50,8 @@ std::map<at::ScalarType, MPI_Datatype> mpiDatatype = {
 // MPI ops through Open MPI
 bool cudaAwareMpiCheck() {
 // Run time check
-#if defined(MPIX_CUDA_AWARE_SUPPORT)
-  if (MPIX_Query_cuda_support() == 1) {
+#if defined(MPIX_ROCM_AWARE_SUPPORT)
+  if (MPIX_Query_rocm_support() == 1) {
     return true;
   } else {
     return false;
