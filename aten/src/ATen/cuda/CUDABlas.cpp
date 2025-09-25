@@ -1844,7 +1844,13 @@ void int8_gemm(
     int64_t mat2_ld,
     int32_t* result_ptr,
     int64_t result_ld) {
-
+  static const char rocblas_int8_var_name[] = "ROCBLAS_INT8_ENABLE";
+  char* rocblas_config = std::getenv(rocblas_int8_var_name);
+  int rocblas_int8_value =1;
+  if (rocblas_config != nullptr){
+    rocblas_int8_value = c10::stoi(rocblas_config);
+  }
+if (rocblas_int8_value != 1){
   cublasComputeType_t computeType = CUBLAS_COMPUTE_32I;
   cudaDataType_t scaleType = CUDA_R_32I;
 
@@ -1955,7 +1961,40 @@ void int8_gemm(
       computeType,
       " scaleType ",
       scaleType);
-}
+} else {
+  globalContext().alertCuBLASConfigNotDeterministic();
+  cublasHandle_t handle = at::cuda::getCurrentCUDABlasHandle();
+
+  cublasComputeType_t computeType = CUBLAS_COMPUTE_32I;
+
+  cublasOperation_t transa = transpose_mat1 ? CUBLAS_OP_T : CUBLAS_OP_N;
+  cublasOperation_t transb = transpose_mat2 ? CUBLAS_OP_T : CUBLAS_OP_N;
+  _cublasAdjustLdLevel3(transa, transb, m, n, k, &mat1_ld, &mat2_ld, &result_ld);
+
+  const int falpha = 1;
+  const int fbeta = 0;
+
+  TORCH_CUDABLAS_CHECK(cublasGemmEx(
+    handle,
+    transa,
+    transb,
+    m,
+    n,
+    k,
+    &falpha,
+    mat1_ptr,
+    HIPBLAS_R_8I,
+    mat1_ld,
+    mat2_ptr,
+    HIPBLAS_R_8I,
+    mat2_ld,
+    &fbeta,
+    result_ptr,
+    HIPBLAS_R_32I,
+    result_ld,
+    computeType,
+    CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+}}
 #endif
 
 #if defined(USE_ROCM) && ROCM_VERSION <= 60100
