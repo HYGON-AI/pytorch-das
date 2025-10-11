@@ -263,7 +263,7 @@ from setuptools import Extension, find_packages, setup
 from setuptools.dist import Distribution
 from tools.build_pytorch_libs import build_pytorch
 from tools.generate_torch_version import get_torch_version
-from tools.generate_torch_version import get_hcu_version
+from tools.generate_torch_version import get_hcu_version, IS_NIGHTLY
 from tools.setup_helpers.cmake import CMake
 from tools.setup_helpers.env import build_type, IS_DARWIN, IS_LINUX, IS_WINDOWS
 from tools.setup_helpers.generate_linker_script import gen_linker_script
