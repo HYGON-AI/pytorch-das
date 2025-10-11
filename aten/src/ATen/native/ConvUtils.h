@@ -366,6 +366,7 @@ inline bool miopen_conv_use_channels_last(const at::Tensor& input, const at::Ten
   // TODO: Remove PYTORCH_MIOPEN_SUGGEST_NHWC once ROCm officially supports NHWC in MIOpen
   // See #64427
   static std::optional<bool> PYTORCH_MIOPEN_SUGGEST_NHWC = c10::utils::check_env("PYTORCH_MIOPEN_SUGGEST_NHWC");
+  static std::optional<bool> PYTORCH_MIOPEN_SUGGEST_NDHWC = c10::utils::check_env("PYTORCH_MIOPEN_SUGGEST_NDHWC");
 
   auto input_memory_format = input.suggest_memory_format();
   auto weight_memory_format = weight.suggest_memory_format();
@@ -376,6 +377,10 @@ inline bool miopen_conv_use_channels_last(const at::Tensor& input, const at::Ten
         );
 
   bool can_use_miopen_channels_last_3d = false;
+  can_use_miopen_channels_last_3d=PYTORCH_MIOPEN_SUGGEST_NDHWC &&  *PYTORCH_MIOPEN_SUGGEST_NDHWC && (
+            ( (input.is_contiguous(at::MemoryFormat::ChannelsLast3d)) ||
+            (weight.is_contiguous(at::MemoryFormat::ChannelsLast3d)) )
+        );
 
   return can_use_miopen_channels_last_2d || can_use_miopen_channels_last_3d;
 }
