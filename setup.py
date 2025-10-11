@@ -1162,6 +1162,7 @@ def main():
             "Conflict: 'BUILD_LIBTORCH_WHL' and 'BUILD_PYTHON_ONLY' can't both be 1. Set one to 0 and rerun."
         )
     install_requires = [
+        "cloudpickle",
         "filelock",
         "typing-extensions>=4.10.0",
         'setuptools ; python_version >= "3.12"',
