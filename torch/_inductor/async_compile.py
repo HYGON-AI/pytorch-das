@@ -34,7 +34,7 @@ from torch._inductor.codecache import (
     ROCmCodeCache,
     torch_key,
 )
-from torch._inductor.compile_worker.subproc_pool import AnyPool, SubprocPool
+from torch._inductor.compile_worker.subproc_pool import AnyPool, SubprocPool, SubprocKind
 from torch._inductor.compile_worker.watchdog import _async_compile_initializer
 from torch._inductor.runtime.compile_tasks import (
     _set_triton_ptxas_path,
@@ -213,26 +213,18 @@ class AsyncCompile:
             get_compile_threads(),
         )
 
-        pool: AnyPool
-        if config.worker_start_method == "subprocess":
-            # Wrapper around ProcessPoolExecutor forks in a new process we control
-            pool = SubprocPool(get_compile_threads())
+        # Uniformly use SubprocPool to ensure serialization via cloudpickle
+        # Map worker_start_method to SubprocKind
+        if config.worker_start_method == "spawn":
+            # Avoid creating pools in the spawned subprocs themselves:
+            os.environ["TORCH_WARM_POOL"] = "0"
+            kind = SubprocKind.SPAWN
         else:
-            if config.worker_start_method == "spawn":
-                # Avoid creating pools in the spawned subprocs themselves:
-                os.environ["TORCH_WARM_POOL"] = "0"
-            pre_fork_setup()
-            ctx = multiprocessing.get_context(config.worker_start_method)
-            pool = ProcessPoolExecutor(
-                get_compile_threads(),
-                mp_context=ctx,
-                initializer=partial(_async_compile_initializer, os.getpid()),
-            )
-            # when this pool is created in a subprocess object, the normal exit handler
-            # doesn't run, and we need to register our own handler.
-            # exitpriority has to be high, because another one of the finalizers will
-            # kill the worker thread that sends the shutdown message to the workers...
-            multiprocessing.util.Finalize(None, pool.shutdown, exitpriority=sys.maxsize)
+            kind = SubprocKind.FORK
+
+        pre_fork_setup()
+
+        pool: AnyPool = SubprocPool(get_compile_threads(), kind=kind)
 
         # Set an attribute we can check to see if the pool is ready.
         pool.ready_future = pool.submit(AsyncCompile._get_ready)  # type: ignore[union-attr]
