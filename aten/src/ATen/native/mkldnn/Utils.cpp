@@ -85,7 +85,7 @@ void check_mkldnn_binary_fusion_inputs(
     return ideep::attr_t::fuse_##NAME();             \
   }
 
-AttrFunction attr_func_leaky_relu =
+static AttrFunction attr_func_leaky_relu =
     [](torch::List<std::optional<at::Scalar>> scalars,
        std::optional<std::string_view> algorithm) {
       TORCH_CHECK(
@@ -97,7 +97,7 @@ AttrFunction attr_func_leaky_relu =
       return ideep::attr_t::fuse_relu(1.0, alpha_value);
     };
 
-AttrFunction attr_func_hardtanh =
+static AttrFunction attr_func_hardtanh =
     [](torch::List<std::optional<at::Scalar>> scalars,
        std::optional<std::string_view> algorithm) {
       TORCH_CHECK(
@@ -113,7 +113,7 @@ AttrFunction attr_func_hardtanh =
       return ideep::attr_t::fuse_clamp(lower_bound_value, upper_bound_value);
     };
 
-AttrFunction attr_func_gelu = [](torch::List<std::optional<at::Scalar>> scalars,
+static AttrFunction attr_func_gelu = [](torch::List<std::optional<at::Scalar>> scalars,
                                  std::optional<std::string_view> algorithm) {
   TORCH_CHECK(
       algorithm.has_value(),
@@ -131,7 +131,7 @@ AttrFunction attr_func_gelu = [](torch::List<std::optional<at::Scalar>> scalars,
   return ideep::attr_t::fuse_gelu(1.0, 0.f, 0.f, gelu_type);
 };
 
-AttrFunction attr_func_hardsigmoid =
+static AttrFunction attr_func_hardsigmoid =
     [](torch::List<std::optional<at::Scalar>> scalars,
        std::optional<std::string_view> algorithm) {
       ideep::attr_t attr;

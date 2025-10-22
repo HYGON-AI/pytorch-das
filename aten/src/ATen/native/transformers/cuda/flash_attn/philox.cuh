@@ -2,7 +2,9 @@
 #pragma once
 // Philox CUDA.
 
-namespace pytorch_flash {
+#include <ATen/cuda/PhiloxUtils.cuh>
+
+namespace pytorch_flash{
 
 struct ull2 {
     unsigned long long x;

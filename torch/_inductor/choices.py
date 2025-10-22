@@ -1,24 +1,43 @@
 from __future__ import annotations
 
 import typing
-from typing import Any, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING, Union
 
 import sympy
 
+import torch
+
 from . import config
 from .codecache import write_text
+from .kernel_inputs import KernelInputs  # noqa: TC001
 from .metrics import get_metric_table, is_metric_table_enabled
 from .runtime.hints import DeviceProperties, ReductionHint
 from .scheduler import BaseSchedulerNode, Scheduler, WhyNoFuse
+from .template_heuristics import get_template_heuristic
+from .template_heuristics.triton import (
+    BaseConfigHeuristic,
+    CPUConfigHeuristic,
+    CUDAConfigHeuristic,
+    MTIAConfigHeuristic,
+    ROCmConfigHeuristic,
+    XPUConfigHeuristic,
+)
 from .virtualized import V
 
 
 if TYPE_CHECKING:
-    import torch
+    from collections.abc import Generator
+    from functools import partial
+
+    from triton import Config as TritonConfig
+
     from torch.utils._ordered_set import OrderedSet
 
+    from .codegen.common import KernelTemplate
     from .codegen.simd_kernel_features import SIMDKernelFeatures
     from .codegen.triton import TritonKernel
+    from .ir import ChoiceCaller
+    from .select_algorithm import ExternKernelChoice
 
 
 class Sortable(typing.Protocol):
@@ -39,6 +58,114 @@ class InductorChoices:
 
             torch._inductor.virtualized.V.set_choices_handler(MyHeuristics())
     """
+
+    def get_config_heuristics(
+        self, device_type: Optional[str] = "cuda"
+    ) -> BaseConfigHeuristic:
+        if device_type == "cuda":
+            if torch.version.hip is None:
+                return CUDAConfigHeuristic()
+            else:
+                return ROCmConfigHeuristic()
+        elif device_type == "xpu":
+            return XPUConfigHeuristic()
+        elif device_type == "cpu":
+            return CPUConfigHeuristic()
+        elif device_type == "mtia":
+            return MTIAConfigHeuristic()
+        else:
+            return BaseConfigHeuristic()
+
+    # Conv configs
+    def get_conv_configs(
+        self, device_type: Optional[str] = "cuda"
+    ) -> partial[Generator[TritonConfig, None, None]]:
+        conv_heuristics = self.get_config_heuristics(device_type)
+        return conv_heuristics.get_conv_configs()
+
+    # Flex attention configs
+    # TODO(coconutruben): break out flexattention/decode configs into the new retrieval mechanism
+    def get_flex_attention_fwd_configs(
+        self, head_dim: int, dtype: torch.dtype, device_type: Optional[str] = "cuda"
+    ) -> list[Any]:
+        flex_heuristics = self.get_config_heuristics(device_type)
+        return flex_heuristics.get_flex_attn_fwd_configs(head_dim, dtype)
+
+    def get_flex_attention_bwd_configs(
+        self, head_dim: int, dtype: torch.dtype, device_type: Optional[str] = "cuda"
+    ) -> list[Any]:
+        flex_heuristics = self.get_config_heuristics(device_type)
+        return flex_heuristics.get_flex_attn_bwd_configs(head_dim, dtype)
+
+    def get_flex_decode_configs(
+        self, head_dim: int, dtype: torch.dtype, device_type: Optional[str] = "cuda"
+    ) -> list[Any]:
+        flex_heuristics = self.get_config_heuristics(device_type)
+        return flex_heuristics.get_flex_decode_configs(head_dim, dtype)
+
+    def get_mm_configs(
+        self,
+        kernel_inputs: KernelInputs,
+        layout: Any,
+        templates: list[Union[KernelTemplate, ExternKernelChoice]],
+        op_name: str,
+        kwarg_overrides: Optional[dict[str, dict[str, Any]]] = None,
+    ) -> Generator[ChoiceCaller, None, None]:
+        """
+        Get generator of ChoiceCallers for MM templates using template-specific heuristics.
+
+        Args:
+            kernel_inputs: MMKernelInputs containing input tensor nodes and matrix indices
+            layout: Output layout
+            templates: List of template objects (KernelTemplate or ExternKernelChoice)
+            op_name: Operation name (e.g., "bmm", "baddbmm", "addmm", "mm_plus_mm")
+            kwarg_overrides: Optional dict of kwargs to override for each template heuristic,
+                             indexed by template.uid. These only override the per config kwargs, not the extra kwargs
+        Yields:
+            ChoiceCaller objects from the templates
+        """
+        if kwarg_overrides is None:
+            kwarg_overrides = {}
+        input_tensors = kernel_inputs.nodes()
+        if len(input_tensors) < 2:
+            raise ValueError(f"Need at least 2 input tensors, got {len(input_tensors)}")
+
+        # Extract device_type from kernel_inputs
+        device_type = kernel_inputs.device_type
+
+        assert device_type is not None, "get_mm_configs requires a valid device type"
+
+        for template in templates:
+            # Extract template_name from the template object
+            template_name = template.uid
+
+            # Get the appropriate template-specific heuristic
+            heuristic = get_template_heuristic(template_name, device_type, op_name)
+
+            cs = heuristic.get_template_configs(
+                kernel_inputs,
+                layout,
+                op_name,
+            )
+            extra_kwargs = heuristic.get_extra_kwargs(kernel_inputs, layout, op_name)
+
+            # Extract layout and input_nodes from extra_kwargs to pass them explicitly
+            layout_val = layout
+            # adjust the kernel inputs to the template-specific heuristic, if needed
+            # default here is to just return the kernel_inputs as is
+            input_nodes_val = heuristic.adjust_kernel_inputs(
+                kernel_inputs, op_name
+            ).nodes()
+
+            # Get overrides for this specific template
+            overrides = kwarg_overrides.get(template.uid, {})
+
+            extra_kwargs["layout"] = layout_val
+            extra_kwargs["input_nodes"] = input_nodes_val
+            for c in cs:
+                choice = template.choice_or_none(**{**c, **overrides}, **extra_kwargs)
+                if choice is not None:
+                    yield choice
 
     def triton_kernel_kwargs(
         self,
@@ -89,7 +216,9 @@ class InductorChoices:
         if cooperative_reduction:
             # The RSPLIT of cooperative reductions means each thread block is operating on fewer elements
             try:
-                threshold *= 32 // min(V.graph.sizevars.size_hint(features.numel), 32)
+                threshold *= 32 // min(
+                    V.graph.sizevars.size_hint_or_throw(features.numel), 32
+                )
             except ValueError:
                 pass  # unbacked symint
 
@@ -102,18 +231,6 @@ class InductorChoices:
         return V.graph.sizevars.statically_known_leq(
             features.reduction_numel, threshold
         )  # type: ignore[arg-types]
-
-    @staticmethod
-    def want_no_x_dim(features: SIMDKernelFeatures) -> bool:
-        """
-        Heuristic to decide if we should drop the X dimension from a persistent reduction kernel.
-        So the [XBLOCK, RBLOCK] block becomes a [RBLOCK] block and XBLOCK is forced to be always 1.
-        Strangely this is faster than a [1, RBLOCK] block in some cases.
-        """
-        return (
-            features.get_reduction_hint() == ReductionHint.INNER
-            and V.graph.sizevars.statically_known_geq(features.reduction_numel, 256)
-        )
 
     @staticmethod
     def reduction_split_factor(
@@ -255,6 +372,17 @@ class InductorChoices:
 
         if scheduler.can_fusion_increase_peak_memory(node1, node2):
             WhyNoFuse(node1, node2)("Fusion will increase peak memory")
+            return False
+
+        if (
+            config.realize_acc_reads_size_threshold is not None
+            and scheduler.fusion_accumulate_large_reads(
+                node1,
+                node2,
+                config.realize_acc_reads_size_threshold,
+            )
+        ):
+            WhyNoFuse(node1, node2)("Fusion accumulate large amount of reads")
             return False
 
         return True
