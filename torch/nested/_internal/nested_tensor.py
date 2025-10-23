@@ -430,6 +430,8 @@ class ViewNestedFromBuffer(torch.autograd.Function):
     @staticmethod
     def backward(ctx, gO: NestedTensor):  # type: ignore[override]
         return gO._values, None, None
+
+
 def buffer_from_jagged(jagged):
     return ViewBufferFromNested.apply(jagged)
 

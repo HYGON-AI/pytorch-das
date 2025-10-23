@@ -1031,23 +1031,11 @@ class MetalKernel(SIMDKernel):
         self.cse.generate(self.compute, line, assignment=False)
 
 
-@functools.cache
-def _warn_prototype() -> None:
-    import warnings
-
-    warnings.warn(
-        "torch.compile for Metal is an early protoype and might not work as expected."
-        " For details see https://github.com/pytorch/pytorch/issues/150121",
-        stacklevel=2,
-    )
-
-
 class MetalScheduling(SIMDScheduling):
     kernel_type = MetalKernel  # type: ignore[assignment]
 
     def __init__(self, scheduler: Optional[Scheduler]) -> None:
         super().__init__(scheduler)
-        _warn_prototype()
         wrapper = V.graph.wrapper_code
         if wrapper is not None:
             if not V.graph.cpp_wrapper:
