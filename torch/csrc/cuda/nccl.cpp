@@ -149,11 +149,6 @@ ncclRedOp_t to_nccl_red_op(int var) {
   return (ncclRedOp_t)(var);
 }
 
-bool isSendrecvStreamWithComputeEnabled() {
-    const char* env = std::getenv("SENDRECV_STREAM_WITH_COMPUTE");
-    return env && std::string(env) == "1";
-}
-
 namespace torch::cuda::nccl {
 
 using namespace at;
@@ -1009,18 +1004,6 @@ void send(
     ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR >= 7)))
   using namespace torch::cuda::nccl::detail;
 #ifndef NCCL_HAS_COMM_NONBLOCKING
-  if(isSendrecvStreamWithComputeEnabled()){
-   int device = input.device().index();
-  const auto localstream =at::cuda::getCurrentCUDAStream(device);
-  NCCL_CHECK(ncclSend(
-      input.data_ptr(),
-      input.numel(),
-      to_nccl_data_type(input),
-      dst,
-      to_nccl_comm(comm),
-      //stream.stream()));
-      localstream.stream()));
-  } else {
   NCCL_CHECK(ncclSend(
       input.data_ptr(),
       input.numel(),
@@ -1028,7 +1011,6 @@ void send(
       dst,
       to_nccl_comm(comm),
       stream.stream()));
-  }
 #else
   NCCL_CHECK_TIMEOUT(
       ncclSend(
@@ -1058,19 +1040,6 @@ void recv(
     ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR >= 7)))
   using namespace torch::cuda::nccl::detail;
 #ifndef NCCL_HAS_COMM_NONBLOCKING
-  if(isSendrecvStreamWithComputeEnabled()){
-  int device = output.device().index();
-  //const auto localstream =at::cuda::getCurrentCUDAStream(device);
-  const auto localstream =at::cuda::getCurrentCUDAStream(device);
-  NCCL_CHECK(ncclRecv(
-      output.data_ptr(),
-      output.numel(),
-      to_nccl_data_type(output),
-      src,
-      to_nccl_comm(comm),
-      //stream.stream()));
-      localstream.stream()));
-  } else {
   NCCL_CHECK(ncclRecv(
       output.data_ptr(),
       output.numel(),
@@ -1078,7 +1047,6 @@ void recv(
       src,
       to_nccl_comm(comm),
       stream.stream()));
-  }
 #else
   NCCL_CHECK_TIMEOUT(
       ncclRecv(

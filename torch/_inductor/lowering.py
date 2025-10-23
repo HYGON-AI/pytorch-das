@@ -2580,37 +2580,6 @@ def constrain_to_fx_strides(fx_node, *args, **kwargs):
             return {key: apply_constraint(arg[key], fx_arg[key]) for key in arg.keys()}
         return arg
 
-    # There's a silent incorrectness bug where we if we constrain a mutated arg,
-    # we may end up cloning it, writing in-place to the clone, and then using
-    # the original value (instead of the cloned value). Our short-term fix for this
-    # is to never constrain mutated args; longer term we do want to fix this.
-    # https://github.com/pytorch/pytorch/issues/128084
-    # if ignore_mutated_args_FIXME:
-    #     assert isinstance(fx_node.target, torch._ops.OpOverload)
-    #     schema = fx_node.target._schema
-
-    #     def maybe_apply_constraint(schema_arg, arg, fx_arg):
-    #         if schema_arg.alias_info is not None and schema_arg.alias_info.is_write:
-    #             return arg
-    #         return apply_constraint(arg, fx_arg)
-
-    #     new_args = []
-    #     new_kwargs = {}
-
-    #     for idx, (arg, fx_arg) in enumerate(zip(args, fx_node.args)):
-    #         schema_arg = schema.arguments[idx]
-    #         new_args.append(maybe_apply_constraint(schema_arg, arg, fx_arg))
-
-    #     schema_kwargs = {arg.name: arg for arg in schema.arguments}
-
-    #     for key in kwargs.keys():
-    #         arg = kwargs[key]
-    #         fx_arg = fx_node.kwargs[key]
-    #         schema_arg = schema_kwargs[key]
-    #         new_kwargs[key] = maybe_apply_constraint(schema_arg, arg, fx_arg)
-
-    #     return tuple(new_args), new_kwargs
-
     args = tuple(
         apply_constraint(arg, fx_arg) for arg, fx_arg in zip(args, fx_node.args)
     )
