@@ -415,8 +415,8 @@ __global__ void fused_ln_dropout_kernel_train(scalar_t* input,scalar_t* ret,scal
 
 std::tuple<Tensor, Tensor, Tensor, Tensor> fuse_ln_dropout_cuda(
       const Tensor& self,
-      const c10::optional<Tensor>& weight_opt,
-      const c10::optional<Tensor>& bias_opt,
+      const std::optional<Tensor>& weight_opt,
+      const std::optional<Tensor>& bias_opt,
       double ln_epsilon,
       double p,
       bool training)
@@ -570,8 +570,8 @@ std::tuple<Tensor, Tensor, Tensor> fuse_ln_dropout_backward_cuda(
       const Tensor& input,
       const Tensor& mean,
       const Tensor& rstd,
-      const c10::optional<Tensor>& weight_opt /* optional */,
-      const c10::optional<Tensor>& bias_opt /* optional */)
+      const std::optional<Tensor>& weight_opt /* optional */,
+      const std::optional<Tensor>& bias_opt /* optional */)
 {
   c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight_opt);
   const Tensor& weight = *weight_maybe_owned;

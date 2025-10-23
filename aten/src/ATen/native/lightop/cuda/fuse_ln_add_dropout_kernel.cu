@@ -426,8 +426,8 @@ __global__ void fused_ln_add_dropout_kernel_train(scalar_t* input,scalar_t* resi
 std::tuple<Tensor, Tensor, Tensor, Tensor> fuse_ln_add_dropout_cuda(
     const Tensor& self,
     const Tensor& other,
-    const c10::optional<Tensor>& weight_opt,
-    const c10::optional<Tensor>& bias_opt, 
+    const std::optional<Tensor>& weight_opt,
+    const std::optional<Tensor>& bias_opt, 
     double ln_epsilon,
     double p,
     bool training) {
