@@ -52,8 +52,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tenso
 mha_fwd_cutlass(const at::Tensor &q_,         // batch_size x seqlen_q x num_heads x head_size
         const at::Tensor &k,         // batch_size x seqlen_k x num_heads_k x head_size
         const at::Tensor &v,         // batch_size x seqlen_k x num_heads_k x head_size
-        c10::optional<at::Tensor> &out_,             // batch_size x seqlen_q x num_heads x head_size
-        c10::optional<at::Tensor> &alibi_slopes_, // num_heads or batch_size x num_heads
+        std::optional<at::Tensor> &out_,             // batch_size x seqlen_q x num_heads x head_size
+        std::optional<at::Tensor> &alibi_slopes_, // num_heads or batch_size x num_heads
         const float p_dropout,
         const float softmax_scale,
         bool is_causal,
@@ -91,12 +91,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tenso
 mha_varlen_fwd_cutlass(const at::Tensor &q_,  // total_q x num_heads x head_size, total_q := \sum_{i=0}^{b} s_i
                const at::Tensor &k,  // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i or num_blocks x page_block_size x num_heads_k x head_size if there's a block_table.
                const at::Tensor &v,  // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i or num_blocks x page_block_size x num_heads_k x head_size if there's a block_table.
-               c10::optional<at::Tensor> &out_, // total_q x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
+               std::optional<at::Tensor> &out_, // total_q x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
                const at::Tensor &cu_seqlens_q,  // b+1
                const at::Tensor &cu_seqlens_k,  // b+1
                std::optional<at::Tensor> &seqused_k, // b. If given, only this many elements of each batch element's keys are used.
                std::optional<at::Tensor> &block_table_,
-               c10::optional<at::Tensor> &alibi_slopes_, // num_heads or b x num_heads
+               std::optional<at::Tensor> &alibi_slopes_, // num_heads or b x num_heads
                int max_seqlen_q,
                const int max_seqlen_k,
                const float p_dropout,
@@ -109,7 +109,7 @@ mha_varlen_fwd_cutlass(const at::Tensor &q_,  // total_q x num_heads x head_size
                const bool return_softmax,
                std::optional<at::Generator> gen_) {
     at::Tensor q = q_;
-    c10::optional<const at::Tensor> leftpad_k_ = c10::nullopt; // batch_size
+    std::optional<const at::Tensor> leftpad_k_ = c10::nullopt; // batch_size
     
     auto& cfa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
     std::vector<at::Tensor> res = cfa.mha_varlen_fwd(q, k, v, out_, cu_seqlens_q, cu_seqlens_k, seqused_k,
@@ -140,10 +140,10 @@ mha_bwd_cutlass(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x
         const at::Tensor &v,   // batch_size x seqlen_k x num_heads_k x head_size
         const at::Tensor &out,   // batch_size x seqlen_q x num_heads x head_size
         const at::Tensor &softmax_lse,     // b x h x seqlen_q
-        c10::optional<at::Tensor> &dq_,   // batch_size x seqlen_q x num_heads x head_size
-        c10::optional<at::Tensor> &dk_,   // batch_size x seqlen_k x num_heads_k x head_size
-        c10::optional<at::Tensor> &dv_,   // batch_size x seqlen_k x num_heads_k x head_size
-        c10::optional<at::Tensor> &alibi_slopes_, // num_heads or batch_size x num_heads
+        std::optional<at::Tensor> &dq_,   // batch_size x seqlen_q x num_heads x head_size
+        std::optional<at::Tensor> &dk_,   // batch_size x seqlen_k x num_heads_k x head_size
+        std::optional<at::Tensor> &dv_,   // batch_size x seqlen_k x num_heads_k x head_size
+        std::optional<at::Tensor> &alibi_slopes_, // num_heads or batch_size x num_heads
         const float p_dropout,         // probability to drop
         const float softmax_scale,
         const bool is_causal,
@@ -158,8 +158,8 @@ mha_bwd_cutlass(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x
     auto rng_state_ = at::empty({2}, q.options().dtype(at::kLong));
     rng_state_[0] = philox_seed;
     rng_state_[1] = philox_offset;
-    c10::optional<at::Tensor> rng_state(rng_state_);
-    c10::optional<at::Generator> gen_ = c10::nullopt;
+    std::optional<at::Tensor> rng_state(rng_state_);
+    std::optional<at::Generator> gen_ = c10::nullopt;
     
     auto& cfa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
     std::vector<at::Tensor> res = cfa.mha_bwd(dout, q, k, v, out, softmax_lse, dq_, dk_, dv_, alibi_slopes_,
@@ -180,12 +180,12 @@ mha_varlen_bwd_cutlass(const at::Tensor &dout,  // total_q x num_heads, x head_s
                const at::Tensor &v,   // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i
                const at::Tensor &out,   // total_q x num_heads x head_size
                const at::Tensor &softmax_lse,    // h x total_q, softmax logsumexp
-               c10::optional<at::Tensor> &dq_,   // total_q x num_heads x head_size, total_q := \sum_{i=0}^{b} s_i
-               c10::optional<at::Tensor> &dk_,   // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i
-               c10::optional<at::Tensor> &dv_,   // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i
+               std::optional<at::Tensor> &dq_,   // total_q x num_heads x head_size, total_q := \sum_{i=0}^{b} s_i
+               std::optional<at::Tensor> &dk_,   // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i
+               std::optional<at::Tensor> &dv_,   // total_k x num_heads_k x head_size, total_k := \sum_{i=0}^{b} s_i
                const at::Tensor &cu_seqlens_q,  // b+1
                const at::Tensor &cu_seqlens_k,  // b+1
-               c10::optional<at::Tensor> &alibi_slopes_, // num_heads or b x num_heads
+               std::optional<at::Tensor> &alibi_slopes_, // num_heads or b x num_heads
                const int max_seqlen_q,
                const int max_seqlen_k,          // max sequence length to choose the kernel
                const float p_dropout,         // probability to drop
@@ -198,11 +198,11 @@ mha_varlen_bwd_cutlass(const at::Tensor &dout,  // total_q x num_heads, x head_s
                const bool deterministic,
                const at::Tensor philox_seed,
                const at::Tensor philox_offset) {
-    c10::optional<at::Generator> gen_ = c10::nullopt;
+    std::optional<at::Generator> gen_ = c10::nullopt;
     auto rng_state_ = at::empty({2}, q.options().dtype(at::kLong));
     rng_state_[0] = philox_seed;
     rng_state_[1] = philox_offset;
-    c10::optional<at::Tensor> rng_state(rng_state_);
+    std::optional<at::Tensor> rng_state(rng_state_);
 
     auto& cfa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
     std::vector<at::Tensor> res = cfa.mha_varlen_bwd(dout, q, k, v, out, softmax_lse, dq_, dk_, dv_, cu_seqlens_q,

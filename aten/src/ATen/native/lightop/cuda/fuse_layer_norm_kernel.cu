@@ -206,8 +206,8 @@ __global__ void layernorm_forward_kernel_4096(scalar_t* input,scalar_t* ret,scal
 
 std::tuple<Tensor,Tensor,Tensor> fuse_layer_norm_cuda(
     const Tensor& self,
-    const c10::optional<Tensor>& weight_opt,
-    const c10::optional<Tensor>& bias_opt,
+    const std::optional<Tensor>& weight_opt,
+    const std::optional<Tensor>& bias_opt,
     double ln_epsilon,
     bool training)
 {
@@ -320,8 +320,8 @@ std::tuple<Tensor,Tensor,Tensor> fuse_layer_norm_backward_cuda(
   const Tensor& X,
   const Tensor& mean,
   const Tensor& rstd,
-  const c10::optional<Tensor>& weight_opt /* optional */,
-  const c10::optional<Tensor>& bias_opt /* optional */)
+  const std::optional<Tensor>& weight_opt /* optional */,
+  const std::optional<Tensor>& bias_opt /* optional */)
 {
 
   c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight_opt);

@@ -18,41 +18,41 @@
 namespace fs = std::filesystem;
 
 typedef std::vector<at::Tensor> (*mha_fwd_func)(at::Tensor , const at::Tensor, const at::Tensor,
-                                                c10::optional<at::Tensor>, c10::optional<at::Tensor>,
+                                                std::optional<at::Tensor>, std::optional<at::Tensor>,
                                                 const float, const float, bool,
                                                 int, int, const float, const bool,
-                                                c10::optional<at::Generator>, bool);
+                                                std::optional<at::Generator>, bool);
 
 
 typedef std::vector<at::Tensor> (*mha_bwd_func)(const at::Tensor , const at::Tensor, const at::Tensor,
                                                 const at::Tensor , const at::Tensor, const at::Tensor,
-                                                c10::optional<at::Tensor>, c10::optional<at::Tensor>,
-                                                c10::optional<at::Tensor>, c10::optional<at::Tensor>,
+                                                std::optional<at::Tensor>, std::optional<at::Tensor>,
+                                                std::optional<at::Tensor>, std::optional<at::Tensor>,
                                                 const float, const float, const bool,
                                                 int, int, const float, const bool,
-                                                c10::optional<at::Generator>, c10::optional<at::Tensor>, bool);
+                                                std::optional<at::Generator>, std::optional<at::Tensor>, bool);
 
 
 typedef std::vector<at::Tensor> (*mha_varlen_fwd_func)(at::Tensor , const at::Tensor, const at::Tensor,
-                                                c10::optional<at::Tensor>, const at::Tensor, const at::Tensor,
-                                                c10::optional<at::Tensor>,c10::optional<const at::Tensor>,
-                                                c10::optional<at::Tensor>,c10::optional<at::Tensor>,
+                                                std::optional<at::Tensor>, const at::Tensor, const at::Tensor,
+                                                std::optional<at::Tensor>,std::optional<const at::Tensor>,
+                                                std::optional<at::Tensor>,std::optional<at::Tensor>,
                                                 int, const int, const float, const float, bool, bool,
                                                 int, int, const float, const bool,
-                                                c10::optional<at::Generator>);
+                                                std::optional<at::Generator>);
 
 typedef std::vector<at::Tensor> (*mha_varlen_bwd_func)(const at::Tensor , const at::Tensor, const at::Tensor,
                                                 const at::Tensor, const at::Tensor, const at::Tensor,
-                                                c10::optional<at::Tensor>, c10::optional<at::Tensor>,
-                                                c10::optional<at::Tensor>,const at::Tensor , const at::Tensor,c10::optional<at::Tensor>,
+                                                std::optional<at::Tensor>, std::optional<at::Tensor>,
+                                                std::optional<at::Tensor>,const at::Tensor , const at::Tensor,std::optional<at::Tensor>,
                                                 const int, const int, const float, const float, const bool, const bool,
                                                 int, int, const float, const bool,
-                                                c10::optional<at::Generator>, c10::optional<at::Tensor>);
+                                                std::optional<at::Generator>, std::optional<at::Tensor>);
 
 // typedef std::vector<at::Tensor> (*mha_fwd_kvcache_func)(at::Tensor , const at::Tensor, const at::Tensor,
-//                                                 c10::optional<at::Tensor>, c10::optional<at::Tensor>,c10::optional<at::Tensor>, c10::optional<at::Tensor>,
-//                                                 c10::optional<at::Tensor>, c10::optional<at::Tensor>,c10::optional<at::Tensor>, c10::optional<at::Tensor>,
-//                                                 c10::optional<at::Tensor>, c10::optional<at::Tensor>,
+//                                                 std::optional<at::Tensor>, std::optional<at::Tensor>,std::optional<at::Tensor>, std::optional<at::Tensor>,
+//                                                 std::optional<at::Tensor>, std::optional<at::Tensor>,std::optional<at::Tensor>, std::optional<at::Tensor>,
+//                                                 std::optional<at::Tensor>, std::optional<at::Tensor>,
 //                                                 const float, bool, int, int, const float, bool, int);
 //
 //

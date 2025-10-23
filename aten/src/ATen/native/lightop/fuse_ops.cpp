@@ -41,8 +41,8 @@ namespace native {
 
 Tensor fuse_layer_norm(
     const Tensor& input,
-    const c10::optional<Tensor>& weight_opt /* optional */,
-    const c10::optional<Tensor>& bias_opt /* optional */,
+    const std::optional<Tensor>& weight_opt /* optional */,
+    const std::optional<Tensor>& bias_opt /* optional */,
     double eps,
     bool training,
     bool /* cudnn_enable, deprecated */) {
@@ -56,8 +56,8 @@ Tensor fuse_layer_norm(
 
 Tensor fuse_ln_dropout(
     const Tensor& input,
-    const c10::optional<Tensor>& weight_opt /* optional */,
-    const c10::optional<Tensor>& bias_opt /* optional */,
+    const std::optional<Tensor>& weight_opt /* optional */,
+    const std::optional<Tensor>& bias_opt /* optional */,
     double eps,
     double p,
     bool training,
@@ -73,8 +73,8 @@ Tensor fuse_ln_dropout(
 Tensor fuse_ln_add_dropout(
     const Tensor& input,
     const Tensor& other,
-    const c10::optional<Tensor>& weight_opt /* optional */,
-    const c10::optional<Tensor>& bias_opt /* optional */,
+    const std::optional<Tensor>& weight_opt /* optional */,
+    const std::optional<Tensor>& bias_opt /* optional */,
     double eps,
     double p,
     bool training,
@@ -91,8 +91,8 @@ Tensor fuse_ln_add_dropout_bias(
     const Tensor& input,
     const Tensor& other,
     const Tensor& attention_bias,
-    const c10::optional<Tensor>& weight_opt /* optional */,
-    const c10::optional<Tensor>& bias_opt /* optional */,
+    const std::optional<Tensor>& weight_opt /* optional */,
+    const std::optional<Tensor>& bias_opt /* optional */,
     double eps,
     double p,
     bool training,
