@@ -629,7 +629,7 @@ def can_device_access_peer(device: "Device", peer_device: "Device") -> bool:
         raise AssertionError("Invalid peer device id")
     return torch._C._cuda_canDeviceAccessPeer(device, peer_device)
 
-def isCurrentDeviceEco(device: _device_t) -> bool:
+def isCurrentDeviceEco(device: "Device") -> bool:
     device = _get_device_index(device, optional=True)
     return torch._C._getCurrentDeviceEcoInfo(device)
 
