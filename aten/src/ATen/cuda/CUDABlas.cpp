@@ -1638,7 +1638,9 @@ void gemm<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
   }
   else {
     gemm_internal<at::BFloat16>(CUDABLAS_GEMM_ARGS(at::BFloat16));
-  }
+#else
+  gemm_internal<at::BFloat16>(CUDABLAS_GEMM_ARGS(at::BFloat16));
+#endif
 }
 
 template <>
@@ -2441,6 +2443,12 @@ if (rocblas_int8_value != 1){
     computeType,
     CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 }}
+#endif
+
+#if defined(USE_ROCM) && ROCM_VERSION <= 60100
+#define ROCM_CONST_BUG
+#else
+#define ROCM_CONST_BUG const
 #endif
 
 template <>

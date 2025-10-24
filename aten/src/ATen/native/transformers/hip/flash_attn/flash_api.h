@@ -50,8 +50,8 @@ mha_fwd_cutlass(
     const float p_dropout,
     const float softmax_scale,
     bool is_causal,
-    int window_size_left,
-    int window_size_right,
+    std::optional<int64_t>  window_size_left,
+    std::optional<int64_t>  window_size_right,
     const float softcap,
     const bool return_softmax,
     std::optional<at::Generator> gen_);
@@ -88,8 +88,8 @@ mha_varlen_fwd_cutlass(
     const float softmax_scale,
     const bool zero_tensors,
     bool is_causal,
-    int window_size_left,
-    int window_size_right,
+    std::optional<int64_t>  window_size_left,
+    std::optional<int64_t>  window_size_right,
     const float softcap,
     const bool return_softmax,
     std::optional<at::Generator> gen_);
@@ -112,8 +112,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> mha_bwd_cutlass(
     const float p_dropout, // probability to drop
     const float softmax_scale,
     const bool is_causal,
-    int window_size_left,
-    int window_size_right,
+    std::optional<int64_t>  window_size_left,
+    std::optional<int64_t>  window_size_right,
     const float softcap,
     const bool deterministic,
     const at::Tensor philox_seed,
@@ -145,8 +145,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> mha_varlen_bwd_cutlas
     const float softmax_scale,
     const bool zero_tensors,
     const bool is_causal,
-    int window_size_left,
-    int window_size_right,
+    std::optional<int64_t>  window_size_left,
+    std::optional<int64_t>  window_size_right,
     const float softcap,
     const bool deterministic,
     const at::Tensor philox_seed,
@@ -491,6 +491,7 @@ mha_fwd(
   } else {
     TORCH_CHECK(false, "Non't compile aotrition fa, please compile aotriton fa before use it");
   }
+#endif
 }
 
 inline std::tuple<
@@ -555,6 +556,7 @@ mha_varlen_fwd(
         return_softmax,
         gen_,
         dummy_attn_bias); // Not used in flash attention
+  }
 #endif
 #if defined(USE_AOTRITON_FA)
   if (at::globalContext().getROCmFAPreferredBackend() ==
