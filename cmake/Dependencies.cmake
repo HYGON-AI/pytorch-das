@@ -1078,7 +1078,7 @@ if(USE_ROCM)
     hip_include_directories(${Caffe2_HIP_INCLUDE})
 
     set(Caffe2_PUBLIC_HIP_DEPENDENCY_LIBS
-      ${PYTORCH_HIP_LIBRARIES} MIOpen) # libroctx will be linked in with MIOpen
+      hip::galaxyhip MIOpen) # libroctx will be linked in with MIOpen
     if(UNIX)
       if(ROCM_VERSION_DEV VERSION_GREATER_EQUAL "5.7.4")
         list(APPEND Caffe2_PUBLIC_HIP_DEPENDENCY_LIBS roc::hipblaslt)

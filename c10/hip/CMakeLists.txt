@@ -49,8 +49,7 @@ if(NOT BUILD_LIBTORCHLESS)
   endif()
 
   # ---[ Dependency of c10_hip
-  #  target_link_libraries(c10_hip PUBLIC ${C10_LIB} hip::amdhip64)
-    target_link_libraries(c10_hip PUBLIC ${C10_LIB} ${PYTORCH_HIP_LIBRARIES})
+  target_link_libraries(c10_hip PUBLIC ${C10_LIB} hip::galaxyhip)
 
   target_include_directories(
       c10_hip PUBLIC
