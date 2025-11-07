@@ -1638,6 +1638,7 @@ void gemm<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
   }
   else {
     gemm_internal<at::BFloat16>(CUDABLAS_GEMM_ARGS(at::BFloat16));
+  }
 #else
   gemm_internal<at::BFloat16>(CUDABLAS_GEMM_ARGS(at::BFloat16));
 #endif
