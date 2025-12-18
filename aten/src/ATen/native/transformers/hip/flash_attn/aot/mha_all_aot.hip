@@ -62,12 +62,15 @@
 #include <c10/util/Exception.h>
 
 // AOTriton headers
+#if USE_AOTRITON_FA
+#include <aotriton/config.h>
 #include <aotriton/flash.h>
 #include <aotriton/runtime.h>
-
-#if AOTRITON_VERSION_CURRENT < AOTRITON_VERSION_INT(0, 9)
-#error "This adaptor code is only tested with AOTriton >= 0.9"
 #endif
+
+// #if AOTRITON_VERSION_CURRENT < AOTRITON_VERSION_INT(0, 9)
+// #error "This adaptor code is only tested with AOTriton >= 0.9"
+// #endif
 
 namespace pytorch_flash {
 

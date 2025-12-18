@@ -57,11 +57,14 @@ mha_fwd_cutlass(const at::Tensor &q_,         // batch_size x seqlen_q x num_hea
         const float p_dropout,
         const float softmax_scale,
         bool is_causal,
-        int window_size_left,
-        int window_size_right,
+        std::optional<int64_t> window_size_left,
+        std::optional<int64_t> window_size_right,
         const float softcap,
         const bool return_softmax,
         std::optional<at::Generator> gen_) {
+    int64_t win_left  = window_size_left.value_or(-1);
+    int64_t win_right = window_size_right.value_or(-1);
+
     auto* ev = std::getenv("USE_FA_BHSD");
     bool is_bhsd = ev && std::string(ev) == "1";
     at::Tensor q = q_;
@@ -70,7 +73,7 @@ mha_fwd_cutlass(const at::Tensor &q_,         // batch_size x seqlen_q x num_hea
     
     auto& cfa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
     std::vector<at::Tensor> res = cfa.mha_fwd(q, k, v, out_, alibi_slopes_, p_dropout, softmax_scale, is_causal, 
-                                                window_size_left, window_size_right, softcap, return_softmax, gen_, is_bhsd);
+                                                static_cast<int>(win_left), static_cast<int>(win_right), softcap, return_softmax, gen_, is_bhsd);
     at::Tensor out = res[0];
     at::Tensor q_padded = res[1];
     at::Tensor k_padded = res[2];
@@ -103,19 +106,21 @@ mha_varlen_fwd_cutlass(const at::Tensor &q_,  // total_q x num_heads x head_size
                const float softmax_scale,
                const bool zero_tensors,
                bool is_causal,
-               int window_size_left,
-               int window_size_right,
+               std::optional<int64_t> window_size_left,
+               std::optional<int64_t> window_size_right,
                const float softcap,
                const bool return_softmax,
                std::optional<at::Generator> gen_) {
+    int64_t win_left  = window_size_left.value_or(-1);
+    int64_t win_right = window_size_right.value_or(-1);
     at::Tensor q = q_;
     std::optional<const at::Tensor> leftpad_k_ = c10::nullopt; // batch_size
     
     auto& cfa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
     std::vector<at::Tensor> res = cfa.mha_varlen_fwd(q, k, v, out_, cu_seqlens_q, cu_seqlens_k, seqused_k,
                                                 leftpad_k_, block_table_, alibi_slopes_, max_seqlen_q, max_seqlen_k,
-                                                p_dropout, softmax_scale, zero_tensors, is_causal, window_size_left, 
-                                                window_size_right,softcap, return_softmax, gen_);
+                                                p_dropout, softmax_scale, zero_tensors, is_causal, static_cast<int>(win_left), 
+                                                static_cast<int>(win_right),softcap, return_softmax, gen_);
     
     //return {out, q_padded, k_padded, v_padded, softmax_lse, rng_state[0], rng_state[1], p};
     at::Tensor out = res[0];
@@ -147,12 +152,14 @@ mha_bwd_cutlass(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x
         const float p_dropout,         // probability to drop
         const float softmax_scale,
         const bool is_causal,
-        int window_size_left,
-        int window_size_right,
+        std::optional<int64_t> window_size_left,
+        std::optional<int64_t> window_size_right,
         const float softcap,
         const bool deterministic,
         const at::Tensor philox_seed,
         const at::Tensor philox_offset) {
+    int64_t win_left  = window_size_left.value_or(-1);
+    int64_t win_right = window_size_right.value_or(-1);
     auto* ev = std::getenv("USE_FA_BHSD");
     bool is_bhsd = ev && std::string(ev) == "1";
     auto rng_state_ = at::empty({2}, q.options().dtype(at::kLong));
@@ -163,7 +170,7 @@ mha_bwd_cutlass(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x
     
     auto& cfa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
     std::vector<at::Tensor> res = cfa.mha_bwd(dout, q, k, v, out, softmax_lse, dq_, dk_, dv_, alibi_slopes_,
-                                                p_dropout, softmax_scale, is_causal, window_size_left, window_size_right,
+                                                p_dropout, softmax_scale, is_causal, static_cast<int>(win_left), static_cast<int>(win_right),
                                                 softcap, deterministic, gen_, rng_state, is_bhsd);
     at::Tensor dq = res[0];
     at::Tensor dk = res[1];
@@ -192,12 +199,14 @@ mha_varlen_bwd_cutlass(const at::Tensor &dout,  // total_q x num_heads, x head_s
                const float softmax_scale,
                const bool zero_tensors,
                const bool is_causal,
-               int window_size_left,
-               int window_size_right,
+               std::optional<int64_t> window_size_left,
+               std::optional<int64_t> window_size_right,
                const float softcap,
                const bool deterministic,
                const at::Tensor philox_seed,
                const at::Tensor philox_offset) {
+    int64_t win_left  = window_size_left.value_or(-1);
+    int64_t win_right = window_size_right.value_or(-1);
     std::optional<at::Generator> gen_ = c10::nullopt;
     auto rng_state_ = at::empty({2}, q.options().dtype(at::kLong));
     rng_state_[0] = philox_seed;
@@ -207,7 +216,7 @@ mha_varlen_bwd_cutlass(const at::Tensor &dout,  // total_q x num_heads, x head_s
     auto& cfa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
     std::vector<at::Tensor> res = cfa.mha_varlen_bwd(dout, q, k, v, out, softmax_lse, dq_, dk_, dv_, cu_seqlens_q,
                                                 cu_seqlens_k, alibi_slopes_, max_seqlen_q, max_seqlen_k,
-                                                p_dropout, softmax_scale, zero_tensors, is_causal, window_size_left, window_size_right,
+                                                p_dropout, softmax_scale, zero_tensors, is_causal, static_cast<int>(win_left), static_cast<int>(win_right),
                                                 softcap, deterministic, gen_, rng_state);
     at::Tensor dq = res[0];
     at::Tensor dk = res[1];

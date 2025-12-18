@@ -741,7 +741,7 @@ inline std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> mha_bwd(
 #else
   if(at::globalContext().getROCmFAPreferredBackend() ==
     at::ROCmFABackend::Cutlass) {
-  return mha_bwd_aot(
+  return mha_bwd_cutlass(
       dout,
       q,
       k,
@@ -757,6 +757,7 @@ inline std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> mha_bwd(
       is_causal,
       window_size_left,
       window_size_right,
+      softcap,
       deterministic,
       philox_seed,
       philox_offset);
