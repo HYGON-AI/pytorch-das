@@ -680,14 +680,21 @@ Tensor _safe_softmax(
     int64_t dim,
     std::optional<ScalarType> dtype) {
   auto out = at::softmax(self, dim, dtype);
-  // 计算沿dim维度的最大值（保持维度）
-  auto max_result = self.max(dim, /*keepdim=*/true);
-  auto max_vals = std::get<0>(max_result); // max返回的是(values, indices)元组
-  // 识别最大值是否为负无穷的行
-  auto n_masked_rows = max_vals.isneginf();
+  // origin algor as a backup for nested tensor
+  Tensor masked_rows;
+  if (self.is_nested() || self.numel() == 0) {
+    const auto masked = self.isneginf();
+    masked_rows = all(masked, dim, true);
+  } else {
+    // 计算沿dim维度的最大值（保持维度）
+    auto max_result = self.max(dim, /*keepdim=*/true);
+    auto max_vals = std::get<0>(max_result); // max返回的是(values, indices)元组
+    // 识别最大值是否为负无穷的行
+    masked_rows = max_vals.isneginf();
+  }
   const auto zero = at::scalar_tensor(0.0, at::TensorOptions().dtype(out.dtype()).device(out.device()));
   // reuse storage for out
-  return at::where_out(out, n_masked_rows, zero, out);
+  return at::where_out(out, masked_rows, zero, out);
 }
 // Computes scaled dot product attention on query, key and value tensors, using
 // an optional attention mask if passed, and applying dropout if a probability
