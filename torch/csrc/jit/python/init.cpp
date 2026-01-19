@@ -15,6 +15,7 @@
 #endif
 #include <c10/core/SymNodeImpl.h>
 #include <torch/csrc/jit/frontend/ir_emitter.h>
+#include <torch/csrc/jit/frontend/schema_type_parser.h>
 #include <torch/csrc/jit/frontend/tracer.h>
 #include <torch/csrc/jit/ir/irparser.h>
 #include <torch/csrc/jit/jit_log.h>
@@ -78,6 +79,7 @@
 #include <torch/csrc/jit/passes/vulkan_rewrite.h>
 #include <torch/csrc/jit/passes/xnnpack_rewrite.h>
 #include <torch/csrc/jit/python/init.h>
+#include <torch/csrc/jit/python/opaque_obj.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <torch/csrc/jit/python/python_arg_flatten.h>
 #include <torch/csrc/jit/python/python_custom_class.h>
@@ -1254,11 +1256,6 @@ void initJITBindings(PyObject* module) {
             return a->expect_true(file, line);
           })
       .def(
-          "expect_size",
-          [](const c10::SymNode& a, const char* file, int64_t line) {
-            return a->expect_size(file, line);
-          })
-      .def(
           "guard_size_oblivious",
           [](const c10::SymNode& a, const char* file, int64_t line) {
             return a->guard_size_oblivious(file, line);
@@ -1617,9 +1614,22 @@ void initJITBindings(PyObject* module) {
              const std::string& key,
              size_t numel,
              py::object data_type_obj) {
-            at::DataPtr data(std::get<0>(self.getRecord(key)));
+            auto [data, size] = self.getRecord(key);
             auto scalar_type =
                 reinterpret_cast<THPDtype*>(data_type_obj.ptr())->scalar_type;
+
+            TORCH_CHECK(
+                size == numel * elementSize(scalar_type),
+                "record size (",
+                size,
+                " bytes) does not match expected size (",
+                numel * elementSize(scalar_type),
+                " bytes = ",
+                numel,
+                " elements * ",
+                elementSize(scalar_type),
+                " bytes/element) for dtype ",
+                scalar_type);
 
             c10::Storage storage(
                 c10::Storage::use_byte_size_t(),
@@ -1738,7 +1748,9 @@ void initJITBindings(PyObject* module) {
                         op, symbol, args, kwargs, /*is_overload*/ true, dk_);
                   });
               return py::make_tuple(
-                  func, func_dk, py::cast(op->getTags().vec()));
+                  std::move(func),
+                  std::move(func_dk),
+                  py::cast(op->getTags().vec()));
             }
           }
           return std::nullopt;
@@ -1799,7 +1811,7 @@ void initJITBindings(PyObject* module) {
                     << "' with schema(s):\n";
 
           for (const auto& op : sortedOps) {
-            docstring << "  " << op->schema() << "\n";
+            docstring << "  " << op->schema() << '\n';
           }
 
           py::list overload_names;
@@ -1863,6 +1875,18 @@ void initJITBindings(PyObject* module) {
       &parseSchema,
       py::arg("schema"),
       py::arg("allow_typevars") = true);
+  m.def(
+      "_register_opaque_type",
+      [](const std::string& type_name) {
+        torch::jit::registerOpaqueType(type_name);
+      },
+      R"doc(Registers a type name to be treated as an opaque type (PyObject) in schema parsing.)doc");
+  m.def(
+      "_is_opaque_type_registered",
+      [](const std::string& type_name) -> bool {
+        return torch::jit::isRegisteredOpaqueType(type_name);
+      },
+      R"doc(Checks if a type name is registered as an opaque type.)doc");
   m.def("unify_type_list", [](const std::vector<TypePtr>& types) {
     std::ostringstream s;
     auto type = unifyTypeList(types, s);

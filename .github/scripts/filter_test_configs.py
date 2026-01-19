@@ -8,10 +8,11 @@ import re
 import subprocess
 import sys
 import warnings
+from collections.abc import Callable
 from enum import Enum
 from functools import cache
 from logging import info
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 from urllib.request import Request, urlopen
 
 import yaml
@@ -40,10 +41,10 @@ SUPPORTED_PERIODICAL_MODES: dict[str, Callable[[Optional[str]], bool]] = {
     "rerun_disabled_tests": lambda job_name: True,
 }
 
-# The link to the published list of disabled jobs
-DISABLED_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/disabled-jobs.json?versionId=hjktHz2WOejHpxKpkqpDknTt5rMTM9KK"
+# The link to the published list of disabled jobs. Pinned for release 2.10
+DISABLED_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/disabled-jobs.json?versionId=7uzr7psTR98QQyLkjIjI93OHKaAlii.q"
 # and unstable jobs
-UNSTABLE_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/unstable-jobs.json?versionId=wrjdvvQTJxgvMO.rGw5MEuMsj6XbjuV7"
+UNSTABLE_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/unstable-jobs.json?versionId=JkNCBYVBZUEzYfRfUzvJ_eZbvkL_pXFX"
 
 # Some constants used to handle disabled and unstable jobs
 JOB_NAME_SEP = "/"
@@ -502,6 +503,7 @@ def perform_misc_tasks(
     job_name: str,
     pr_body: str,
     branch: Optional[str] = None,
+    tag: Optional[str] = None,
 ) -> None:
     """
     In addition to apply the filter logic, the script also does the following
@@ -509,7 +511,11 @@ def perform_misc_tasks(
     """
     set_output(
         "keep-going",
-        branch == MAIN_BRANCH or check_for_setting(labels, pr_body, "keep-going"),
+        branch == MAIN_BRANCH
+        or bool(tag and re.match(r"^trunk/[a-f0-9]{40}$", tag))
+        # Pattern for tags created via manual run on HUD
+        or bool(tag and re.match(r"^ciflow/[^/]+/[a-f0-9]{40}$", tag))
+        or check_for_setting(labels, pr_body, "keep-going"),
     )
     set_output(
         "ci-verbose-test-logs",
@@ -634,6 +640,7 @@ def main() -> None:
         job_name=args.job_name,
         pr_body=pr_body if pr_body else "",
         branch=args.branch,
+        tag=tag,
     )
 
     # Set the filtered test matrix as the output

@@ -393,7 +393,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor> mha_varle
 #endif
 
 TORCH_API
-inline std::tuple<
+std::tuple<
     at::Tensor,
     at::Tensor,
     at::Tensor,

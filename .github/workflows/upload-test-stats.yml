@@ -5,20 +5,24 @@ on:
     workflows:
       - pull
       - trunk
+      - trunk-rocm-mi300
       - periodic
+      - periodic-rocm-mi200
       - periodic-rocm-mi300
       - inductor
       - unstable
       - slow
+      - slow-rocm-mi200
       - unstable-periodic
       - inductor-periodic
-      - rocm
+      - rocm-mi200
       - rocm-mi300
       - rocm-mi355
+      - rocm-navi31
       - inductor-micro-benchmark
       - inductor-micro-benchmark-x86
       - inductor-cu124
-      - inductor-rocm
+      - inductor-rocm-mi200
       - inductor-rocm-mi300
       - mac-mps
       - linux-aarch64
@@ -58,7 +62,7 @@ jobs:
         run: echo "${TRIGGERING_WORKFLOW}"
 
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.9
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.10
 
       - name: Configure aws credentials
         uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
