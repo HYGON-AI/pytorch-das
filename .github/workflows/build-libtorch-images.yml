@@ -32,7 +32,7 @@ jobs:
   get-label-type:
     if: github.repository_owner == 'pytorch'
     name: get-label-type
-    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.9
+    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.10
     with:
       triggering_actor: ${{ github.triggering_actor }}
       issue_owner: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
@@ -52,13 +52,13 @@ jobs:
           { tag: "cuda12.9" },
           { tag: "cuda12.8" },
           { tag: "cuda12.6" },
-          { tag: "rocm6.3"  },
-          { tag: "rocm6.4"  },
+          { tag: "rocm7.0"  },
+          { tag: "rocm7.1"  },
           { tag: "cpu"      },
         ]
     steps:
       - name: Build docker image
-        uses: pytorch/pytorch/.github/actions/binary-docker-build@release/2.9
+        uses: pytorch/pytorch/.github/actions/binary-docker-build@release/2.10
         with:
           docker-image-name: libtorch-cxx11-builder
           custom-tag-prefix: ${{ matrix.tag }}

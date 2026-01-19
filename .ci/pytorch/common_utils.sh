@@ -96,7 +96,6 @@ function pip_build_and_install() {
     python3 -m pip wheel \
       --no-build-isolation \
       --no-deps \
-      --no-use-pep517 \
       -w "${wheel_dir}" \
       "${build_target}"
   fi
@@ -200,14 +199,56 @@ function install_torchvision() {
   fi
 }
 
-function install_torchrec_and_fbgemm() {
-  local torchrec_commit
-  torchrec_commit=$(get_pinned_commit torchrec)
+function install_fbgemm() {
+  local build_variant=$1
+
   local fbgemm_commit
   fbgemm_commit=$(get_pinned_commit fbgemm)
   if [[ "$BUILD_ENVIRONMENT" == *rocm* ]] ; then
     fbgemm_commit=$(get_pinned_commit fbgemm_rocm)
   fi
+
+  # Check if the wheel has been already been built
+  local wheel_dir=dist/fbgemm_gpu
+  local found_whl=0
+  for file in "${wheel_dir}"/*.whl
+  do
+    if [[ -f "${file}" ]]; then
+      found_whl=1
+      break
+    fi
+  done
+
+  pip_install tabulate==0.9.0 tensordict==0.10.0  # needed for newer fbgemm
+  pip_install patchelf  # needed for rocm fbgemm
+
+  # Build the wheel if it doesn't exist
+  if [ "${found_whl}" == "0" ]; then
+    git clone --recursive https://github.com/pytorch/fbgemm
+    pushd fbgemm/fbgemm_gpu
+    git checkout "${fbgemm_commit}" --recurse-submodules
+    python setup.py bdist_wheel --build-target=default --build-variant="${build_variant}"
+    popd
+
+    # Save the wheel before cleaning up
+    mkdir -p dist/fbgemm_gpu
+    cp fbgemm/fbgemm_gpu/dist/*.whl dist/fbgemm_gpu
+  fi
+
+  # Install fbgemm wheel
+  for file in "${wheel_dir}"/*.whl
+  do
+    pip_install_whl "${file}"
+  done
+
+  # Clean up
+  rm -rf fbgemm
+}
+
+function install_torchrec_and_fbgemm() {
+  local torchrec_commit
+  torchrec_commit=$(get_pinned_commit torchrec)
+
   pip_uninstall torchrec-nightly
   pip_uninstall fbgemm-gpu-nightly
   pip_install setuptools-git-versioning scikit-build pyre-extensions
@@ -240,51 +281,19 @@ function install_torchrec_and_fbgemm() {
     echo "ROCm version: $ROCM_INT"
     export BUILD_ROCM_VERSION="$MAJOR_VERSION.$MINOR_VERSION"
 
-    pip_install tabulate  # needed for newer fbgemm
-    pip_install patchelf  # needed for rocm fbgemm
-
-    local wheel_dir=dist/fbgemm_gpu
-    local found_whl=0
-    for file in "${wheel_dir}"/*.whl
-    do
-      if [[ -f "${file}" ]]; then
-        found_whl=1
-        break
-      fi
-    done
-
-    # Build the wheel if it doesn't exist
-    if [ "${found_whl}" == "0" ]; then
-      git clone --recursive https://github.com/pytorch/fbgemm
-      pushd fbgemm/fbgemm_gpu
-      git checkout "${fbgemm_commit}" --recurse-submodules
-      python setup.py bdist_wheel \
-        --build-variant=rocm \
-        -DHIP_ROOT_DIR="${ROCM_PATH}" \
-        -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
-        -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
-      popd
-
-      # Save the wheel before cleaning up
-      mkdir -p dist/fbgemm_gpu
-      cp fbgemm/fbgemm_gpu/dist/*.whl dist/fbgemm_gpu
-    fi
-
-    for file in "${wheel_dir}"/*.whl
-    do
-      pip_install_whl "${file}"
-    done
-
-    rm -rf fbgemm
+    install_fbgemm "rocm"
   else
     pip_build_and_install "git+https://github.com/pytorch/torchrec.git@${torchrec_commit}" dist/torchrec
-    pip_build_and_install "git+https://github.com/pytorch/FBGEMM.git@${fbgemm_commit}#subdirectory=fbgemm_gpu" dist/fbgemm_gpu
+    # Skip fbgemm for CUDA 13 as it's not compatible yet
+    if [[ "$BUILD_ENVIRONMENT" != *cuda13* ]]; then
+      install_fbgemm "cuda"
+    fi
   fi
 }
 
 function clone_pytorch_xla() {
   if [[ ! -d ./xla ]]; then
-    git clone --recursive -b r2.9 https://github.com/pytorch/xla.git
+    git clone --recursive -b r2.10 https://github.com/pytorch/xla.git
     pushd xla
     # pin the xla hash so that we don't get broken by changes to xla
     git checkout "$(cat ../.github/ci_commit_pins/xla.txt)"
@@ -298,6 +307,28 @@ function install_torchao() {
   local commit
   commit=$(get_pinned_commit torchao)
   pip_build_and_install "git+https://github.com/pytorch/ao.git@${commit}" dist/ao
+}
+
+function install_flash_attn_cute() {
+  echo "Installing FlashAttention CuTe from GitHub..."
+  # Grab latest main til we have a pinned commit
+  local flash_attn_commit
+  flash_attn_commit=$(git ls-remote https://github.com/Dao-AILab/flash-attention.git HEAD | cut -f1)
+
+  # Clone the repo to a temporary directory
+  rm -rf flash-attention-build
+  git clone --depth 1 --recursive https://github.com/Dao-AILab/flash-attention.git flash-attention-build
+
+  pushd flash-attention-build
+  git checkout "${flash_attn_commit}"
+
+  # Install only the 'cute' sub-directory
+  pip_install -e flash_attn/cute/
+  popd
+
+  # remove the local repo
+  rm -rf flash-attention-build
+  echo "FlashAttention CuTe installation complete."
 }
 
 function print_sccache_stats() {

@@ -56,7 +56,7 @@ jobs:
   get-label-type:
     if: github.repository_owner == 'pytorch'
     name: get-label-type
-    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.9
+    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.10
     with:
       triggering_actor: ${{ github.triggering_actor }}
       issue_owner: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
@@ -71,7 +71,7 @@ jobs:
     with:!{{ upload.binary_env_as_input(config) }}
       {%- if "aarch64" in build_environment %}
       runner_prefix: "${{ needs.get-label-type.outputs.label-type }}"
-      runs_on: linux.arm64.m7g.4xlarge.ephemeral
+      runs_on: linux.arm64.r7g.12xlarge.memory
       ALPINE_IMAGE: "arm64v8/alpine"
       {%- elif "s390x" in build_environment %}
       runs_on: linux.s390x
@@ -97,7 +97,6 @@ jobs:
     secrets:
       github-token: ${{ secrets.GITHUB_TOKEN }}
 
-  {%- if config["gpu_arch_type"] != "cuda-aarch64" %}
   !{{ config["build_name"] }}-test:  # Testing
     if: ${{ github.repository_owner == 'pytorch' }}
     needs:
@@ -138,7 +137,7 @@ jobs:
       contents: read
     steps:
       - name: Setup XPU
-        uses: pytorch/pytorch/.github/actions/setup-xpu@release/2.9
+        uses: pytorch/pytorch/.github/actions/setup-xpu@release/2.10
       - name: configure aws credentials
         id: aws_creds
         uses: aws-actions/configure-aws-credentials@v4
@@ -156,7 +155,7 @@ jobs:
       !{{ common.checkout(deep_clone=False, directory="pytorch", checkout_pr_head=False) }}
       - name: Calculate docker image
         id: calculate-docker-image
-        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.9
+        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.10
         with:
           docker-registry: ${{ startsWith(github.event.ref, 'refs/tags/ciflow/') && '308535385114.dkr.ecr.us-east-1.amazonaws.com' || 'docker.io' }}
           docker-image-name: !{{ config["container_image"] }}
@@ -164,7 +163,7 @@ jobs:
           docker-build-dir: .ci/docker
           working-directory: pytorch
       - name: Pull Docker image
-        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.9
+        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.10
         with:
           docker-image: ${{ steps.calculate-docker-image.outputs.docker-image }}
       - name: Test Pytorch binary
@@ -174,9 +173,12 @@ jobs:
       - name: Teardown XPU
         uses: ./.github/actions/teardown-xpu
     {%- else %}
-    runs-on: linux.rocm.gpu.mi250
+    runs-on: linux.rocm.gpu.mi250.1
     timeout-minutes: !{{ common.timeout_minutes }}
     !{{ upload.binary_env(config) }}
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Setup ROCm
         uses: ./.github/actions/setup-rocm
@@ -199,7 +201,7 @@ jobs:
           role-duration-seconds: 18000
       - name: Calculate docker image
         id: calculate-docker-image
-        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.9
+        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.10
         with:
           docker-registry: ${{ startsWith(github.event.ref, 'refs/tags/ciflow/') && '308535385114.dkr.ecr.us-east-1.amazonaws.com' || 'docker.io' }}
           docker-image-name: !{{ config["container_image"] }}
@@ -207,7 +209,7 @@ jobs:
           docker-build-dir: .ci/docker
           working-directory: pytorch
       - name: Pull Docker image
-        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.9
+        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.10
         with:
           docker-image: ${{ steps.calculate-docker-image.outputs.docker-image }}
       - name: Test Pytorch binary
@@ -217,7 +219,6 @@ jobs:
       - name: Teardown ROCm
         uses: ./.github/actions/teardown-rocm
     {%- endif %}
-  {%- endif %}
 
 {%- if branches == "nightly" %}
   !{{ upload.upload_binaries(config) }}

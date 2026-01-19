@@ -8,6 +8,7 @@ on:
       - docker.Makefile
       - .github/workflows/docker-release.yml
       - .github/scripts/generate_docker_release_matrix.py
+      - .github/scripts/generate_binary_build_matrix.py
   push:
     branches:
       - nightly
@@ -37,7 +38,7 @@ jobs:
   get-label-type:
     if: github.repository_owner == 'pytorch'
     name: get-label-type
-    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.9
+    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.10
     with:
       triggering_actor: ${{ github.triggering_actor }}
       issue_owner: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
@@ -52,7 +53,7 @@ jobs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
     steps:
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.9
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.10
         with:
           fetch-depth: 1
           submodules: true
@@ -82,7 +83,7 @@ jobs:
       CUDNN_VERSION: ${{ matrix.cudnn_version }}
     steps:
       - name: Setup SSH (Click me for login details)
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.9
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.10
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
       # [see note: pytorch repo ref]
@@ -144,7 +145,7 @@ jobs:
         run: |
           make -f docker.Makefile "${BUILD_IMAGE_TYPE}-image"
       - name: Push nightly tags
-        if: ${{ github.event.ref == 'refs/heads/nightly' && matrix.image_type == 'runtime' && matrix.platform == 'linux/amd4' }}
+        if: ${{ github.event.ref == 'refs/heads/nightly' && matrix.image_type == 'runtime' && matrix.platform == 'linux/amd64' }}
         run: |
           PYTORCH_DOCKER_TAG="${PYTORCH_VERSION}-cuda${CUDA_VERSION_SHORT}-cudnn${CUDNN_VERSION}-runtime"
           CUDA_SUFFIX="-cu${CUDA_VERSION}"
@@ -164,12 +165,12 @@ jobs:
           fi
 
       - name: Teardown Linux
-        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.9
+        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.10
         if: always()
 
   validate:
     needs: build
-    uses: pytorch/test-infra/.github/workflows/validate-docker-images.yml@release/2.9
+    uses: pytorch/test-infra/.github/workflows/validate-docker-images.yml@release/2.10
     with:
       channel: test
       ref: main

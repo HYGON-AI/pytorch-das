@@ -5,10 +5,11 @@ on:
     - cron: 0 0 * * *
   push:
     tags:
-      # Final Release tags look like: v1.11.0
+      # NOTE: Doc build pipelines should only get triggered on:
+      # Major or minor release candidates builds
+      - v[0-9]+.[0-9]+.0+-rc[0-9]+
+      # Final RC for major, minor and patch releases
       - v[0-9]+.[0-9]+.[0-9]+
-      # Release candidate tags look like: v1.11.0-rc1
-      - v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+
       - ciflow/nightly/*
   workflow_dispatch:
 
@@ -20,7 +21,7 @@ concurrency:
 jobs:
   get-label-type:
     name: get-label-type
-    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.9
+    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.10
     if: ${{ (github.event_name != 'schedule' || github.repository == 'pytorch/pytorch') && github.repository_owner == 'pytorch' }}
     with:
       triggering_actor: ${{ github.triggering_actor }}
@@ -42,7 +43,7 @@ jobs:
     uses: ./.github/workflows/_linux-build.yml
     needs: get-label-type
     with:
-      runner: "${{ needs.get-label-type.outputs.label-type }}linux.2xlarge"
+      runner_prefix: "${{ needs.get-label-type.outputs.label-type }}"
       build-environment: linux-jammy-py3.10-gcc11
       docker-image-name: ci-image:pytorch-linux-jammy-py3.10-gcc11
     secrets: inherit
@@ -93,7 +94,7 @@ jobs:
     if: github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     steps:
       - name: "${{ matrix.repo-owner }}/${{ matrix.repo-name }} update-commit-hash"
-        uses: pytorch/test-infra/.github/actions/update-commit-hash@release/2.9
+        uses: pytorch/test-infra/.github/actions/update-commit-hash@release/2.10
         with:
           repo-owner: ${{ matrix.repo-owner }}
           repo-name: ${{ matrix.repo-name }}

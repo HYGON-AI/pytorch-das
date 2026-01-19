@@ -17,15 +17,16 @@ import sys
 import threading
 import traceback
 import warnings
+from collections.abc import Callable
 from functools import lru_cache
-from typing import Any, Callable, cast, NewType, Optional, TYPE_CHECKING, Union
+from typing import Any, cast, NewType, Optional, TYPE_CHECKING, Union
 
 import torch
 import torch._C
 from torch import device as _device
 from torch._utils import _dummy_type, _LazySeedTracker, classproperty
 
-from . import gds
+from . import _device_limits, gds
 from ._utils import _get_device_index
 from .graphs import (
     CUDAGraph,
@@ -34,6 +35,7 @@ from .graphs import (
     is_current_stream_capturing,
     make_graphed_callables,
 )
+from .green_contexts import GreenContext
 from .streams import Event, ExternalStream, Stream
 
 
@@ -236,6 +238,14 @@ def _sleep(cycles):
     torch._C._cuda_sleep(cycles)
 
 
+def _busy_wait_for_flag():
+    torch._C._cuda_busy_wait_for_flag()
+
+
+def _clear_flag():
+    torch._C._cuda_clear_flag()
+
+
 def _extract_arch_version(arch_string: str) -> int:
     """Extracts the architecture string from a CUDA version"""
     base = arch_string.split("_", maxsplit=2)[1]
@@ -291,7 +301,8 @@ def _check_capability():
                         min_arch % 10,
                         max_arch // 10,
                         max_arch % 10,
-                    )
+                    ),
+                    stacklevel=2,
                 )
                 matched_arches = ""
                 for arch, arch_info in CUDA_ARCHES_SUPPORTED.items():
@@ -301,7 +312,9 @@ def _check_capability():
                     ):
                         matched_arches += f" {arch}"
                 if matched_arches != "":
-                    warnings.warn(matched_cuda_warn.format(matched_arches))
+                    warnings.warn(
+                        matched_cuda_warn.format(matched_arches), stacklevel=2
+                    )
 
 
 def _check_cubins():
@@ -326,7 +339,8 @@ If you want to use the {} GPU with PyTorch, please check the instructions at htt
             warnings.warn(
                 incompatible_device_warn.format(
                     device_name, capability, " ".join(arch_list), device_name
-                )
+                ),
+                stacklevel=2,
             )
 
 
@@ -495,11 +509,14 @@ class cudaStatus:
 
 class CudaError(RuntimeError):
     def __init__(self, code: int) -> None:
+        # pyrefly: ignore [missing-attribute]
         msg = _cudart.cudaGetErrorString(_cudart.cudaError(code))
         super().__init__(f"{msg} ({code})")
 
 
 def check_error(res: int) -> None:
+    r"""Raise an error if the result of a CUDA runtime API call is not success."""
+    # pyrefly: ignore [missing-attribute]
     if res != _cudart.cudaError.success:
         raise CudaError(res)
 
@@ -599,6 +616,7 @@ def get_device_capability(device: "Device" = None) -> tuple[int, int]:
     return prop.major, prop.minor
 
 
+# pyrefly: ignore [not-a-type]
 def get_device_properties(device: "Device" = None) -> _CudaDeviceProperties:
     r"""Get the properties of a device.
 
@@ -652,6 +670,7 @@ class StreamContext:
         self.idx = _get_device_index(None, True)
         if not torch.jit.is_scripting():
             if self.idx is None:
+                # pyrefly: ignore [bad-assignment]
                 self.idx = -1
 
         self.src_prev_stream = (
@@ -814,7 +833,9 @@ def _raw_device_count_amdsmi() -> int:
     try:
         amdsmi.amdsmi_init()
     except amdsmi.AmdSmiException as e:
-        warnings.warn(f"Can't initialize amdsmi - Error code: {e.err_code}")
+        warnings.warn(
+            f"Can't initialize amdsmi - Error code: {e.err_code}", stacklevel=2
+        )
         return -1
     socket_handles = amdsmi.amdsmi_get_processor_handles()
     return len(socket_handles)
@@ -827,12 +848,12 @@ def _raw_device_count_nvml() -> int:
     nvml_h = CDLL("libnvidia-ml.so.1")
     rc = nvml_h.nvmlInit()
     if rc != 0:
-        warnings.warn("Can't initialize NVML")
+        warnings.warn("Can't initialize NVML", stacklevel=2)
         return -1
     dev_count = c_int(-1)
     rc = nvml_h.nvmlDeviceGetCount_v2(byref(dev_count))
     if rc != 0:
-        warnings.warn("Can't get nvml device count")
+        warnings.warn("Can't get nvml device count", stacklevel=2)
         return -1
     del nvml_h
     return dev_count.value
@@ -846,27 +867,27 @@ def _raw_device_uuid_amdsmi() -> Optional[list[str]]:
     try:
         amdsmi.amdsmi_init()
     except amdsmi.AmdSmiException:
-        warnings.warn("Can't initialize amdsmi")
+        warnings.warn("Can't initialize amdsmi", stacklevel=2)
         return None
     try:
         socket_handles = amdsmi.amdsmi_get_processor_handles()
         dev_count = len(socket_handles)
     except amdsmi.AmdSmiException:
-        warnings.warn("Can't get amdsmi device count")
+        warnings.warn("Can't get amdsmi device count", stacklevel=2)
         return None
     uuids: list[str] = []
     for idx in range(dev_count):
         try:
             handler = amdsmi.amdsmi_get_processor_handles()[idx]
         except amdsmi.AmdSmiException:
-            warnings.warn("Cannot get amd device handler")
+            warnings.warn("Cannot get amd device handler", stacklevel=2)
             return None
         try:
             uuid = amdsmi.amdsmi_get_gpu_asic_info(handler)["asic_serial"][
                 2:
             ]  # Removes 0x prefix from serial
         except amdsmi.AmdSmiException:
-            warnings.warn("Cannot get uuid for amd device")
+            warnings.warn("Cannot get uuid for amd device", stacklevel=2)
             return None
         uuids.append(
             str(uuid).lower()
@@ -881,25 +902,25 @@ def _raw_device_uuid_nvml() -> Optional[list[str]]:
     nvml_h = CDLL("libnvidia-ml.so.1")
     rc = nvml_h.nvmlInit()
     if rc != 0:
-        warnings.warn("Can't initialize NVML")
+        warnings.warn("Can't initialize NVML", stacklevel=2)
         return None
     dev_count = c_int(-1)
     rc = nvml_h.nvmlDeviceGetCount_v2(byref(dev_count))
     if rc != 0:
-        warnings.warn("Can't get nvml device count")
+        warnings.warn("Can't get nvml device count", stacklevel=2)
         return None
     uuids: list[str] = []
     for idx in range(dev_count.value):
         dev_id = c_void_p()
         rc = nvml_h.nvmlDeviceGetHandleByIndex_v2(idx, byref(dev_id))
         if rc != 0:
-            warnings.warn("Can't get device handle")
+            warnings.warn("Can't get device handle", stacklevel=2)
             return None
         buf_len = 96
         buf = create_string_buffer(buf_len)
         rc = nvml_h.nvmlDeviceGetUUID(dev_id, buf, buf_len)
         if rc != 0:
-            warnings.warn("Can't get device UUID")
+            warnings.warn("Can't get device UUID", stacklevel=2)
             return None
         uuids.append(buf.raw.decode("ascii").strip("\0"))
     del nvml_h
@@ -954,7 +975,9 @@ def _device_count_amdsmi() -> int:
             if raw_cnt <= 0:
                 return raw_cnt
             # Trim the list up to a maximum available device
+            # pyrefly: ignore [bad-argument-type]
             for idx, val in enumerate(visible_devices):
+                # pyrefly: ignore [redundant-cast]
                 if cast(int, val) >= raw_cnt:
                     return idx
     except OSError:
@@ -988,7 +1011,9 @@ def _device_count_nvml() -> int:
             if raw_cnt <= 0:
                 return raw_cnt
             # Trim the list up to a maximum available device
+            # pyrefly: ignore [bad-argument-type]
             for idx, val in enumerate(visible_devices):
+                # pyrefly: ignore [redundant-cast]
                 if cast(int, val) >= raw_cnt:
                     return idx
     except OSError:
@@ -1203,8 +1228,10 @@ def get_sync_debug_mode() -> int:
 def _get_pynvml_handler(device: "Device" = None):
     if not _HAS_PYNVML:
         raise ModuleNotFoundError(
-            "pynvml does not seem to be installed or it can't be imported."
+            "nvidia-ml-py does not seem to be installed or it can't be imported."
+            # pyrefly: ignore [invalid-inheritance]
         ) from _PYNVML_ERR
+    # pyrefly: ignore [import-error,missing-module-attribute]
     from pynvml import NVMLError_DriverNotLoaded
 
     try:
@@ -1221,6 +1248,7 @@ def _get_amdsmi_handler(device: "Device" = None):
     if not _HAS_PYNVML:
         raise ModuleNotFoundError(
             "amdsmi does not seem to be installed or it can't be imported."
+            # pyrefly: ignore [invalid-inheritance]
         ) from _PYNVML_ERR
     try:
         amdsmi.amdsmi_init()
@@ -1484,6 +1512,7 @@ def _get_rng_state_offset(device: Union[int, str, torch.device] = "cuda") -> int
     return default_generator.get_offset()
 
 
+# pyrefly: ignore [deprecated]
 from .memory import *  # noqa: F403
 from .random import *  # noqa: F403
 
@@ -1700,6 +1729,7 @@ def _register_triton_kernels():
     def kernel_impl(*args, **kwargs):
         from torch.sparse._triton_ops import bsr_dense_mm
 
+        # pyrefly: ignore [not-callable]
         return bsr_dense_mm(*args, skip_checks=True, **kwargs)
 
     @_WrappedTritonKernel
@@ -1735,7 +1765,6 @@ def _compile_kernel(
     kernel_source: str,
     kernel_name: str,
     compute_capability: Optional[str] = None,
-    header_code: str = "",
     cuda_include_dirs: Optional[list] = None,
     nvcc_options: Optional[list] = None,
 ):
@@ -1752,7 +1781,6 @@ def _compile_kernel(
         kernel_name (str): The name of the kernel function to compile
         compute_capability (str, optional): The compute capability to target (e.g., "86").
                                            If None, will detect from current device.
-        header_code (str, optional): Additional header code to prepend to the kernel source
         cuda_include_dirs (list, optional): List of directories containing CUDA headers
         nvcc_options (list, optional): Additional options to pass to NVRTC
 
@@ -1775,29 +1803,26 @@ def _compile_kernel(
         >>> c = torch.empty_like(a)
         >>> add_kernel(grid=(4, 1, 1), block=(256, 1, 1), args=[a, b, c, a.numel()])
     """
-    import ctypes
-
     from torch.cuda._utils import _cuda_load_module, _nvrtc_compile
 
     # Compile the kernel to PTX
-    ptx = _nvrtc_compile(
+    ptx, mangled_name = _nvrtc_compile(
         kernel_source,
         kernel_name,
         compute_capability,
-        header_code,
         cuda_include_dirs,
         nvcc_options,
     )
 
     # Load the module and get the kernel
-    result = _cuda_load_module(ptx, [kernel_name])
+    result = _cuda_load_module(ptx, [mangled_name])
 
     if isinstance(result, dict):
-        return result[kernel_name]
+        return result[mangled_name]
     else:
         # This branch shouldn't be executed if kernel_names is provided,
         # but MyPy needs this to understand type narrowing
-        return getattr(result, kernel_name)
+        return getattr(result, mangled_name)
 
 
 from . import amp, jiterator, nvtx, profiler, sparse, tunable
@@ -1837,6 +1862,7 @@ __all__ = [
     "ExternalStream",
     "Stream",
     "StreamContext",
+    "GreenContext",
     "amp",
     "caching_allocator_alloc",
     "caching_allocator_delete",

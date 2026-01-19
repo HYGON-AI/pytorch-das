@@ -32,10 +32,6 @@
 #include <ATen/native/mkldnn/Utils.h>
 #endif
 
-#ifdef USE_MPS
-#include <ATen/mps/MPSDevice.h>
-#endif
-
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
 #include <ATen/NativeFunctions.h>
@@ -413,19 +409,7 @@ struct ConvParams {
     if (!detail::getCUDAHooks().compiledWithCuDNN() || !input.is_cuda() || !cudnn_enabled) {
       return false;
     }
-    static long cudnn_version = detail::getCUDAHooks().versionCuDNN();
-    // broken on cuDNN 9.8
-    if (cudnn_version >= 90800) {
-      if (cudnn_conv_suggest_memory_format(input, weight) == at::MemoryFormat::Contiguous &&
-          (input.scalar_type() == at::kBFloat16 || input.scalar_type() == at::kHalf) &&
-          weight.dim() == 5) {
-        for (int i = 2; i < weight.dim(); i++) {
-          if (weight.size(i) != 1) {
-            return false;
-          }
-        }
-      }
-    }
+    static long cudnn_version = detail::getCUDAHooks().versionRuntimeCuDNN();
     if (needs_64bit_indexing_no_split(input, weight)) {
       if (!(cudnn_version >= 90300 && at::native::cudnnv8_enabled_check_debug())) {
         TORCH_WARN_ONCE("cuDNN cannot be used for large non-batch-splittable convolutions"
@@ -457,10 +441,10 @@ struct ConvParams {
     }
     // native kernel doesn't support 64-bit non-splittable case
     if (!(canUse32BitIndexMath(input) && canUse32BitIndexMath(weight))) {
-      static long cudnn_version = detail::getCUDAHooks().compiledWithCuDNN() ? detail::getCUDAHooks().versionCuDNN() : -1;
+      static long cudnn_version = detail::getCUDAHooks().compiledWithCuDNN() ? detail::getCUDAHooks().versionRuntimeCuDNN() : -1;
       // TODO(eqy): remove this once cuDNN fixes 64-bit depthwise support, first broken in 9.11x
       if (cudnn_conv_suggest_memory_format(input, weight) != at::MemoryFormat::Contiguous) {
-        if (cudnn_version < 0 || cudnn_version > 91000) {
+        if (cudnn_version < 0 || (cudnn_version > 91000 && cudnn_version < 91500)) {
           return false;
         }
       }
@@ -643,7 +627,7 @@ static std::ostream& operator<<(std::ostream & out, const ConvParams<T>& params)
       << "  deterministic = " << params.deterministic
       << "  cudnn_enabled = " << params.cudnn_enabled
       << "  allow_tf32 = " << params.allow_tf32
-      << "}";
+      << '}';
   return out;
 }
 
@@ -662,6 +646,7 @@ static void check_shape_forward(const at::Tensor& input,
   TORCH_CHECK(!params.is_output_padding_neg(), "negative output_padding is not supported");
   TORCH_CHECK(!params.is_stride_nonpos(), "non-positive stride is not supported");
   TORCH_CHECK(!params.is_dilation_neg(), "dilation should be greater than zero");
+  TORCH_CHECK(groups > 0, "expected groups to be greater than 0, but got groups=", groups);
 
   TORCH_CHECK(weight_dim == k,
            "Expected ", weight_dim, "-dimensional input for ", weight_dim,
@@ -692,6 +677,10 @@ static void check_shape_forward(const at::Tensor& input,
              ", but got bias of size ", at::symint::sizes<T>(bias), " instead");
 
     for (const auto i : c10::irange(2, k)) {
+      // T could be int64_t or SymInt, Specialized numeric_limts<SymInt> in c10/core/SymInt.h
+      TORCH_CHECK(padding[i-2] <= (std::numeric_limits<T>::max() - padding[i-2]),
+                  "Given padding=", padding[i-2], " at dimension ", i-2, " , expected padding to be at most ",
+                  (std::numeric_limits<T>::max() / 2));
       input_shape.push_back(at::symint::size<T>(input, i) + 2 * padding[i-2]);
       // log new kernel size considering dilation
       kernel_shape.push_back(dilation[i-2] * (weight_sizes[i]-1) + 1);
@@ -706,7 +695,7 @@ static void check_shape_forward(const at::Tensor& input,
       // If kernel size is incorrect
       std::ostringstream input_ss;
       std::ostringstream kernel_ss;
-      std::string separator = "";
+      std::string separator;
 
       for (int i = 0, len = input_shape.size(); i < len; ++i) {
         input_ss << separator << input_shape[i];
@@ -718,6 +707,11 @@ static void check_shape_forward(const at::Tensor& input,
                "Kernel size: (", kernel_ss.str(), "). Kernel size can't be greater than actual input size");
     }
   } else { // transposed
+    for (const auto i : c10::irange(2, k)) {
+      TORCH_CHECK(padding[i-2] <= (std::numeric_limits<T>::max() - padding[i-2]),
+                  "Given padding=", padding[i-2], " at dimension ", i-2, " , expected padding to be at most ",
+                  (std::numeric_limits<T>::max() / 2));
+    }
     TORCH_CHECK(at::symint::size<T>(input, 1) == weight_sizes[0],
              "Given transposed=", transposed, ", weight of size ", weight_sizes,
              ", expected input", at::symint::sizes<T>(input), " to have ", weight_sizes[0],
@@ -1023,7 +1017,7 @@ static Tensor convolution_same(
 
   if (symmetric_padding) {
     // All backends handle symmetric padding natively
-    SymDimVector output_padding(static_cast<size_t>(dim));
+    SymDimVector output_padding(dim);
     return at::convolution_symint(input, weight, bias, stride, padding_l, dilation,
                                false, output_padding, groups);
   }
@@ -1043,7 +1037,7 @@ static Tensor convolution_same(
     }
   }
   auto padded_input = at::constant_pad_nd_symint(input, pad_nd, 0);
-  SymDimVector output_padding(static_cast<size_t>(dim));
+  SymDimVector output_padding(dim);
   return at::convolution_symint(padded_input, weight, bias, stride, padding_l,
                                 dilation, false, output_padding, groups);
 }
@@ -1178,7 +1172,7 @@ at::Tensor convolution(
   bool deterministic = ctx.deterministicCuDNN() || ctx.deterministicAlgorithms();
   return at::_convolution(input, weight, bias, stride, padding, dilation,
                           transposed, output_padding, groups,
-                          ctx.benchmarkCuDNN(), deterministic, ctx.userEnabledCuDNN(), ctx.allowTF32CuDNN("conv"));
+                          ctx.benchmarkCuDNN(), deterministic, ctx.userEnabledCuDNN(), ctx.allowTF32CuDNN(at::Float32Op::CONV));
 }
 
 at::Tensor convolution_overrideable(
@@ -1323,7 +1317,7 @@ ConvBackend select_conv_backend(
   params.benchmark = ctx.benchmarkCuDNN();
   params.deterministic = ctx.deterministicCuDNN() || ctx.deterministicAlgorithms();
   params.cudnn_enabled = ctx.userEnabledCuDNN();
-  params.allow_tf32 = ctx.allowTF32CuDNN("conv");
+  params.allow_tf32 = ctx.allowTF32CuDNN(at::Float32Op::CONV);
 
   auto input = input_r;
   auto weight = weight_r;
@@ -1445,12 +1439,8 @@ static inline at::MemoryFormat determine_backend_memory_format(
       }
       break;
     case ConvBackend::Mps:
+    case ConvBackend::MpsTranspose:
       if (mps_conv_use_channels_last(input, weight)) {
-#ifdef USE_MPS
-        if (!mps::is_macos_13_or_newer(mps::MacOSVersion::MACOS_VER_15_0_PLUS)) {
-          break;
-        }
-#endif
         backend_memory_format = (k == 5) ? MemoryFormat::ChannelsLast3d : MemoryFormat::ChannelsLast;
       }
       break;
@@ -1707,7 +1697,7 @@ at::Tensor _convolution(
   c10::MaybeOwned<Tensor> bias_r_maybe_owned = at::borrow_from_optional_tensor(bias_r_opt);
   const Tensor& bias_r = *bias_r_maybe_owned;
 
-  return at::_convolution(input_r, weight_r, bias_r, stride_, padding_, dilation_, transposed_, output_padding_, groups_, benchmark, deterministic, cudnn_enabled, at::globalContext().allowTF32CuDNN("conv"));
+  return at::_convolution(input_r, weight_r, bias_r, stride_, padding_, dilation_, transposed_, output_padding_, groups_, benchmark, deterministic, cudnn_enabled, at::globalContext().allowTF32CuDNN(at::Float32Op::CONV));
 }
 
 std::tuple<Tensor, Tensor, Tensor> convolution_backward_overrideable(
@@ -2005,7 +1995,7 @@ std::tuple<Tensor, Tensor, Tensor> convolution_backward(
   params.benchmark = ctx.benchmarkCuDNN();
   params.deterministic = ctx.deterministicCuDNN() || ctx.deterministicAlgorithms();
   params.cudnn_enabled = ctx.userEnabledCuDNN();
-  params.allow_tf32 = ctx.allowTF32CuDNN("conv");
+  params.allow_tf32 = ctx.allowTF32CuDNN(at::Float32Op::CONV);
 
   // Validate inputs.
   check_shape_backward(input, weight.sizes(), params);

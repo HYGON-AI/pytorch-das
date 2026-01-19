@@ -7,8 +7,12 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, cast, TYPE_CHECKING
 from urllib.request import urlopen
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -108,7 +112,7 @@ def get_disabled_tests(
         return disabled_test_from_issues
 
     try:
-        url = "https://ossci-metrics.s3.amazonaws.com/disabled-tests-condensed.json?versionId=UsscdNP.2GMOzUxAvqIx8GAj4MuhX1Xi"
+        url = "https://ossci-metrics.s3.amazonaws.com/disabled-tests-condensed.json?versionId=RI9O.YgGidwzjfiTimn1Q_ia.d_i3Cz0"
         return fetch_and_cache(dirpath, filename, url, process_disabled_test)
     except Exception:
         print("Couldn't download test skip set, leaving all tests enabled...")
