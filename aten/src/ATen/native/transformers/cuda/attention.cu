@@ -144,19 +144,59 @@ mha_fwd(
         dummy_attn_bias); // Not used in flash attention
   }
 #endif
-  return mha_fwd_aot(
-      q,
-      k,
-      v,
-      out_,
-      alibi_slopes_,
-      p_dropout,
-      softmax_scale,
-      is_causal,
-      window_size_left,
-      window_size_right,
-      return_softmax,
-      gen_);
+#if defined(USE_AOTRITON_FA)
+  if (at::globalContext().getROCmFAPreferredBackend() ==
+      at::ROCmFABackend::Cutlass) {
+    return mha_fwd_cutlass(
+            q,
+            k,
+            v,
+            out_,
+            alibi_slopes_,
+            p_dropout,
+            softmax_scale,
+            is_causal,
+            window_size_left,
+            window_size_right,
+            softcap,
+            return_softmax,
+            gen_);
+  } else {
+    return mha_fwd_aot(
+        q,
+        k,
+        v,
+        out_,
+        alibi_slopes_,
+        p_dropout,
+        softmax_scale,
+        is_causal,
+        window_size_left,
+        window_size_right,
+        return_softmax,
+        gen_);
+  }
+#else
+  if (at::globalContext().getROCmFAPreferredBackend() ==
+    at::ROCmFABackend::Cutlass) {
+    return mha_fwd_cutlass(
+            q,
+            k,
+            v,
+            out_,
+            alibi_slopes_,
+            p_dropout,
+            softmax_scale,
+            is_causal,
+            window_size_left,
+            window_size_right,
+            softcap,
+            return_softmax,
+            gen_);
+  } else {
+    TORCH_CHECK(false, "Non't compile aotrition fa, please compile aotriton fa before use it");
+  }
+#endif
 }
 }
 #endif
