@@ -2128,6 +2128,7 @@ void scaled_gemm(
     ScalarType result_dtype,
     bool use_fast_accum,
     const std::optional<Tensor>& alpha) {
+/*
   // Note: see `cublasCommonArgs` for various non-intuitive manipulations
   // of input arguments to this function.
   const auto computeType = CUBLAS_COMPUTE_32F;
@@ -2362,7 +2363,7 @@ void scaled_gemm(
       " computeType ",
       computeType,
       " scaleType ",
-      scaleType);
+      scaleType);*/
   return;
 }
 
@@ -2506,7 +2507,6 @@ if (rocblas_int8_value != 1){
   }
 #endif
 } else {
-  globalContext().alertCuBLASConfigNotDeterministic();
   cublasHandle_t handle = at::cuda::getCurrentCUDABlasHandle();
 
   cublasComputeType_t computeType = CUBLAS_COMPUTE_32I;

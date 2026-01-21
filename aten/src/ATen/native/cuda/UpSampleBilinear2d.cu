@@ -677,8 +677,9 @@ static void upsample_bilinear2d_backward_out_cuda_template(
       const accscalar_t rwidth = area_pixel_compute_scale<accscalar_t>(
           input_width, output_width, align_corners, scales_w);
 
+      const size_t num_kernels = nbatch * channels * (use_input ? input_height * input_width : output_height * output_width);
+
       if(get_env_hcu("HIP_UPSAMPLE_OPTIMIZE", 0) == 0) {
-        const size_t num_kernels = nbatch * channels * (use_input ? input_height * input_width : output_height * output_width);
 
         upsample_bilinear2d_backward_out_frame<scalar_t, accscalar_t>
           <<<ceil_div(num_kernels, static_cast<size_t>(num_threads)),
