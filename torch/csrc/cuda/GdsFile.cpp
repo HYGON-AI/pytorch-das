@@ -3,7 +3,7 @@
 #include <torch/csrc/cuda/GdsFile.h>
 #include <torch/csrc/utils/pybind.h>
 
-#if defined(USE_CUFILE)
+#if defined(USE_CUFILE) || defined(USE_HIPFILE)
 #include <c10/cuda/CUDAGuard.h>
 
 #include <cuda_runtime.h>
@@ -120,7 +120,7 @@ namespace torch::cuda::shared {
 void initGdsBindings(PyObject* module) {
   auto m = py::handle(module).cast<py::module>();
 
-#if defined(USE_CUFILE)
+#if defined(USE_CUFILE) || defined(USE_HIPFILE)
   m.def("_gds_register_handle", &gds_register_handle);
   m.def("_gds_deregister_handle", &gds_deregister_handle);
   m.def("_gds_register_buffer", &gds_register_buffer);
