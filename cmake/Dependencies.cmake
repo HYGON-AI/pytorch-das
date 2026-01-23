@@ -1123,6 +1123,39 @@ if(USE_ROCM)
       )
     endif()
 
+    # ---[ hipFile (ROCm GPUDirect Storage)
+    if(USE_HIPFILE)
+      # Default to /opt/hyhal, and allow overriding via HYHAL_PATH/HYHAL_ROOT/HIPFILE_ROOT.
+      set(_HIPHAL_ROOT "$ENV{HYHAL_PATH}")
+      if(NOT _HIPHAL_ROOT)
+        set(_HIPHAL_ROOT "/opt/hyhal")
+      endif()
+
+      find_path(HIPFILE_INCLUDE_DIR
+        NAMES hipfile.h
+        PATHS "${_HIPHAL_ROOT}/include"
+        NO_DEFAULT_PATH)
+      
+      find_library(HYFILE_LIBRARY
+        NAMES hyfile
+        PATHS "${_HIPHAL_ROOT}/lib" "${_HIPHAL_ROOT}/lib64"
+        NO_DEFAULT_PATH)
+
+      if(NOT HIPFILE_INCLUDE_DIR OR NOT HYFILE_LIBRARY)
+        message(WARNING
+          "USE_HIPFILE is ON, but hipfile.h and/or libhyfile were not found under ${_HIPHAL_ROOT}. "
+          "Set HYHAL_PATH and retry. Turning USE_HIPFILE off.")
+        caffe2_update_option(USE_HIPFILE OFF)
+      else()
+        message(STATUS "Found hipFile: ${HIPFILE_INCLUDE_DIR} ${HYFILE_LIBRARY}")
+        if(NOT TARGET torch::hipfile)
+          add_library(torch::hipfile INTERFACE IMPORTED)
+          target_include_directories(torch::hipfile INTERFACE "${HIPFILE_INCLUDE_DIR}")
+          target_link_libraries(torch::hipfile INTERFACE "${HYFILE_LIBRARY}")
+        endif()
+      endif()
+    endif()
+    
     # ---[ Kernel asserts
     # Kernel asserts is disabled for ROCm by default.
     # It can be turned on by turning on the env USE_ROCM_KERNEL_ASSERT to the build system.

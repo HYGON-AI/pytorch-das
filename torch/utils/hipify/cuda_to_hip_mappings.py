@@ -89,6 +89,10 @@ CUDATODTK_DICT = collections.OrderedDict(
 # pyrefly: ignore [no-matching-overload]
 CUDA_TYPE_NAME_MAP = collections.OrderedDict(
     [
+        ("CUfileHandle_t", ("HIPfileHandle_t", CONV_TYPE, API_SPECIAL)),
+        ("CUfileError_t", ("HIPfileError_t", CONV_TYPE, API_SPECIAL)),
+        ("CUfileDescr_t", ("HIPfileDescr_t", CONV_TYPE, API_SPECIAL)),
+
         ("CUresult", ("hipError_t", CONV_TYPE, API_DRIVER)),
         ("cudaError_t", ("hipError_t", CONV_TYPE, API_RUNTIME)),
         ("cudaError", ("hipError_t", CONV_TYPE, API_RUNTIME)),
@@ -631,6 +635,7 @@ CUDA_INCLUDE_MAP = collections.OrderedDict(
     [
         # since pytorch uses "\b{pattern}\b" as the actual re pattern,
         # patterns listed here have to begin and end with alnum chars
+        ("cufile.h", ("hipfile.h", CONV_INCLUDE, API_SPECIAL)),
         (
             "include <cuda.h",
             ("include <hip/hip_runtime.h", CONV_INCLUDE_CUDA_MAIN_H, API_DRIVER),
@@ -720,6 +725,25 @@ CUDA_INCLUDE_MAP = collections.OrderedDict(
 # pyrefly: ignore [no-matching-overload]
 CUDA_IDENTIFIER_MAP = collections.OrderedDict(
     [
+        ("cuFileRead", ("hipFileRead", CONV_OTHER, API_SPECIAL)),
+        ("cuFileWrite", ("hipFileWrite", CONV_OTHER, API_SPECIAL)),
+        ("cuFileBufRegister", ("hipFileBufRegister", CONV_OTHER, API_SPECIAL)),
+        ("cuFileBufDeregister", ("hipFileBufDeregister", CONV_OTHER, API_SPECIAL)),
+        ("cuFileHandleRegister", ("hipFileHandleRegister", CONV_OTHER, API_SPECIAL)),
+        ("cuFileHandleDeregister", ("hipFileHandleDeregister", CONV_OTHER, API_SPECIAL)),
+        ("CU_FILE_SUCCESS", ("HIP_FILE_SUCCESS", CONV_OTHER, API_SPECIAL)),
+        (
+            "CU_FILE_MEMORY_ALREADY_REGISTERED",
+            ("HIP_FILE_MEMORY_ALREADY_REGISTERED", CONV_OTHER, API_SPECIAL),
+        ),
+        (
+            "CU_FILE_HANDLE_TYPE_OPAQUE_FD",
+            ("HIP_FILE_HANDLE_TYPE_OPAQUE_FD", CONV_OTHER, API_SPECIAL),
+        ),
+        ("IS_CUFILE_ERR", ("IS_HIPFILE_ERR", CONV_ERROR, API_SPECIAL)),
+        ("CUFILE_ERRSTR", ("HIPFILE_ERRSTR", CONV_ERROR, API_SPECIAL)),
+        ("IS_CUDA_ERR", ("IS_ROCM_ERR", CONV_ERROR, API_SPECIAL)),
+        ("cu_err", ("hip_err", CONV_ERROR, API_SPECIAL)),
         ("__CUDACC__", ("__HIPCC__", CONV_DEF, API_RUNTIME)),
         (
             "CUDA_ERROR_INVALID_CONTEXT",
