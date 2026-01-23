@@ -6388,26 +6388,32 @@ class TestGDS(TestCase):
                 return part.fstype
         return root_type
 
-    @unittest.skip("Disabling as USE_CUFILE=0 by default in builds")
+    # @unittest.skip("Disabling as USE_CUFILE=0 by default in builds")
     def test_gds_read_write_tensors(self):
-        if self._get_tmp_dir_fs_type() not in ("ext4", "xfs"):
-            self.skipTest("GPUDirect Storage requires ext4/xfs for local filesystem")
+        # if self._get_tmp_dir_fs_type() not in ("ext4", "xfs"):
+        #     self.skipTest("GPUDirect Storage requires ext4/xfs for local filesystem")
         src1 = torch.randn(1024, device="cuda")
         src2 = torch.randn(2, 1024, device="cuda")
         torch.cuda.gds.gds_register_buffer(src1.untyped_storage())
         torch.cuda.gds.gds_register_buffer(src2.untyped_storage())
         dest1 = torch.empty(1024, device="cuda")
         dest2 = torch.empty(2, 1024, device="cuda")
+        torch.cuda.gds.gds_register_buffer(dest1.untyped_storage())
+        torch.cuda.gds.gds_register_buffer(dest2.untyped_storage())
+        torch.cuda.synchronize()
         with TemporaryFileName() as f:
             file = torch.cuda.gds.GdsFile(f, os.O_CREAT | os.O_RDWR)
             file.save_storage(src1.untyped_storage(), offset=0)
             file.save_storage(src2.untyped_storage(), offset=src1.nbytes)
             file.load_storage(dest1.untyped_storage(), offset=0)
             file.load_storage(dest2.untyped_storage(), offset=src1.nbytes)
+        torch.cuda.synchronize()
         self.assertEqual(src1, dest1)
         self.assertEqual(src2, dest2)
         torch.cuda.gds.gds_deregister_buffer(src1.untyped_storage())
         torch.cuda.gds.gds_deregister_buffer(src2.untyped_storage())
+        torch.cuda.gds.gds_deregister_buffer(dest1.untyped_storage())
+        torch.cuda.gds.gds_deregister_buffer(dest2.untyped_storage())
 
 
 @unittest.skipIf(not TEST_CUDA, "CUDA not available, skipping tests")
