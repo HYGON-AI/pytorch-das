@@ -1684,7 +1684,7 @@ class TritonOverrides(OpOverrides):
         if (
             config.use_fast_math
             and torch.version.hip
-            and get_triton_version() > (3, 5)
+            and get_triton_version() >= (3, 1)
             and dtype != torch.float64
             and dtype is not None
         ):
@@ -1697,7 +1697,21 @@ class TritonOverrides(OpOverrides):
     @staticmethod
     @maybe_upcast_float32()
     def sigmoid(x):
-        return f"tl.sigmoid({x})"
+        cse_var = V.kernel.cse.varname_map.get(x)
+        if cse_var and hasattr(cse_var, "dtype"):
+            dtype = cse_var.dtype
+        else:
+            dtype = None
+        if (
+            config.use_fast_math
+            and torch.version.hip
+            and get_triton_version() >= (3, 1)
+            and dtype == torch.float32
+            and dtype is not None
+        ):
+            return f"tl.fast_sigmoid({x})"
+        else:
+            return f"tl.sigmoid({x})"
 
     @staticmethod
     def signbit(x):

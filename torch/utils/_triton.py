@@ -12,7 +12,6 @@ def has_triton_package() -> bool:
     except ImportError:
         return False
 
-
 @functools.cache
 def get_triton_version(fallback: tuple[int, int] = (0, 0)) -> tuple[int, int]:
     try:
