@@ -99,10 +99,11 @@ def get_torch_version(sha: str | None = None) -> str:
         version = Path(pytorch_root / "version.txt").read_text().strip()
         origin = "version.txt"
         if sdist_version is None and sha != UNKNOWN:
-            if sha is None:
-                sha = get_sha(pytorch_root)
-            version += "+git" + sha[:7]
-            origin += " and git commit"
+            pass
+            # if sha is None:
+            #     sha = get_sha(pytorch_root)
+            # version += "+git" + sha[:7]
+            # origin += " and git commit"
     # Validate that the version is PEP 440 compliant
     parsed_version = Version(version)
     if sdist_version:
