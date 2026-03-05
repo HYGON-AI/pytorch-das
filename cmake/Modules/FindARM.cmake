@@ -89,6 +89,10 @@ if(NOT CORTEXA9_FOUND)
 endif(NOT CORTEXA9_FOUND)
 mark_as_advanced(NEON_FOUND)
 
+set(SVE_FOUND false CACHE BOOL "SVE available on host" FORCE)
+set(CXX_SVE256_FOUND false CACHE BOOL "SVE256 support" FORCE)
+set(CXX_SVE_FOUND false CACHE BOOL "SVE support" FORCE)
+
 #SVE support is available is only for Linux OS.
 IF(CMAKE_SYSTEM_NAME MATCHES "Linux")
     # Include necessary modules for checking C and C++ source compilations

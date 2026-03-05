@@ -1037,7 +1037,10 @@ if(USE_ROCM)
 
     list(APPEND HIP_CXX_FLAGS -DHIP_ENABLE_WARP_SYNC_BUILTINS)
     list(APPEND HIP_CXX_FLAGS -DBF162FLOAT_USE_ASM)
-    list(APPEND HIP_CXX_FLAGS -mno-fma)
+    #list(APPEND HIP_CXX_FLAGS -mno-fma)
+    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64|ARM|AARCH64")
+      list(APPEND HIP_CXX_FLAGS -mno-fma)
+    endif()
     #TODO: extreme performance?
     # list(APPEND HIP_CXX_FLAGS -ffast-math)
     list(APPEND HIP_CXX_FLAGS -DDCU_ASM)
