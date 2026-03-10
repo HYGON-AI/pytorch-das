@@ -1519,6 +1519,19 @@ def addmm(match, mat1, mat2, *, inp):
 
     match.replace_by_example(repl, [inp, mat1, mat2])
 
+@register_graph_pattern(
+    CallFunction(
+        aten.reshape,
+        CallFunction(aten.reshape,Arg(), Arg()),
+        Arg()
+    ),
+    pass_dict=pass_patterns[2]
+)
+def reshape(match:pattern_matcher.Match, inp, shape1, shape2):
+    def repl(inp, shape2):
+        return aten.reshape(inp, shape2)
+    match.replace_by_example(repl, [inp, shape2])
+
 
 def register_partial_reduction_pattern():
     "Reuse partial reductions in complete reductions"
