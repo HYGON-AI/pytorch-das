@@ -633,8 +633,9 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, int64_t> _batch_norm_impl_index(
   Tensor reserve = at::empty({0}, input.options().dtype(kByte));
 
   if (backend == BatchNormBackend::Miopen) {
-    // NHWC
-    if (input.suggest_memory_format() == MemoryFormat::ChannelsLast) {
+    // NHWC NDHWC
+    if (input.suggest_memory_format() == MemoryFormat::ChannelsLast ||
+        input.suggest_memory_format() == MemoryFormat::ChannelsLast3d) {
       return std::tuple_cat(
              at::miopen_batch_norm(
                input, weight.contiguous(), bias.contiguous(),
