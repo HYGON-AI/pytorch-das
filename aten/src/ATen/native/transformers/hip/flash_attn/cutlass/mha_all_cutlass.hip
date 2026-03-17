@@ -72,8 +72,17 @@ mha_fwd_cutlass(const at::Tensor &q_,         // batch_size x seqlen_q x num_hea
     auto q_dtype = q.dtype();
     
     auto& cfa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
-    std::vector<at::Tensor> res = cfa.mha_fwd(q, k, v, out_, alibi_slopes_, p_dropout, softmax_scale, is_causal, 
-                                                static_cast<int>(win_left), static_cast<int>(win_right), softcap, return_softmax, gen_, is_bhsd);
+    std::vector<at::Tensor> res;
+    if (cfa.get_fa_changed()) {
+        res = cfa.mha_fwd_new(q, k, v, out_, alibi_slopes_, p_dropout, softmax_scale, is_causal, 
+                                                static_cast<int>(win_left), static_cast<int>(win_right), 
+                                                softcap, return_softmax, gen_, is_bhsd,c10::nullopt, 0.0f);
+    } else {
+        res = cfa.mha_fwd(q, k, v, out_, alibi_slopes_, p_dropout, softmax_scale, is_causal, 
+                                                static_cast<int>(win_left), static_cast<int>(win_right), 
+                                                softcap, return_softmax, gen_, is_bhsd);
+    }
+
     at::Tensor out = res[0];
     at::Tensor q_padded = res[1];
     at::Tensor k_padded = res[2];
@@ -117,10 +126,19 @@ mha_varlen_fwd_cutlass(const at::Tensor &q_,  // total_q x num_heads x head_size
     std::optional<const at::Tensor> leftpad_k_ = c10::nullopt; // batch_size
     
     auto& cfa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
-    std::vector<at::Tensor> res = cfa.mha_varlen_fwd(q, k, v, out_, cu_seqlens_q, cu_seqlens_k, seqused_k,
+    std::vector<at::Tensor> res;
+    if (cfa.get_fa_changed()) {
+        res = cfa.mha_varlen_fwd_new(q, k, v, out_, cu_seqlens_q, cu_seqlens_k, seqused_k,
+                                                leftpad_k_, block_table_, alibi_slopes_, max_seqlen_q, max_seqlen_k,
+                                                p_dropout, softmax_scale, zero_tensors, is_causal, static_cast<int>(win_left), 
+                                                static_cast<int>(win_right),softcap, return_softmax, gen_, c10::nullopt);
+    } else {
+        res = cfa.mha_varlen_fwd(q, k, v, out_, cu_seqlens_q, cu_seqlens_k, seqused_k,
                                                 leftpad_k_, block_table_, alibi_slopes_, max_seqlen_q, max_seqlen_k,
                                                 p_dropout, softmax_scale, zero_tensors, is_causal, static_cast<int>(win_left), 
                                                 static_cast<int>(win_right),softcap, return_softmax, gen_);
+    }
+
     
     //return {out, q_padded, k_padded, v_padded, softmax_lse, rng_state[0], rng_state[1], p};
     at::Tensor out = res[0];
