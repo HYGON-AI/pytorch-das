@@ -436,7 +436,7 @@ static inline bool bgemm_internal_cublaslt(CUDABLAS_BGEMM_ARGTYPES_AND_C_DTYPE(D
     }
 #endif
     abType = CUDA_R_16F;
-    cType = (std::is_same_v<C_Dtype, float>) ? CUDA_R_32F : CUDA_R_16F;
+    cType = std::is_same_v<C_Dtype, float> ? CUDA_R_32F : CUDA_R_16F;
 #ifndef USE_ROCM
     auto fp16_reduction = at::globalContext().allowFP16ReductionCuBLAS();
     if (fp16_reduction !=
@@ -453,7 +453,7 @@ static inline bool bgemm_internal_cublaslt(CUDABLAS_BGEMM_ARGTYPES_AND_C_DTYPE(D
 #endif
   } else if constexpr (std::is_same_v<Dtype, at::BFloat16>) {
     abType = CUDA_R_16BF;
-    cType = (std::is_same_v<C_Dtype, float>) ? CUDA_R_32F : CUDA_R_16BF;
+    cType = std::is_same_v<C_Dtype, float> ? CUDA_R_32F : CUDA_R_16BF;
 #ifndef USE_ROCM
     auto bf16_reduction = at::globalContext().allowBF16ReductionCuBLAS();
     if (bf16_reduction !=
@@ -495,8 +495,8 @@ static inline bool bgemm_internal_cublaslt(CUDABLAS_BGEMM_ARGTYPES_AND_C_DTYPE(D
     _syncCurrentWithCarveoutStream(stream, true);
   }
 #endif
-  CuBlasLtMatrixLayout Adesc(abType, m, k, lda, opa == CUBLAS_OP_T);
-  CuBlasLtMatrixLayout Bdesc(abType, k, n, ldb, opb == CUBLAS_OP_T);
+  CuBlasLtMatrixLayout Adesc(abType, m, k, lda, opa != CUBLAS_OP_N);
+  CuBlasLtMatrixLayout Bdesc(abType, k, n, ldb, opb != CUBLAS_OP_N);
   CuBlasLtMatrixLayout Cdesc(cType, m, n, ldc);
 
   if (num_batches > 1) {
@@ -592,9 +592,9 @@ static inline bool bgemm_internal_cublaslt(CUDABLAS_BGEMM_ARGTYPES_AND_C_DTYPE(D
       "bgemm_internal_cublaslt error: ",
       at::cuda::blas::_cublasGetErrorEnum(cublasStatus),
       " when calling cublasLtMatmul with transpose_mat1 ",
-      (opa == CUBLAS_OP_T),
+      transa,
       " transpose_mat2 ",
-      (opb == CUBLAS_OP_T),
+      transb,
       " m ",
       m,
       " n ",
@@ -1770,7 +1770,7 @@ bool gemm_and_bias(
     }
 #endif
     abType = CUDA_R_16F;
-    cType = (std::is_same_v<C_Dtype, float>) ? CUDA_R_32F : CUDA_R_16F;
+    cType = std::is_same_v<C_Dtype, float> ? CUDA_R_32F : CUDA_R_16F;
 #ifndef USE_ROCM
     auto fp16_reduction = at::globalContext().allowFP16ReductionCuBLAS();
     if (fp16_reduction !=
@@ -1787,7 +1787,7 @@ bool gemm_and_bias(
 #endif
   } else if constexpr (std::is_same_v<Dtype, at::BFloat16>) {
     abType = CUDA_R_16BF;
-    cType = (std::is_same_v<C_Dtype, float>) ? CUDA_R_32F : CUDA_R_16BF;
+    cType = std::is_same_v<C_Dtype, float> ? CUDA_R_32F : CUDA_R_16BF;
 #ifndef USE_ROCM
     auto bf16_reduction = at::globalContext().allowBF16ReductionCuBLAS();
     if (bf16_reduction !=

@@ -29,6 +29,7 @@ Core Maintainers
 -  Piotr Bialecki (`ptrblck <https://github.com/ptrblck>`__)
 -  Natalia Gimelshein (`ngimel <https://github.com/ngimel>`__)
 -  Horace He (`Chillee <https://github.com/Chillee>`__)
+-  Joe Spisak (`jspisak <https://github.com/jspisak>`__)
 -  (emeritus) Dmytro Dzhulgakov (`dzhulgakov <https://github.com/dzhulgakov>`__)
 
 Module-level maintainers
@@ -344,6 +345,7 @@ Docs / Tutorials
 ~~~~~~~~~~~~~~~~
 
 - Svetlana Karslioglu (`svekars <https://github.com/svekars>`__)
+- Ivan Sekyonda (`sekyondaMeta <https://github.com/sekyondaMeta>`__)
 
 Library-level maintainers
 -------------------------
@@ -378,8 +380,9 @@ TorchVision
 ~~~~~~~~~~~
 
 -  Nicolas Hug (`NicolasHug <https://github.com/NicolasHug>`__)
--  Philip Meier (`pmeier <https://github.com/pmeier>`__)
--  Victor Fomin (`vfdev-5 <https://github.com/vfdev-5>`__)
+-  Antoine Simoulin (`AntoineSimoulin <https://github.com/AntoineSimoulin>`__)
+-  (emeritus) Philip Meier (`pmeier <https://github.com/pmeier>`__)
+-  (emeritus) Victor Fomin (`vfdev-5 <https://github.com/vfdev-5>`__)
 -  (emeritus) Francisco Massa (`fmassa <https://github.com/fmassa>`__)
 -  (emeritus) Vasilis Vryniotis (`datumbox <https://github.com/datumbox>`__)
 -  (emeritus) Yosua Michael Maranatha (`YosuaMichael <https://github.com/YosuaMichael>`__)
@@ -420,8 +423,11 @@ TorchX
 TorchData
 ~~~~~~~~~~~~~~~~~~~~~~
 
--  Andrew Ho (`andrewkho <https://github.com/andrewkho>`__)
 -  Divyansh Khanna (`divyanshk <https://github.com/divyanshk>`__)
+-  Ramanish Singh (`ramanishsingh <https://github.com/ramanishsingh>`__)
+-  Lavender (`aelavender <https://github.com/aelavender>`__)
+-  Scott Schneider (`scotts <https://github.com/scotts>`__)
+-  (emeritus) Andrew Ho (`andrewkho <https://github.com/andrewkho>`__)
 
 TorchArrow
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -454,6 +460,6 @@ TorchChat
 TorchCodec
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
--  Nicolas Hug (`nicolashug <https://github.com/nicolashug>`__)
--  Ahmad Sharif (`ahmadsharif1 <https://github.com/ahmadsharif1>`__)
+-  Nicolas Hug (`NicolasHug <https://github.com/NicolasHug>`__)
 -  Scott Schneider (`scotts <https://github.com/scotts>`__)
+-  (emeritus) Ahmad Sharif (`ahmadsharif1 <https://github.com/ahmadsharif1>`__)

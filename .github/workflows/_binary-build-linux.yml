@@ -142,19 +142,23 @@ jobs:
 
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
         if: inputs.build_environment != 'linux-s390x-binary-manywheel'
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.10
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.11
         continue-on-error: true
         with:
           github-secret: ${{ secrets.github-token }}
 
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.10
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.11
         with:
           no-sudo: ${{ inputs.build_environment == 'linux-aarch64-binary-manywheel' || inputs.build_environment == 'linux-s390x-binary-manywheel' }}
 
       - name: Setup Linux
         if: inputs.build_environment != 'linux-s390x-binary-manywheel'
         uses: ./.github/actions/setup-linux
+
+      - name: Login to ECR
+        if: inputs.build_environment != 'linux-s390x-binary-manywheel'
+        uses: ./.github/actions/ecr-login
 
       - name: Chown workspace
         if: inputs.build_environment != 'linux-s390x-binary-manywheel'
@@ -166,9 +170,6 @@ jobs:
         shell: bash
         run: |
           set -eux
-
-          rm -rf "${GITHUB_WORKSPACE}"
-          mkdir "${GITHUB_WORKSPACE}"
 
           if [[ ${{ inputs.build_environment }} == 'linux-aarch64-binary-manywheel' ]] || [[ ${{ inputs.build_environment }} == 'linux-s390x-binary-manywheel' ]] ; then
             rm -rf "${RUNNER_TEMP}/artifacts"
@@ -212,9 +213,9 @@ jobs:
       - name: Calculate docker image
         id: calculate-docker-image
         if: ${{ steps.filter.outputs.is-test-matrix-empty == 'False' && inputs.build_environment != 'linux-s390x-binary-manywheel' }}
-        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.10
+        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.11
         with:
-          # If doing this in release/2.10 or release branch, use docker.io. Otherwise
+          # If doing this in release/2.11 or release branch, use docker.io. Otherwise
           # use ECR
           docker-registry: ${{ startsWith(github.event.ref, 'refs/tags/ciflow/') && '308535385114.dkr.ecr.us-east-1.amazonaws.com' || 'docker.io' }}
           docker-image-name: ${{ inputs.DOCKER_IMAGE }}
@@ -226,7 +227,7 @@ jobs:
 
       - name: Pull Docker image
         if: ${{ steps.filter.outputs.is-test-matrix-empty == 'False' && inputs.build_environment != 'linux-s390x-binary-manywheel' }}
-        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.10
+        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.11
         with:
           docker-image: ${{ steps.calculate-docker-image.outputs.docker-image }}
 
@@ -279,7 +280,7 @@ jobs:
 
       - name: Teardown Linux
         if: always() && inputs.build_environment != 'linux-s390x-binary-manywheel'
-        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.10
+        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.11
 
       - name: Chown workspace
         if: always() && inputs.build_environment != 'linux-s390x-binary-manywheel'

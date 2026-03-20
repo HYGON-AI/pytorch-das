@@ -41,10 +41,10 @@ SUPPORTED_PERIODICAL_MODES: dict[str, Callable[[Optional[str]], bool]] = {
     "rerun_disabled_tests": lambda job_name: True,
 }
 
-# The link to the published list of disabled jobs. Pinned for release 2.10
-DISABLED_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/disabled-jobs.json?versionId=7uzr7psTR98QQyLkjIjI93OHKaAlii.q"
+# The link to the published list of disabled jobs.
+DISABLED_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/disabled-jobs.json?versionId=EdtXb8H1wC3KKKfSV9z7QtgG3FngDv3B"
 # and unstable jobs
-UNSTABLE_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/unstable-jobs.json?versionId=JkNCBYVBZUEzYfRfUzvJ_eZbvkL_pXFX"
+UNSTABLE_JOBS_URL = "https://ossci-metrics.s3.amazonaws.com/unstable-jobs.json?versionId=iafjJg17T2MK7wQiJ0qx32zIPMqqwZqv"
 
 # Some constants used to handle disabled and unstable jobs
 JOB_NAME_SEP = "/"
@@ -650,6 +650,9 @@ def main() -> None:
     # and also put a flag if the test matrix is empty, so subsequent jobs can
     # quickly check it without the need to parse the JSON string
     set_output("is-test-matrix-empty", filtered_test_matrix_len == 0)
+
+    # Save the labels from the PR, so that we can use it later
+    set_output("labels", json.dumps(list(labels)))
 
 
 if __name__ == "__main__":

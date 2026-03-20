@@ -1158,6 +1158,7 @@ class HistogramObserver(UniformQuantizationObserverBase):
             # find the left and right bins between the quantile bounds
             l = start_bin
             r = end_bin
+            # pyrefly: ignore [bad-assignment]
             while l < end_bin and cSum[l] < next_alpha * total:
                 l = l + 1
             while r > start_bin and cSum[r] > next_beta * total:
@@ -1906,6 +1907,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
                         self.scale_dtype,
                         self.zero_point_dtype,
                         self.preserve_zero,
+                        # pyrefly: ignore [missing-attribute]
                         self.zero_point_domain.name,
                     ),
                 )
@@ -1942,6 +1944,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
                     self.target_dtype,
                     self.quant_min,
                     self.quant_max,
+                    # pyrefly: ignore [missing-attribute]
                     self.zero_point_domain.name,
                 ),
                 {},
@@ -1956,6 +1959,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
                     self.target_dtype,
                     self.quant_min,
                     self.quant_max,
+                    # pyrefly: ignore [missing-attribute]
                     self.zero_point_domain.name,
                 ),
                 {"output_dtype": self.original_dtype},

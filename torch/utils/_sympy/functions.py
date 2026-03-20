@@ -22,7 +22,7 @@ from sympy.utilities.iterables import sift
 
 from torch.torch_version import TorchVersion
 
-from .numbers import int_oo
+from .numbers import int_oo, is_infinite
 
 
 if TYPE_CHECKING:
@@ -92,7 +92,8 @@ __all__ = [
 def _is_symbols_binary_summation(expr: sympy.Expr) -> bool:
     # No need to check that two args are not the same, since expr is pr-optimized but we do it anyway.
     return (
-        expr.is_Add
+        isinstance(expr, sympy.Expr)
+        and expr.is_Add
         and len(expr._args) == 2
         and expr._args[0].is_symbol
         and expr._args[1].is_symbol
@@ -105,7 +106,6 @@ def _keep_float(
 ) -> Callable[[Unpack[_Ts]], _T | sympy.Float]:
     @functools.wraps(f)
     def inner(*args: Unpack[_Ts]) -> _T | sympy.Float:
-        # pyrefly: ignore [bad-argument-type]
         r: _T | sympy.Float = f(*args)
         if any(isinstance(a, sympy.Float) for a in args) and not isinstance(
             r, sympy.Float
@@ -226,12 +226,7 @@ class FloorDiv(sympy.Function):
         # makes it difficult to check the types.
         if divisor.is_zero:
             raise ZeroDivisionError("division by zero")
-        if base in (int_oo, -int_oo, sympy.oo, -sympy.oo) and divisor in (
-            int_oo,
-            -int_oo,
-            sympy.oo,
-            -sympy.oo,
-        ):
+        if is_infinite(base) and is_infinite(divisor):
             return sympy.nan
         if base is sympy.nan or divisor is sympy.nan:
             return sympy.nan
@@ -242,13 +237,13 @@ class FloorDiv(sympy.Function):
             return base
         if base.is_integer and equal_valued(divisor, -1):
             return sympy.Mul(base, -1)
+        if base == divisor:
+            return sympy.S.One
+
         if (
             isinstance(base, sympy.Number)
             and isinstance(divisor, sympy.Number)
-            and (
-                base in (int_oo, -int_oo, sympy.oo, -sympy.oo)
-                or divisor in (int_oo, -int_oo, sympy.oo, -sympy.oo)
-            )
+            and (is_infinite(base) or is_infinite(divisor))
         ):
             r = float(base) / float(divisor)
             if r == math.inf:
@@ -307,6 +302,13 @@ class FloorDiv(sympy.Function):
         except sympy.PolynomialError:
             pass  # https://github.com/pytorch/pytorch/issues/108276
 
+        return None
+
+    def _eval_is_nonnegative(self) -> bool | None:
+        # pyrefly: ignore [missing-attribute]
+        p, q = self.args[:2]
+        if all([p.is_integer, q.is_integer, p.is_nonnegative, q.is_nonnegative]):
+            return True
         return None
 
 
@@ -1149,10 +1151,7 @@ class IntTrueDiv(sympy.Function):
         if (
             isinstance(base, sympy.Number)
             and isinstance(divisor, sympy.Number)
-            and (
-                base in (int_oo, -int_oo, sympy.oo, -sympy.oo)
-                or divisor in (int_oo, -int_oo, sympy.oo, -sympy.oo)
-            )
+            and (is_infinite(base) or is_infinite(divisor))
         ):
             # Don't have to worry about precision here, you're getting zero or
             # inf from the division
@@ -1240,6 +1239,8 @@ class TruncToFloat(sympy.Function):
 
     @classmethod
     def eval(cls, number):
+        if number in (sympy.oo, -sympy.oo):
+            return number
         # assert number.is_integer is not True, number
         if isinstance(number, sympy.Number):
             # NB: It is safe to use truncation to integer, which is what
@@ -1343,6 +1344,19 @@ class Identity(sympy.Function):
     def _eval_is_integer(self):
         return self.args[0].is_integer  # type: ignore[attr-defined]
 
+    @property
+    def is_number(self):
+        # Treat Identity as numeric only when the argument is comparable.
+        # This avoids creating numeric non-comparable Identity(I) terms.
+        # pyrefly: ignore [missing-attribute]
+        return bool(self.args[0].is_number and self.args[0].is_comparable)
+
+    @property
+    def is_comparable(self):
+        # Delegate comparability to the wrapped argument.
+        # pyrefly: ignore [missing-attribute]
+        return bool(self.args[0].is_comparable)
+
     def _eval_expand_identity(self, **hints):
         # Removes the identity op.
         # pyrefly: ignore [missing-attribute]
@@ -1351,6 +1365,38 @@ class Identity(sympy.Function):
     def __int__(self) -> int:
         # pyrefly: ignore [missing-attribute]
         return int(self.args[0])
+
+    def _identity_atom_compare(self, other, op):
+        """
+        Fast path for comparing wrapped numeric atomics against other numeric atomics.
+        Keep compound expressions on SymPy's default symbolic path.
+        """
+        arg = self.args[0]
+        if isinstance(other, int):
+            other = sympy.Integer(other)
+        if not isinstance(other, sympy.Expr):
+            return None
+        if not (arg.is_Atom and arg.is_number and arg.is_comparable):
+            return None
+        if not (other.is_Atom and other.is_number and other.is_comparable):
+            return None
+        return sympy.S.true if op(arg, other) else sympy.S.false
+
+    def __ge__(self, other):
+        out = self._identity_atom_compare(other, lambda a, b: a >= b)
+        return out if out is not None else super().__ge__(other)
+
+    def __gt__(self, other):
+        out = self._identity_atom_compare(other, lambda a, b: a > b)
+        return out if out is not None else super().__gt__(other)
+
+    def __le__(self, other):
+        out = self._identity_atom_compare(other, lambda a, b: a <= b)
+        return out if out is not None else super().__le__(other)
+
+    def __lt__(self, other):
+        out = self._identity_atom_compare(other, lambda a, b: a < b)
+        return out if out is not None else super().__lt__(other)
 
     def __float__(self) -> float:
         # pyrefly: ignore [missing-attribute]

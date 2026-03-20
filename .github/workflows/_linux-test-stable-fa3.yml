@@ -24,7 +24,7 @@ on:
       timeout-minutes:
         required: false
         type: number
-        default: 30
+        default: 60
         description: |
           Set the maximum (in minutes) how long the workflow should take to finish
       s3-bucket:
@@ -60,7 +60,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.10
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.11
         with:
           no-sudo: true
 
@@ -73,9 +73,12 @@ jobs:
       - name: Setup Linux
         uses: ./.github/actions/setup-linux
 
+      - name: Login to ECR
+        uses: ./.github/actions/ecr-login
+
       - name: Calculate docker image
         id: calculate-docker-image
-        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.10
+        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.11
         with:
           docker-image-name: ${{ inputs.docker-image }}
 
@@ -89,7 +92,7 @@ jobs:
           echo "docker pull ghcr.io/pytorch/ci-image:${tag/:/-}"
 
       - name: Pull docker image
-        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.10
+        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.11
         with:
           docker-image: ${{ steps.calculate-docker-image.outputs.docker-image }}
 
@@ -251,5 +254,5 @@ jobs:
           workflow_attempt: ${{github.run_attempt}}
 
       - name: Teardown Linux
-        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.10
+        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.11
         if: always() && steps.check_container_runner.outputs.IN_CONTAINER_RUNNER == 'false'
