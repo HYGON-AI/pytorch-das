@@ -28,7 +28,6 @@ from torch.testing._internal.common_device_type import (
     onlyCPU,
     onlyCUDA,
     onlyNativeDeviceTypes,
-    skipCUDAIfRocm,
     TEST_WITH_ROCM,
 )
 from torch.testing._internal.common_dtype import floating_types_and
@@ -749,7 +748,6 @@ class TestPoolingNNDeviceType(NNTestCase):
 
     @slowTest
     @onlyNativeDeviceTypes
-    @skipCUDAIfRocm
     @parametrize_test(
         "module_name,module_size,output_size,test_index,should_error",
         [
@@ -839,7 +837,16 @@ torch.cuda.synchronize()
             error_msg = error_msgs[module_name]
 
             if should_error:
-                self.assertIn(error_msg, output, "The expected error was not found")
+                # CUDA shows assertion message
+                # ROCm shows launch failure or HSA_STATUS_ERROR_EXCEPTION
+                has_cuda_assert = error_msg in output
+                has_hip_error = (
+                    "launch failure" in output or "HSA_STATUS_ERROR_EXCEPTION" in output
+                )
+                self.assertTrue(
+                    has_cuda_assert or has_hip_error,
+                    f"Expected device assert error, got: {output[-500:]}",
+                )
             else:
                 self.assertNotIn("Error", output, "Should not have produced an error")
         else:
@@ -1127,6 +1134,52 @@ torch.cuda.synchronize()
         )
         check([[1, 2]], (2, 1, 1, 2, False, False), [[2, 1]])
         check([[1, 2]], (2, 2, 1, 2, False, True), [[2, 2]])
+
+    @onlyCPU
+    @dtypes(torch.float16, torch.float32)
+    def test_max_pool_indices_corner_cases(self, device, dtype):
+        def check_indices(x, args, expected, op):
+            model = op(*args, return_indices=True)
+            if isinstance(x, list):
+                x = torch.tensor(x, device=device, dtype=dtype)
+            if isinstance(expected, list):
+                expected = torch.tensor(expected, device=device, dtype=torch.int64)
+            _, indices = model(x)
+            self.assertEqual(indices, expected)
+
+        if dtype is torch.float16:
+            N = 2050
+            x = torch.zeros([N], dtype=dtype)
+            x[-1] = 1
+            check_indices(
+                x.reshape(1, 1, -1), ([1],), [[[N - 1]]], torch.nn.AdaptiveMaxPool1d
+            )
+            check_indices(
+                x.reshape(1, 1, 1, -1),
+                ([1, 1],),
+                [[[[N - 1]]]],
+                torch.nn.AdaptiveMaxPool2d,
+            )
+
+        if dtype is torch.float32:
+            N = 16777218
+            x = torch.zeros([N], dtype=dtype)
+            x[-1] = 1
+            check_indices(
+                x.reshape(1, 1, -1), ([1],), [[[N - 1]]], torch.nn.AdaptiveMaxPool1d
+            )
+            check_indices(
+                x.reshape(1, 1, 1, -1),
+                ([1, 1],),
+                [[[[N - 1]]]],
+                torch.nn.AdaptiveMaxPool2d,
+            )
+            check_indices(
+                x.reshape(1, 1, 2, 1, N // 2),
+                ([1, 1, 1],),
+                [[[[[N - 1]]]]],
+                torch.nn.AdaptiveMaxPool3d,
+            )
 
     @onlyCPU
     @dtypes(torch.float, torch.double)
@@ -1635,7 +1688,8 @@ torch.cuda.synchronize()
         stride = list(grad.stride())
         stride[0] = stride[0] * 2
         grad.set_(grad.storage(), 0, grad.size(), stride)
-        assert grad.is_contiguous()
+        if not grad.is_contiguous():
+            raise AssertionError("Expected grad to be contiguous")
 
         y.backward(grad)
 

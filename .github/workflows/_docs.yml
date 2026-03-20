@@ -80,7 +80,7 @@ jobs:
     name: build-docs-${{ matrix.docs_type }}-${{ inputs.push }}
     steps:
       - name: Setup SSH (Click me for login details)
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.10
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.11
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
           instructions: |
@@ -91,27 +91,24 @@ jobs:
 
       # [see note: pytorch repo ref]
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.10
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.11
 
       - name: Setup Linux
         uses: ./.github/actions/setup-linux
 
-      - name: configure aws credentials
-        if : ${{ inputs.aws-role-to-assume != '' }}
-        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+      - name: Login to ECR
+        uses: ./.github/actions/ecr-login
         with:
-          role-to-assume: ${{ inputs.aws-role-to-assume }}
-          role-session-name: gha-linux-test
-          aws-region: us-east-1
+          aws-role-to-assume: ${{ inputs.aws-role-to-assume }}
 
       - name: Calculate docker image
         id: calculate-docker-image
-        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.10
+        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.11
         with:
           docker-image-name: ${{ inputs.docker-image }}
 
       - name: Pull docker image
-        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.10
+        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.11
         with:
           docker-image: ${{ steps.calculate-docker-image.outputs.docker-image }}
 
@@ -207,6 +204,14 @@ jobs:
           path: cppdocs/
           s3-prefix: pytorch/pytorch/${{ github.event.pull_request.number }}/cppdocs
 
+      - name: Upload C++ Docs Preview (nightly dry-run)
+        if: ${{ !inputs.push && github.event_name != 'pull_request' && matrix.docs_type == 'cpp' && steps.build-docs.outcome == 'success' }}
+        run: |
+          # Use aws s3 cp --recursive for fast parallel uploads instead of uploading files one by one
+          aws s3 cp cppdocs/ s3://doc-previews/pytorch/pytorch/nightly-${{ github.sha }}/cppdocs --recursive --quiet
+          echo "C++ docs preview available at:"
+          echo "https://docs-preview.pytorch.org/pytorch/pytorch/nightly-${{ github.sha }}/cppdocs/index.html"
+
       - name: Teardown Linux
-        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.10
+        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.11
         if: always()

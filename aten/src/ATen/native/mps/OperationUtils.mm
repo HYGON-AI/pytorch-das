@@ -8,6 +8,7 @@
 #include <ATen/TensorIterator.h>
 #include <ATen/mps/MPSAllocatorInterface.h>
 #include <ATen/mps/MPSProfiler.h>
+#include <ATen/mps/MPSStream.h>
 #include <ATen/native/mps/MPSGraphSequoiaOps.h>
 #include <ATen/native/mps/OperationUtils.h>
 #include <fmt/format.h>
@@ -859,7 +860,15 @@ id<MTLLibrary> MetalShaderLibrary::compileLibrary(const std::string& src) {
   MTLCompileOptions* options = compile_options;
   if (!options) {
     options = [[MTLCompileOptions new] autorelease];
-    [options setLanguageVersion:MTLLanguageVersion3_1];
+    if (is_macos_13_or_newer(MacOSVersion::MACOS_VER_26_0_PLUS)) {
+      // Metal-4.0 allows tensor template arguments
+      [options setLanguageVersion:MTLLanguageVersion4_0];
+    } else if (is_macos_13_or_newer(MacOSVersion::MACOS_VER_15_0_PLUS)) {
+      // Metal-3.2 allows lambdas in shader code
+      [options setLanguageVersion:MTLLanguageVersion3_2];
+    } else {
+      [options setLanguageVersion:MTLLanguageVersion3_1];
+    }
     if (is_macos_13_or_newer(MacOSVersion::MACOS_VER_15_0_PLUS)) {
       options.mathMode = fast_math ? MTLMathModeFast : MTLMathModeSafe;
       options.mathFloatingPointFunctions =
@@ -1383,6 +1392,11 @@ void MetalKernelFunction::setArg(unsigned idx, const at::TensorBase& t) {
 void MetalKernelFunction::setArg(unsigned idx, const void* ptr, uint64_t size) {
   TORCH_CHECK(size > 0);
   [encoder setBytes:ptr length:size atIndex:idx];
+}
+
+void MetalKernelFunction::setErrorBufferIndex(unsigned idx) {
+  auto stream = ::at::mps::getCurrentMPSStream();
+  [encoder setBuffer:stream->getErrorBuffer() offset:0 atIndex:idx];
 }
 
 uint64_t MetalKernelFunction::getMaxThreadsPerThreadgroup() const {

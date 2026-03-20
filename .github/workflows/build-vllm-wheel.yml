@@ -65,17 +65,20 @@ jobs:
       BUILD_DEVICE: ${{ matrix.device }}
     steps:
       - name: Setup SSH (Click me for login details)
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.10
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.11
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.10
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.11
         with:
           submodules: false
 
       - name: Setup Linux
         uses: ./.github/actions/setup-linux
+
+      - name: Login to ECR
+        uses: ./.github/actions/ecr-login
 
       - name: Get latest PyTorch nightly
         shell: bash
@@ -164,7 +167,7 @@ jobs:
           path: ${{ runner.temp }}/artifacts/externals/vllm/wheels/*.whl
 
       - name: Teardown Linux
-        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.10
+        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.11
         if: always()
 
   # Copied from build-triton-wheel workflow (mostly)

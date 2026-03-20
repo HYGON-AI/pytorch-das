@@ -44,7 +44,6 @@ from torch.testing._internal.common_utils import (
     numpy_to_torch_dtype_dict,
     run_tests,
     skipIfNoSciPy,
-    skipIfRocm,
     slowTest,
     suppress_warnings,
     TEST_SCIPY,
@@ -151,7 +150,8 @@ class TestUnaryUfuncs(TestCase):
     def assertEqualHelper(
         self, actual, expected, msg, *, dtype, exact_dtype=True, **kwargs
     ):
-        assert isinstance(actual, torch.Tensor)
+        if not isinstance(actual, torch.Tensor):
+            raise AssertionError(f"expected actual to be torch.Tensor, got {type(actual)}")
 
         # Some NumPy functions return scalars, not arrays
         if isinstance(expected, Number):
@@ -168,18 +168,20 @@ class TestUnaryUfuncs(TestCase):
                     # Also ops like scipy.special.erf, scipy.special.erfc, etc, promote float16
                     # to float32
                     if expected.dtype == np.float32:
-                        assert actual.dtype in (
+                        if actual.dtype not in (
                             torch.float16,
                             torch.bfloat16,
                             torch.float32,
-                        )
+                        ):
+                            raise AssertionError(f"actual.dtype {actual.dtype} not in expected dtypes")
                     elif expected.dtype == np.float64:
-                        assert actual.dtype in (
+                        if actual.dtype not in (
                             torch.float16,
                             torch.bfloat16,
                             torch.float32,
                             torch.float64,
-                        )
+                        ):
+                            raise AssertionError(f"actual.dtype {actual.dtype} not in expected dtypes")
                     else:
                         self.fail(
                             f"Expected dtype {expected.dtype} but got {actual.dtype}!"
@@ -299,7 +301,7 @@ class TestUnaryUfuncs(TestCase):
     @ops(reference_filtered_ops)
     @slowTestIf(IS_WINDOWS)
     def test_reference_numerics_small(self, device, dtype, op):
-        if dtype in (torch.bool,):
+        if dtype == torch.bool:
             raise self.skipTest("bool has no small values")
 
         tensors = generate_elementwise_unary_small_value_tensors(
@@ -1630,7 +1632,6 @@ class TestUnaryUfuncs(TestCase):
     @onlyCUDA
     @dtypes(torch.int8)
     @largeTensorTest("8GB")
-    @skipIfRocm(msg="ROCM tries to allocate 60GB")
     def test_nonzero_large(self, device, dtype):
         indices = (
             torch.tensor((0, 2, 3, 4, 6, 100, 103, 2**30, 2**31 - 3, 2**31 - 2)),
