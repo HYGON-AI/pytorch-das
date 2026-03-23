@@ -72,6 +72,7 @@ C10_CLANG_DIAGNOSTIC_POP()
 // assertion failure.
 // NOTE: This assumes that `assertions_data` and  `assertion_caller_id` are
 //       arguments of the kernel and therefore accessible.
+// DTK26.04.1 TODO: 添加 dim3 隐式转换
 #define CUDA_KERNEL_ASSERT2(condition)                                   \
   do {                                                                   \
     if (C10_UNLIKELY(!(condition))) {                                    \
@@ -83,8 +84,8 @@ C10_CLANG_DIAGNOSTIC_POP()
           __FUNCTION__,                                                  \
           __LINE__,                                                      \
           assertion_caller_id,                                           \
-          blockIdx,                                                      \
-          threadIdx);                                                    \
+          dim3(blockIdx.x, blockIdx.y, blockIdx.z),                      \
+          dim3(threadIdx.x, threadIdx.y, threadIdx.z));                  \
       /* Now that the kernel has failed we early exit the kernel, but */ \
       /* otherwise keep going and rely on the host to check UVM and */   \
       /* determine we've had a problem */                                \
