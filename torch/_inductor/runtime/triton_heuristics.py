@@ -2333,7 +2333,7 @@ def check_config(cfg, *, xnumel=None, ynumel=None, znumel=None):
             f"TritonKernel.indexing assumes {label}BLOCK divides {max_block_str}"
             f" but {label}BLOCK={block} and {max_block_str}={max_block} (cfg={cfg})."
         )
-tune_pot_config = []
+
 
 def check_max_block(cfg: dict[str, int]):
     """
@@ -2827,7 +2827,6 @@ def pointwise(
     """
     Construct @triton.heuristics() based on size_hints.
     """
-
     inductor_meta = {} if inductor_meta is None else inductor_meta
 
     configs = _handle_combo_kernel_per_subkernel_blocks(

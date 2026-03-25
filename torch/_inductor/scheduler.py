@@ -28,8 +28,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
     from types import ModuleType
 
-import weakref
-
 import sympy
 
 import torch
