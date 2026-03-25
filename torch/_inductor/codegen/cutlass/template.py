@@ -116,7 +116,7 @@ class CUTLASSTemplate(KernelTemplate):
         args are different.
         """
         key: Optional[str] = None
-        if config.cuda.enable_caching_codegen:
+        if config.cutlass.enable_caching_codegen:
             key = self.make_key(name=name, input_key=input_key, layout_repr=layout_repr)
 
         if key is not None and key in self.code_cache:
