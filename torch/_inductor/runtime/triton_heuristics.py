@@ -188,6 +188,16 @@ def autotune_hints_to_configs(
                 )
                 for xyz in xyz_options
             )
+    if size_hints.get("x") == 8192:
+        configs.append(Config({"XBLOCK":2048},num_warps=4, num_stages=1))
+        configs.append(Config({"XBLOCK":2048},num_warps=2, num_stages=1))
+        configs.append(Config({"XBLOCK":2048},num_warps=1, num_stages=1))
+        configs.append(Config({"XBLOCK":1024},num_warps=4, num_stages=1))
+        configs.append(Config({"XBLOCK":1024},num_warps=2, num_stages=1))
+        configs.append(Config({"XBLOCK":1024},num_warps=1, num_stages=1))
+        configs.append(Config({"XBLOCK":512},num_warps=4, num_stages=1))
+        configs.append(Config({"XBLOCK":512},num_warps=2, num_stages=1))
+        configs.append(Config({"XBLOCK":512},num_warps=1, num_stages=1))
 
     return configs
 

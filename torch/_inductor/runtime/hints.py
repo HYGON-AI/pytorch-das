@@ -13,8 +13,13 @@ from torch.utils._triton import has_triton_package
 # The following maximums only apply to runtime autotuning, when using FixedTritonConfig one may see larger values
 # NOTE: if these fail asserts submit a PR to increase them
 TRITON_MAX_BLOCK = {
+<<<<<<< HEAD
     "X": 8192 if torch.version.hip else 4096,
     "Y": 1024,
+=======
+    "X": 4096,
+    "Y": 2048   ,
+>>>>>>> c24158bcb5a ([inductor-triton] add optim for triton)
     "Z": 1024,
     "R0_": 4096 * 16,  # * 16 is multi-kernel only
     "R1_": 2048 * 16,  # * 16 is multi-kernel only
@@ -43,10 +48,14 @@ if has_triton_package():
     if hasattr(triton.backends.compiler, "AttrsDescriptor"):
         # Triton 3.2.0 - the second implementation
         from triton.backends.compiler import AttrsDescriptor
-
+        # special hip 
+        hashipattr = hasattr(triton.backends.compiler, "AttrsDescriptor")
+        if hashipattr:
+            from triton.backends.amd.compiler import HIPAttrsDescriptor
         def AttrsDescriptorWrapper(
             divisible_by_16=None,
             equal_to_1=None,
+            pointer_range_32=None,
         ):
             # Prepare the arguments for AttrsDescriptor
             kwargs = {
@@ -55,9 +64,15 @@ if has_triton_package():
             }
 
             # Instantiate AttrsDescriptor with the prepared arguments
-            res = AttrsDescriptor.from_dict(
-                {"arg_properties": kwargs, "cls": AttrsDescriptor.__name__}
+            if hashipattr:
+                kwargs["tt.pointer_range"] = pointer_range_32
+                res = HIPAttrsDescriptor.from_dict(
+                {"arg_properties": kwargs, "cls": HIPAttrsDescriptor.__name__}
             )
+            else:
+                res = AttrsDescriptor.from_dict(
+                    {"arg_properties": kwargs, "cls": AttrsDescriptor.__name__}
+                )
             assert res.property_values["tt.divisibility"] == 16
             assert res.property_values["tt.equal_to"] == 1
             return res
@@ -88,17 +103,30 @@ if has_triton_package():
         def AttrsDescriptorWrapper(
             divisible_by_16=None,
             equal_to_1=None,
+            pointer_range_32=None,  
         ):
-            # pyrefly: ignore [not-iterable]
-            return {(x,): [["tt.divisibility", 16]] for x in divisible_by_16}
+            # return {(x,): [["tt.divisibility", 16]] for x in divisible_by_16}
+            #return {(x,): [["tt.divisibility", 16]] for x in divisible_by_16}
+            result = {(x,): [["tt.divisibility", 16]] for x in (divisible_by_16 or ())}
+            # force use first parm of divisible_by_16
+            
+            for x in pointer_range_32 or ():
+                key = (x,)
+                if key in result:
+                    result[key].append(["tt.pointer_range", 32])
+                else:
+                    result[key] = [["tt.pointer_range", 32]]
+            return result
+
 
 else:
     # Define a namedtuple as a fallback when AttrsDescriptor is not available
     AttrsDescriptorWrapper = collections.namedtuple(  # type: ignore[no-redef, name-match]
         # pyrefly: ignore [invalid-argument]
         "AttrsDescriptor",
-        ["divisible_by_16", "equal_to_1"],
-        defaults=[(), ()],
+        ["divisible_by_16", "equal_to_1", "pointer_range_32"],
+        defaults=[(), (), ()],
+
     )
 
 
