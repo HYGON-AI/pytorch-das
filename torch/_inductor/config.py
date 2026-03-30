@@ -494,6 +494,7 @@ inductor_default_autotune_rep = int(
     os.getenv("TORCHINDUCTOR_DEFAULT_AUTOTUNE_REP", 100)
 )
 
+force_use_pointer_range = os.environ.get("TORCHINDUCTOR_FORCE_POINTER_RANGE") == "1"
 
 # Modifies the number of autotuning choices displayed, set to None for all
 def _autotune_num_choices_displayed_default() -> Optional[int]:
