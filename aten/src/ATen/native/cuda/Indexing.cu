@@ -45,6 +45,7 @@
 #include <limits>
 
 #include <c10/macros/Macros.h>
+#include <c10/util/env.h>
 
 namespace {
 constexpr uint64_t getDefaultMaxThreadsPerBlock() {
@@ -393,7 +394,7 @@ __global__ void indexing_backward_kernel_stride_1(
 #endif
 
 template <typename scalar_t>
-__global__ void indexing_backward_kernel_small_stride(
+__global__ __launch_bounds__(1024) void indexing_backward_kernel_small_stride(
   const int64_t* sorted_indices, const int64_t* indices, const scalar_t* grad_output, scalar_t* grad_weight,
   int64_t numel, int64_t stride, int64_t stride_before, int64_t outer_dim, bool accumulate) {
   using opmath_t = at::opmath_type<scalar_t>;
@@ -644,6 +645,160 @@ int64_t largestIndex(const Tensor &self) {
   return result;
 }
 
+// index_backwd_sort_kernel_small_stride  opt functions
+
+template <typename scalar_t, bool ACCUMULATE>
+struct indexing_backward_kernel_opt;
+
+template <typename scalar_t>
+struct indexing_backward_kernel_opt<scalar_t, false> {
+    __device__ __forceinline__ 
+    void operator()(
+        const int64_t* sorted_indices, const int64_t* indices, const scalar_t* grad_output, scalar_t* grad_weight,
+        int64_t numel, int64_t stride, int64_t stride_before, int64_t outer_dim) const {
+        
+        using opmath_t = at::opmath_type<scalar_t>;
+
+        int64_t idx = blockIdx.x * blockDim.y + threadIdx.y;
+        int64_t tidx = threadIdx.x;
+
+        if (idx >= numel || tidx >= stride) {
+            return;
+        }
+
+        int64_t crnt_sorted_idx = sorted_indices[idx];
+
+        for (int64_t z = blockIdx.z; z < outer_dim; z += gridDim.z) {
+            bool is_last = (idx == numel - 1) || (crnt_sorted_idx != sorted_indices[idx + 1]);
+
+            if (is_last) {
+                const opmath_t scale = (opmath_t) 1.0;
+                const int64_t weight_row = crnt_sorted_idx * stride + z * stride_before;
+                // 直接取当前 idx 对应的原始梯度下标
+                const int64_t grad_row = indices[idx] * stride + z * numel * stride;
+                
+                grad_weight[weight_row + tidx] = static_cast<scalar_t>(
+                    static_cast<opmath_t>(grad_output[grad_row + tidx]) * scale);
+            }
+        }
+    }
+};
+
+template <typename scalar_t>
+struct indexing_backward_kernel_opt<scalar_t, true> {
+    __device__ __forceinline__ 
+    void operator()(
+        const int64_t* sorted_indices, const int64_t* indices, const scalar_t* grad_output, scalar_t* grad_weight,
+        int64_t numel, int64_t stride, int64_t stride_before, int64_t outer_dim) const {
+        
+        using opmath_t = at::opmath_type<scalar_t>;
+
+        int64_t idx = blockIdx.x * blockDim.y + threadIdx.y;
+        int64_t tidx = threadIdx.x;
+
+        if (idx >= numel || tidx >= stride) return;
+
+        int64_t crnt_sorted_idx = sorted_indices[idx];
+
+        for (int64_t z = blockIdx.z; z < outer_dim; z += gridDim.z) {
+            bool is_first = (idx == 0) || (crnt_sorted_idx != sorted_indices[idx - 1]);
+
+            if (is_first) {
+                int64_t num_duplicates = 1;
+                constexpr int64_t STEP_L1 = 64;
+                while (idx + num_duplicates + (STEP_L1 - 1) < numel && 
+                    sorted_indices[idx + num_duplicates + (STEP_L1 - 1)] == crnt_sorted_idx) {
+                    num_duplicates += STEP_L1;
+                }
+
+                constexpr int64_t STEP_L2 = 8;
+                while (idx + num_duplicates + (STEP_L2 - 1) < numel && 
+                    sorted_indices[idx + num_duplicates + (STEP_L2 - 1)] == crnt_sorted_idx) {
+                    num_duplicates += STEP_L2;
+                }
+
+                while (((idx + num_duplicates) < numel) && 
+                    (sorted_indices[idx + num_duplicates] == crnt_sorted_idx)) {
+                    num_duplicates++;
+                }
+
+                const int64_t weight_row = crnt_sorted_idx * stride + z * stride_before;
+                const opmath_t scale = (opmath_t) 1.0;
+                const int64_t z_offset = z * numel * stride + tidx;
+                opmath_t gradient = (opmath_t) 0.0;
+                int64_t i = 0;
+
+                int64_t limit_8 = num_duplicates & ~7LL; 
+                for (; i < limit_8; i += 8) {
+                    opmath_t v0 = static_cast<opmath_t>(grad_output[indices[idx + i + 0] * stride + z_offset]);
+                    opmath_t v1 = static_cast<opmath_t>(grad_output[indices[idx + i + 1] * stride + z_offset]);
+                    opmath_t v2 = static_cast<opmath_t>(grad_output[indices[idx + i + 2] * stride + z_offset]);
+                    opmath_t v3 = static_cast<opmath_t>(grad_output[indices[idx + i + 3] * stride + z_offset]);
+                    opmath_t v4 = static_cast<opmath_t>(grad_output[indices[idx + i + 4] * stride + z_offset]);
+                    opmath_t v5 = static_cast<opmath_t>(grad_output[indices[idx + i + 5] * stride + z_offset]);
+                    opmath_t v6 = static_cast<opmath_t>(grad_output[indices[idx + i + 6] * stride + z_offset]);
+                    opmath_t v7 = static_cast<opmath_t>(grad_output[indices[idx + i + 7] * stride + z_offset]);
+
+                    // 串行 Add：严格保持精度顺序
+                    gradient += v0 * scale; gradient += v1 * scale;
+                    gradient += v2 * scale; gradient += v3 * scale;
+                    gradient += v4 * scale; gradient += v5 * scale;
+                    gradient += v6 * scale; gradient += v7 * scale;
+                }
+
+                if ((num_duplicates - i) >= 4) {
+                    opmath_t v0 = static_cast<opmath_t>(grad_output[indices[idx + i] * stride + z_offset]);
+                    opmath_t v1 = static_cast<opmath_t>(grad_output[indices[idx + i + 1] * stride + z_offset]);
+                    opmath_t v2 = static_cast<opmath_t>(grad_output[indices[idx + i + 2] * stride + z_offset]);
+                    opmath_t v3 = static_cast<opmath_t>(grad_output[indices[idx + i + 3] * stride + z_offset]);
+                    gradient += v0 * scale; gradient += v1 * scale;
+                    gradient += v2 * scale; gradient += v3 * scale;
+                    i += 4;
+                }
+
+                for (; i < num_duplicates; ++i) {
+                    int64_t grad_row = indices[idx + i] * stride + z_offset;
+                    gradient += static_cast<opmath_t>(grad_output[grad_row]) * scale;
+                }
+
+                grad_weight[weight_row + tidx] = static_cast<scalar_t>(
+                    static_cast<opmath_t>(grad_weight[weight_row + tidx]) + gradient);
+            }
+        }
+    }
+};
+
+template<typename scalar_t, bool ACCUMULATE>
+__global__ __launch_bounds__(1024) void indexing_backward_kernel_opt_kernel(
+    const int64_t* sorted_indices, const int64_t* indices, const scalar_t* grad_output, scalar_t* grad_weight,
+    int64_t numel, int64_t stride, int64_t stride_before, int64_t outer_dim) {
+    
+    indexing_backward_kernel_opt<scalar_t, ACCUMULATE>()(
+        sorted_indices, indices, grad_output, grad_weight,
+        numel, stride, stride_before, outer_dim
+    );
+}
+
+template<typename scalar_t>
+void indexing_backward_kernel_opt_kernel_impl(
+    const int64_t* sorted_indices, const int64_t* indices, const scalar_t* grad_output, scalar_t* grad_weight,
+    int64_t numel, int64_t stride, int64_t stride_before, int64_t outer_dim, bool accumulate,
+    dim3 grid_dim, dim3 blk_dim) {
+        if (accumulate) {
+            indexing_backward_kernel_opt_kernel<scalar_t, true><<<grid_dim, blk_dim>>>(
+                sorted_indices, indices, grad_output, grad_weight,
+                numel, stride, stride_before, outer_dim
+            );
+        } else {
+            indexing_backward_kernel_opt_kernel<scalar_t, false><<<grid_dim, blk_dim>>>(
+                sorted_indices, indices, grad_output, grad_weight,
+                numel, stride, stride_before, outer_dim
+            );
+        }
+}
+
+// index_backwd_sort_kernel_small_stride end
+
 DimVector valsShape(IntArrayRef self_sizes,
                               int64_t dims_before,
                               int64_t dims_indexed,
@@ -756,11 +911,69 @@ void index_put_with_sort_kernel(Tensor & self, const c10::List<std::optional<Ten
           kBFloat16);
       } else {
         if (sliceSize <= warp_size) {
+          dim3 block_opt(sliceSize, ceil_div((int64_t)warp_size, sliceSize) * indices_per_block);
+          dim3 grid_opt(ceil_div(num_indices, ceil_div((int64_t)warp_size, sliceSize) * indices_per_block),
+          std::min<int>(at::cuda::getCurrentDeviceProperties()->maxGridSize[1], ceil_div(sliceSize, (int64_t) (warp_size * UNROLL))),
+          std::min(std::max<int>(1,nElemBefore), at::cuda::getCurrentDeviceProperties()->maxGridSize[2]));
+          // index_backwd_sort_kernel_small_stride opt
+          bool use_base_impl =
+          c10::utils::check_env("TORCH_INDEXING_SMALL_STRIDE_BASE") == true;
+          if (!use_base_impl) {
+            if(accumulate){
+              AT_DISPATCH_V2(
+                expandedValue.scalar_type(),
+                "indexing_backward_kernel_small_stride_accumulate",
+                AT_WRAP([&] {
+                  indexing_backward_kernel_opt_kernel<scalar_t, true><<<grid_opt, block_opt, 0, stream>>>(
+                    sorted_indices.const_data_ptr<int64_t>(),
+                    orig_indices.const_data_ptr<int64_t>(),
+                    expandedValue.const_data_ptr<scalar_t>(),
+                    src_.mutable_data_ptr<scalar_t>(),
+                    num_indices,
+                    sliceSize,
+                    strideBefore,
+                    nElemBefore
+                    );
+                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+                }),
+                AT_EXPAND(AT_ALL_TYPES_AND_COMPLEX),
+                AT_EXPAND(AT_FLOAT8_TYPES),
+                kComplexHalf,
+                kHalf,
+                kBool,
+                kBFloat16);
+            }
+            else{
+              AT_DISPATCH_V2(
+                expandedValue.scalar_type(),
+                "indexing_backward_kernel_small_stride_accumulate",
+                AT_WRAP([&] {
+                  indexing_backward_kernel_opt_kernel<scalar_t, false><<<grid_opt, block_opt, 0, stream>>>(
+                    sorted_indices.const_data_ptr<int64_t>(),
+                    orig_indices.const_data_ptr<int64_t>(),
+                    expandedValue.const_data_ptr<scalar_t>(),
+                    src_.mutable_data_ptr<scalar_t>(),
+                    num_indices,
+                    sliceSize,
+                    strideBefore,
+                    nElemBefore
+                    );
+                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+                }),
+                AT_EXPAND(AT_ALL_TYPES_AND_COMPLEX),
+                AT_EXPAND(AT_FLOAT8_TYPES),
+                kComplexHalf,
+                kHalf,
+                kBool,
+                kBFloat16);
+            }
+          }
+          else{
           AT_DISPATCH_V2(
             expandedValue.scalar_type(),
             "indexing_backward_kernel_small_stride",
             AT_WRAP([&] {
-              indexing_backward_kernel_small_stride<scalar_t><<<grid, block, 0, stream>>>(
+              indexing_backward_kernel_small_stride<scalar_t><<<grid_opt, block_opt, 0, stream>>>(
                 sorted_indices.const_data_ptr<int64_t>(),
                 orig_indices.const_data_ptr<int64_t>(),
                 expandedValue.const_data_ptr<scalar_t>(),
@@ -784,6 +997,7 @@ void index_put_with_sort_kernel(Tensor & self, const c10::List<std::optional<Ten
             kHalf,
             kBool,
             kBFloat16);
+          }
         } else {
 #ifdef USE_ROCM
           if (num_indices >= 200000)
