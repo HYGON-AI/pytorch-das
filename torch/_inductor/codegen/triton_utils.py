@@ -213,8 +213,8 @@ def equal_1_arg_indices(
     return equal_to_1
 
 def parse_operator_integers(text) -> int:
+    from functools import reduce
     """
-    仅解析算术运算符 (*, +, -, /) 之后的整数。
     排除字母后和比较符后的数字。
     """
     pattern = r'(?<=[*])\d+'
@@ -224,8 +224,12 @@ def parse_operator_integers(text) -> int:
     if first_match:
         results.append(int(first_match.group()))
     results.extend([int(m) for m in list(matches)])
-    assert len(results) == 1
-    return results[0]
+    if results:
+        return reduce(lambda x, y: x * y, results)
+    else:
+        # 1 represent false
+        return 1
+
 
 
 # backup for static input
