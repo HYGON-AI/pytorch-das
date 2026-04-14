@@ -46,6 +46,12 @@ struct alignas(1) Float8_e8m0fnu {
   inline C10_HOST_DEVICE bool isnan() const;
 };
 
+inline C10_HOST_DEVICE Float8_e8m0fnu& operator+=(Float8_e8m0fnu& a, const Float8_e8m0fnu& b) {
+    float result = static_cast<float>(a) + static_cast<float>(b);
+    a = static_cast<Float8_e8m0fnu>(result);
+    return a;
+}
+
 inline std::ostream& operator<<(
     std::ostream& out,
     const Float8_e8m0fnu& value) {
