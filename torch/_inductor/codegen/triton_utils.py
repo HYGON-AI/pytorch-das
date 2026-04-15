@@ -1,6 +1,6 @@
 # mypy: allow-untyped-defs
 from typing import Any, Optional
-
+import re
 import sympy
 
 import torch
@@ -20,7 +20,7 @@ from .common import (
     WorkspaceArg,
 )
 
-
+MAX_BYTES = 2**31 - 1
 def should_unwrap_unspec_arg(name: str):
     if V.graph.is_unspec_arg(name):
         # Unwrap on all devices except CPU
@@ -212,6 +212,57 @@ def equal_1_arg_indices(
 
     return equal_to_1
 
+def parse_operator_integers(text) -> int:
+    from functools import reduce
+    """
+    排除字母后和比较符后的数字。
+    """
+    pattern = r'(?<=[*])\d+'
+    matches = re.findall(pattern, text)
+    first_match = re.match(r'^\d+', text)
+    results = []
+    if first_match:
+        results.append(int(first_match.group()))
+    results.extend([int(m) for m in list(matches)])
+    if results:
+        return reduce(lambda x, y: x * y, results)
+    else:
+        # 1 represent false
+        return 1
+
+
+
+# backup for static input
+def _get_buffer_layout(buf_name: str) -> "torch._inductor.ir.Layout":
+    """Get the layout for a buffer, handling both scheduler buffers and graph inputs."""
+    if V.graph.scheduler:
+        layout = V.graph.scheduler.get_buffer_layout(buf_name)
+    else:
+        buffer = V.graph.try_get_buffer(buf_name)
+        # output arg
+        if not buffer:
+            assert buf_name == V.kernel.output_node.name
+            layout = V.kernel.output_node.layout
+        else:
+            layout = buffer.get_layout()
+    return layout
+
+
+def _can_use_pointer_range(arg):
+    if arg.buffer in V.graph.graph_inputs:
+        inp = V.graph.graph_inputs[arg.buffer]
+        if hasattr(inp, "get_layout"):
+            layout = inp.get_layout()
+        else:
+            return False
+    elif arg.buffer in V.graph.constants:
+        inp = V.graph.constants[arg.buffer]
+        storage_bytes = inp.numel() * inp.dtype.itemsize
+        return storage_bytes < MAX_BYTES
+    else:
+        layout = _get_buffer_layout(arg.buffer)
+    storage_bytes = layout.storage_size() * arg.dtype.itemsize
+    return V.graph.sizevars.statically_known_lt(storage_bytes, MAX_BYTES)
 
 def config_of(
     args: list[KernelArgType],
@@ -244,6 +295,9 @@ def config_of(
                 return False
             if isinstance(x.expr, float):
                 return False
+            if isinstance(x.expr, sympy.Mul):
+                val = parse_operator_integers(str(x.expr))
+                return V.graph.sizevars.statically_known_multiple_of(val, alignment)
             return V.graph.sizevars.statically_known_multiple_of(x.expr, alignment)  # type: ignore[arg-type]
         if isinstance(x, WorkspaceArg):
             # We allocate the workspace ourselves, so it is always aligned
@@ -260,8 +314,20 @@ def config_of(
         )
     else:
         divisible_by_16 = ()
+    if config.force_use_pointer_range:
+        pointer_range_32 = tuple(
+            i
+            for i, arg in zip(indices, args)
+            if isinstance(arg, TensorArg)
+        )
+    else:
+        #backup for static input
+        pointer_range_32 = tuple(
+            i
+            for i, arg in zip(indices, args)
+            if isinstance(arg, TensorArg) and _can_use_pointer_range(arg)
+        )
 
     equal_to_1 = equal_1_arg_indices(args, indices=indices)
 
-    # pyrefly: ignore [bad-argument-type]
-    return AttrsDescriptorWrapper(divisible_by_16, equal_to_1)
+    return AttrsDescriptorWrapper(divisible_by_16, equal_to_1, pointer_range_32)

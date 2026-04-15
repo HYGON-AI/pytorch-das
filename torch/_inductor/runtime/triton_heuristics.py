@@ -188,7 +188,6 @@ def autotune_hints_to_configs(
                 )
                 for xyz in xyz_options
             )
-
     return configs
 
 
@@ -2850,7 +2849,7 @@ def pointwise(
     assert not inductor_meta.get("no_x_dim")
 
     numel = functools.reduce(operator.mul, size_hints.values())
-    bs = max(256, min(numel // 128, 1024))
+    bs = max(256, min(numel // 128, 2048))
 
     hinted_configs = autotune_hints_to_configs(
         inductor_meta.get("autotune_hints", OrderedSet()),
@@ -2916,6 +2915,35 @@ def pointwise(
                         triton_config_with_settings(size_hints, 32),
                     ]
                 )
+            if torch.version.hip:
+                # Sweep additional 1D HIP pointwise candidates through the same
+                # helper path as the default configs.  For 1D pointwise kernels,
+                # num_elements_per_warp controls the inferred num_warps:
+                # XBLOCK / num_elements_per_warp ~= desired_num_warps.
+                max_x_hint = size_hints.get("x", 0)
+                for max_bs in (2048, 1024, 512, 256):
+                    if max_x_hint < max_bs:
+                        continue
+                    configs.extend(
+                        [
+                            triton_config_with_settings(
+                                size_hints,
+                                max_bs,
+                                num_elements_per_warp=max_bs // 4,
+                            ),
+                            triton_config_with_settings(
+                                size_hints,
+                                max_bs,
+                                num_elements_per_warp=max_bs // 2,
+                            ),
+                            triton_config_with_settings(
+                                size_hints,
+                                max_bs,
+                                num_elements_per_warp=max_bs,
+                            ),
+                        ]
+                    )
+
     if len(size_hints) == 2:
         # Only avoiding tuning on TileHint.SQUARE if not on ROCm builds
         # ROCm has observed improvement by diverging here
