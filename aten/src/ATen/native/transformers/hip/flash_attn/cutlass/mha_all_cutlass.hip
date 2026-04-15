@@ -92,8 +92,8 @@ mha_fwd_cutlass(const at::Tensor &q_,         // batch_size x seqlen_q x num_hea
     at::Tensor p = res[6];
     at::Tensor seed_t, offset_t;
 
-    seed_t = at::Tensor(std::move(rng_state[0].clone()));
-    offset_t = at::Tensor(std::move(rng_state[1].clone()));
+    seed_t = rng_state[0];
+    offset_t = rng_state[1];
 
     return {out, q_padded, k_padded, v_padded, softmax_lse, seed_t, offset_t, p};
 }
@@ -150,8 +150,8 @@ mha_varlen_fwd_cutlass(const at::Tensor &q_,  // total_q x num_heads x head_size
     at::Tensor rng_state = res[7];
     at::Tensor p = res[6];
     at::Tensor seed_t, offset_t;
-    seed_t = at::Tensor(std::move(rng_state[0].clone()));
-    offset_t = at::Tensor(std::move(rng_state[1].clone()));
+    seed_t = rng_state[0];
+    offset_t = rng_state[1];
     return {out, q_padded, k_padded, v_padded, softmax_lse, seed_t, offset_t, p};
 
 }
