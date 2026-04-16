@@ -319,7 +319,9 @@ void Context::setImmediateMiopen(bool b) {
   immediate_miopen = b;
 }
 
+static constexpr const auto hipblaslt_allow_tf32 = "HIPBLASLT_ALLOW_TF32";
 bool Context::allowTF32CuBLAS() const {
+  const auto allow_tf32 = c10::utils::check_env(hipblaslt_allow_tf32);
   bool legacy_allow_tf32 = float32_matmul_precision != at::Float32MatmulPrecision::HIGHEST;
   bool allow_tf32_new = float32Precision(Float32Backend::CUDA, Float32Op::MATMUL) == Float32Precision::TF32;
   TORCH_CHECK(
@@ -328,7 +330,7 @@ bool Context::allowTF32CuBLAS() const {
       "Current status indicate that you have used mix of the legacy and new APIs to set the TF32 status for cublas matmul. ",
       "We suggest only using the new API to set the TF32 flag. See also: ",
       "https://pytorch.org/docs/main/notes/cuda.html#tensorfloat-32-tf32-on-ampere-and-later-devices");
-  return allow_tf32_new;
+  return ((allow_tf32 == true) || legacy_allow_tf32);
 }
 
 void Context::setAllowTF32CuBLAS(bool b) {

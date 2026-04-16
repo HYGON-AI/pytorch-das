@@ -732,6 +732,40 @@ print(t.is_pinned())
         self.assertEqual(torch._C._get_cublas_allow_tf32(), not orig)
         torch.backends.cuda.matmul.allow_tf32 = orig
 
+    @unittest.skipIf(not TEST_WITH_ROCM, "not relevant for CUDA testing")
+    def test_hipblaslt_allow_tf32(self):
+        # The allow_tf32 variable is declared as static in aten/src/ATen/Context.cpp
+        # TF32 precision can be enabled via either the environment variable HIP_BLASLT_ALLOW_TF32 
+        # or the runtime configuration parameter matmul.allow_tf32.
+
+        # Save original value of allow_tf32
+        orig = torch.backends.cuda.matmul.allow_tf32
+
+        # Since tf32 precision mode can be independently configured via a single environment variable, 
+        # it necessitates isolated validation to eliminate confounding variables.
+        # First test if toggling allow_tf32 works by itself
+        # Configure the environment variable HIPBLASLT_ALLOW_TF32 to 0
+        os.environ["HIPBLASLT_ALLOW_TF32"] = "0"
+        test1 = torch.backends.cuda.matmul.allow_tf32
+        torch.backends.cuda.matmul.allow_tf32 = not orig
+        test2 = torch.backends.cuda.matmul.allow_tf32
+        self.assertNotEqual(test1, test2)
+        # Restore original value of allow_tf32
+        torch.backends.cuda.matmul.allow_tf32 = orig
+
+        # Then test HIP_BLASLT_ALLOW_TF32
+        if orig == True:
+            torch.backends.cuda.matmul.allow_tf32 = False
+        os.environ["HIPBLASLT_ALLOW_TF32"] = "1"
+        test3 = torch.backends.cuda.matmul.allow_tf32
+        os.environ["HIPBLASLT_ALLOW_TF32"] = "0"
+        test4 = torch.backends.cuda.matmul.allow_tf32
+        self.assertNotEqual(test3, test4)
+
+        # Restore original value of allow_tf32
+        os.environ["HIPBLASLT_ALLOW_TF32"] = "0"
+        torch.backends.cuda.matmul.allow_tf32 = orig
+
     def test_float32_matmul_precision_get_set(self):
         orig = torch.get_float32_matmul_precision()
         skip_tf32_cublas = "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE" in os.environ and int(
