@@ -750,31 +750,24 @@ def convolution(
             dtype_size=dtype_size,
         ):
             if ndim == 2:
-                new_cfgs = []
-                x_layout = x.get_layout()
-                is_channel_last = x_layout.is_channels_last_contiguous(x_layout.size, x_layout.stride)
-                # DCU perf optimize: few channel and block swizzle
-                if is_channel_last:
-                    if in_chan <= 32:
-                        conv_paras['num_stages'] = cfg.num_stages
-                        conv_paras['num_warps'] = cfg.num_warps
-                        conv2d_few_channel_tmpl.maybe_append_choice(
-                            choices, 
-                            **conv_paras, 
-                            **cfg.kwargs
-                        )
-                    
-                    new_cfgs = [cfg_add_group_size_m(cfg, group_size_m) for group_size_m in [4, 8]]
-                else:
-                    new_cfgs.append(cfg)
-
-                for new_cfg in new_cfgs:
-                    conv_paras['num_stages'] = new_cfg.num_stages
-                    conv_paras['num_warps'] = new_cfg.num_warps
-                    conv2d_template.maybe_append_choice(
-                        choices, 
-                        **conv_paras, 
-                        **new_cfg.kwargs
+                conv2d_template.maybe_append_choice(
+                    choices,
+                    input_nodes=(x, weight),
+                    layout=layout,
+                    KERNEL_H=kernel_shape[0],
+                    KERNEL_W=kernel_shape[1],
+                    STRIDE_H=stride[0],
+                    STRIDE_W=stride[1],
+                    PADDING_H=padding[0],
+                    PADDING_W=padding[1],
+                    GROUPS=groups,
+                    # TODO(jansel): try unroll for bigger kernels once fixed:
+                    #               https://github.com/triton-lang/triton/issues/1254
+                    UNROLL=is_ones(kernel_shape),
+                    ALLOW_TF32=torch.backends.cudnn.allow_tf32,
+                    num_stages=cfg.num_stages,
+                    num_warps=cfg.num_warps,
+                    **cfg.kwargs,
                 )
             elif ndim == 3:
                 conv3d_template.maybe_append_choice(
