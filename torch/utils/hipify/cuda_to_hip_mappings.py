@@ -193,7 +193,7 @@ CUDA_TYPE_NAME_MAP = collections.OrderedDict([
     ("cudaStream_t", "hipStream_t"),
     ("cudaPointerAttributes", "hipPointerAttribute_t"),
     ("cudaDeviceAttr", "hipDeviceAttribute_t"),
-	#Ä¬ÈÏrocm_version > 6.1.0
+	#rocm_version > 6.1.0
     ("cudaDeviceProp", "hipDeviceProp_t_v2"),
 	("hipDeviceProp_t", "hipDeviceProp_t_v2"),
     ("cudaDeviceP2PAttr", "hipDeviceP2PAttribute"),
