@@ -54,6 +54,9 @@ typedef std::vector<at::Tensor> (*mha_varlen_fwd_func_new)(at::Tensor , const at
                                                 c10::optional<at::Tensor>,c10::optional<at::Tensor>,
                                                 int, const int, const float, const float, bool, bool,
                                                 int, int, const float, const bool,
+						const c10::optional<at::Tensor>,
+						const c10::optional<at::Tensor>,
+						const c10::optional<at::Tensor>,
                                                 c10::optional<at::Generator>,
                                                 const c10::optional<at::Tensor>);
 

@@ -128,10 +128,15 @@ mha_varlen_fwd_cutlass(const at::Tensor &q_,  // total_q x num_heads x head_size
     auto& cfa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
     std::vector<at::Tensor> res;
     if (cfa.get_fa_changed()) {
+	const c10::optional<at::Tensor> q_descale = c10::nullopt;
+	const c10::optional<at::Tensor> k_descale = c10::nullopt;
+	const c10::optional<at::Tensor> v_descale = c10::nullopt;
+	const c10::optional<at::Tensor> s_aux = c10::nullopt;
         res = cfa.mha_varlen_fwd_new(q, k, v, out_, cu_seqlens_q, cu_seqlens_k, seqused_k,
                                                 leftpad_k_, block_table_, alibi_slopes_, max_seqlen_q, max_seqlen_k,
                                                 p_dropout, softmax_scale, zero_tensors, is_causal, static_cast<int>(win_left), 
-                                                static_cast<int>(win_right),softcap, return_softmax, gen_, c10::nullopt);
+                                                static_cast<int>(win_right),softcap, return_softmax, 
+						q_descale, k_descale, v_descale, gen_, s_aux);
     } else {
         res = cfa.mha_varlen_fwd(q, k, v, out_, cu_seqlens_q, cu_seqlens_k, seqused_k,
                                                 leftpad_k_, block_table_, alibi_slopes_, max_seqlen_q, max_seqlen_k,
