@@ -7103,11 +7103,13 @@ torch.cuda.synchronize()
         # Default
         check_forward_backward()
 
-        # Test dispatcher works by calling only mem-effn and math (as they are safe for all devices)
-        with torch.backends.cuda.sdp_kernel(
-            enable_flash=False, enable_mem_efficient=True, enable_math=True
-        ):
-            check_forward_backward()
+        # ROCm currently does not support mem-efficient attention on nested tensors.
+        if not torch.version.hip:
+            # Test dispatcher works by calling only mem-effn and math.
+            with torch.backends.cuda.sdp_kernel(
+                enable_flash=False, enable_mem_efficient=True, enable_math=True
+            ):
+                check_forward_backward() 
 
         # Test math fallback
         with torch.backends.cuda.sdp_kernel(
