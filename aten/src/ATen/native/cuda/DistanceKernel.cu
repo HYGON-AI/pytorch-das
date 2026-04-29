@@ -188,28 +188,84 @@ __global__ static void pdist_backward_kernel_cuda_impl(scalar_t * buffer, const 
 }
 
 template <typename scalar_t, typename F>
-__global__ static void cdist_kernel_cuda_impl(scalar_t * result, const scalar_t * x1, const scalar_t * x2,
-    const scalar_t p, const int64_t r2, const int64_t m, const int64_t r_size, const int64_t l1_size, const int64_t l2_size) {
-  const int64_t l = blockIdx.x / r_size;
-  const int64_t k = blockIdx.x % r_size;
+__global__ static void cdist_kernel_cuda_impl(
+    scalar_t * result,
+    const scalar_t * x1,
+    const scalar_t * x2,
+    const scalar_t p,
+    const int64_t r2,
+    const int64_t m,
+    const int64_t r_size,
+    const int64_t l1_size,
+    const int64_t l2_size) {
+
+#ifdef USE_ROCM
+  constexpr uint64_t max_threads = 0xFFFFFFFFULL;
+
+  const uint64_t total_threads =
+      (uint64_t)gridDim.x * blockDim.x;
+
+  const bool use_thread_mapping =
+      total_threads > max_threads;
+#else
+  constexpr bool use_thread_mapping = false;
+#endif
+
+  const int64_t global_idx =
+      use_thread_mapping
+          ? ((int64_t)blockIdx.x * blockDim.x + threadIdx.x)
+          : (int64_t)blockIdx.x;
+
+  const int64_t l = global_idx / r_size;
+  const int64_t k = global_idx % r_size;
+
   const int64_t i = k / r2;
   const int64_t j = k % r2;
-  const int stride = blockDim.x;
 
-  const scalar_t * const start = x1 + l * l1_size + i * m;
-  const scalar_t * const end = start + m;
-  const scalar_t * a = start + threadIdx.x;
-  const scalar_t * b = x2 + l * l2_size + j * m + threadIdx.x;
+  const int stride =
+      use_thread_mapping ? m : blockDim.x;
+
+  const scalar_t * const start =
+      x1 + l * l1_size + i * m;
+
+  const scalar_t * const end =
+      start + m;
+
+  const scalar_t * a =
+      use_thread_mapping
+          ? start
+          : start + threadIdx.x;
+
+  const scalar_t * b =
+      use_thread_mapping
+          ? (x2 + l * l2_size + j * m)
+          : (x2 + l * l2_size + j * m + threadIdx.x);
 
   scalar_t agg = 0.0;
+
   for (; a < end; a += stride, b += stride) {
     F::inc(agg, std::abs(*a - *b), p);
   }
-  __shared__ scalar_t agg_smem[kCUDANumThreads];
-  scalar_t agg_init{0.0};
-  agg = cuda_utils::BlockReduce(agg, DistReduceOp<scalar_t, F>{}, agg_init, agg_smem);
-  if (threadIdx.x == 0) {
-    result[blockIdx.x] = F::finish(agg, p);
+
+  if (use_thread_mapping) {
+
+    result[global_idx] = F::finish(agg, p);
+
+  } else {
+
+    __shared__ scalar_t agg_smem[kCUDANumThreads];
+
+    scalar_t agg_init{0.0};
+
+    agg = cuda_utils::BlockReduce(
+        agg,
+        DistReduceOp<scalar_t, F>{},
+        agg_init,
+        agg_smem);
+
+    if (threadIdx.x == 0) {
+      result[blockIdx.x] = F::finish(agg, p);
+    }
   }
 }
 
@@ -220,8 +276,23 @@ void cdist_kernel_impl(Tensor& result, const Tensor& x1, const Tensor& x2, doubl
   const int64_t r_size = r1 * r2;
   const int64_t l1_size = r1 * m;
   const int64_t l2_size = r2 * m;
-  const dim3 grid(result.numel());
   const dim3 block(kCUDANumThreads);
+
+  const uint64_t total_threads =
+      (uint64_t)result.numel() * kCUDANumThreads;
+
+#ifdef USE_ROCM
+  const bool use_thread_mapping =
+    total_threads > 0xFFFFFFFFULL;
+#else
+  const bool use_thread_mapping = false;
+#endif
+
+  const dim3 grid(
+      use_thread_mapping
+          ? ((result.numel() + kCUDANumThreads - 1)
+              / kCUDANumThreads)
+          : result.numel());
 
   AT_DISPATCH_FLOATING_TYPES(x1.scalar_type(), "cdist_cuda", [&] {
     auto impl_fptr = cdist_kernel_cuda_impl<scalar_t, dists<scalar_t>::p>;
