@@ -86,17 +86,14 @@ jobs:
     steps:
       # [see note: pytorch repo ref]
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.11
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.12
 
       - name: Setup XPU
         uses: ./.github/actions/setup-xpu
 
-      - name: Login to ECR
-        uses: ./.github/actions/ecr-login
-
       - name: Calculate docker image
         id: calculate-docker-image
-        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.11
+        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.12
         with:
           docker-image-name: ${{ inputs.docker-image }}
 
@@ -110,7 +107,7 @@ jobs:
           echo "docker pull ghcr.io/pytorch/ci-image:${tag/:/-}"
 
       - name: Pull docker image
-        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.11
+        uses: pytorch/test-infra/.github/actions/pull-docker-image@release/2.12
         with:
           docker-image: ${{ steps.calculate-docker-image.outputs.docker-image }}
 
@@ -251,7 +248,7 @@ jobs:
             -e ZE_AFFINITY_MASK \
             -e HUGGING_FACE_HUB_TOKEN \
             -e DASHBOARD_TAG \
-            --env-file="/tmp/github_env_${GITHUB_RUN_ID}" \
+            --env-file="${RUNNER_TEMP}/github_env_${GITHUB_RUN_ID}" \
             --ulimit stack=10485760:83886080 \
             --ulimit core=0 \
             --security-opt seccomp=unconfined \
@@ -345,7 +342,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Upload the benchmark results
-        uses: pytorch/test-infra/.github/actions/upload-benchmark-results@release/2.11
+        uses: pytorch/test-infra/.github/actions/upload-benchmark-results@release/2.12
         with:
           benchmark-results-dir: test/test-reports
           dry-run: false

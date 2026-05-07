@@ -89,7 +89,7 @@ jobs:
           git config --global core.fsmonitor false
 
       - name: Setup SSH (Click me for login details)
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.11
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.12
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
           instructions: |
@@ -104,7 +104,7 @@ jobs:
 
       # [see note: pytorch repo ref]
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.11
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.12
         with:
           no-sudo: true
 
@@ -193,9 +193,19 @@ jobs:
             cp "${CUDA_PATH}/lib/x64/cudart.lib" /c/${{ github.run_id }}/build-results/
           fi
 
+          # Copy CUDA runtime DLL (needed for MinGW import lib generation on CUDA 13.0+)
+          echo "Searching for CUDA runtime DLLs in ${CUDA_PATH}/bin/:"
+          ls -la "${CUDA_PATH}"/bin/cudart*.dll 2>/dev/null || echo "No cudart*.dll found in ${CUDA_PATH}/bin/"
+          for dll in "${CUDA_PATH}"/bin/cudart64_*.dll "${CUDA_PATH}"/bin/cudart.dll; do
+            if [ -f "$dll" ]; then
+              cp "$dll" /c/${{ github.run_id }}/build-results/
+              echo "Copied $(basename $dll)"
+            fi
+          done
+
           # List collected files
-          echo "Collected CUDA libs:"
-          ls -lah /c/${{ github.run_id }}/build-results/*.lib
+          echo "Collected CUDA libs and DLLs:"
+          ls -lah /c/${{ github.run_id }}/build-results/*.lib /c/${{ github.run_id }}/build-results/*.dll 2>/dev/null || true
 
       # Upload to github so that people can click and download artifacts
       - name: Upload artifacts to s3

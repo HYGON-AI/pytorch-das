@@ -171,7 +171,8 @@ class SymbolicOpsTest(common_utils.TestCase):
         onnx_program = torch.onnx.export(
             Model(), (torch.tensor(1),), dynamo=True, verbose=False
         )
-        assert onnx_program is not None
+        if onnx_program is None:
+            raise AssertionError("onnx_program is None")
         node = onnx_program.model.graph.node(0)
         self.assertEqual(node.op_type, "CustomOp")
         self.assertEqual(node.domain, "custom_domain")
@@ -212,7 +213,8 @@ class SymbolicOpsTest(common_utils.TestCase):
             dynamo=True,
             verbose=False,
         )
-        assert onnx_program is not None
+        if onnx_program is None:
+            raise AssertionError("onnx_program is None")
         node = onnx_program.model.graph.node(0)
         self.assertEqual(node.op_type, "CustomOp")
         self.assertEqual(node.domain, "custom_domain")
@@ -315,7 +317,8 @@ class SymbolicOpsTest(common_utils.TestCase):
         onnx_program = torch.onnx.export(
             Model(), (torch.tensor(1),), dynamo=True, verbose=False
         )
-        assert onnx_program is not None
+        if onnx_program is None:
+            raise AssertionError("onnx_program is None")
         node = onnx_program.model.graph.node(0)
         self.assertEqual(node.op_type, "CustomOp")
         self.assertEqual(node.domain, "custom_domain")
@@ -360,7 +363,8 @@ class SymbolicOpsTest(common_utils.TestCase):
             dynamo=True,
             verbose=False,
         )
-        assert onnx_program is not None
+        if onnx_program is None:
+            raise AssertionError("onnx_program is None")
         node = onnx_program.model.graph.node(0)
         self.assertEqual(node.op_type, "CustomOp")
         self.assertEqual(node.domain, "custom_domain")
@@ -431,7 +435,8 @@ class NativeOnnxOpsTest(common_utils.TestCase):
             verbose=False,
             **options,
         )
-        assert onnx_program is not None
+        if onnx_program is None:
+            raise AssertionError("onnx_program is None")
         common_passes.CheckerPass()(onnx_program.model)
         return onnx_program
 

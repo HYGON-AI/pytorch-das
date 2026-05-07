@@ -18,10 +18,15 @@ concurrency:
   group: ${{ github.workflow }}--${{ github.event.pull_request.number || github.sha }}-${{ github.event_name == 'workflow_dispatch' }}
   cancel-in-progress: true
 
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+
 jobs:
   get-label-type:
     name: get-label-type
-    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.11
+    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.12
     if: ${{ (github.event_name != 'schedule' || github.repository == 'pytorch/pytorch') && github.repository_owner == 'pytorch' }}
     with:
       triggering_actor: ${{ github.triggering_actor }}
@@ -45,7 +50,7 @@ jobs:
     with:
       runner_prefix: "${{ needs.get-label-type.outputs.label-type }}"
       build-environment: linux-jammy-py3.10-gcc11
-      docker-image-name: ci-image:pytorch-linux-jammy-py3.10-gcc11
+      docker-image-name: ci-image:pytorch-linux-jammy-py3.10-clang18
     secrets: inherit
 
   docs-push:
@@ -90,11 +95,15 @@ jobs:
             repo-owner: vllm-project
             branch: main
             pin-folder: .github/ci_commit_pins
+          - repo-name: torchtitan
+            repo-owner: pytorch
+            branch: main
+            pin-folder: .github/ci_commit_pins
     # Allow this to be triggered on either a schedule or on workflow_dispatch to allow for easier testing
     if: github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     steps:
       - name: "${{ matrix.repo-owner }}/${{ matrix.repo-name }} update-commit-hash"
-        uses: pytorch/test-infra/.github/actions/update-commit-hash@release/2.11
+        uses: pytorch/test-infra/.github/actions/update-commit-hash@release/2.12
         with:
           repo-owner: ${{ matrix.repo-owner }}
           repo-name: ${{ matrix.repo-name }}
