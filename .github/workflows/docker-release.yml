@@ -38,7 +38,7 @@ jobs:
   get-label-type:
     if: github.repository_owner == 'pytorch'
     name: get-label-type
-    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.11
+    uses: pytorch/pytorch/.github/workflows/_runner-determinator.yml@release/2.12
     with:
       triggering_actor: ${{ github.triggering_actor }}
       issue_owner: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
@@ -53,7 +53,7 @@ jobs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
     steps:
       - name: Checkout PyTorch
-        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.11
+        uses: pytorch/pytorch/.github/actions/checkout-pytorch@release/2.12
         with:
           fetch-depth: 1
           submodules: true
@@ -83,18 +83,12 @@ jobs:
       CUDNN_VERSION: ${{ matrix.cudnn_version }}
     steps:
       - name: Setup SSH (Click me for login details)
-        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.11
+        uses: pytorch/test-infra/.github/actions/setup-ssh@release/2.12
         with:
           github-secret: ${{ secrets.GITHUB_TOKEN }}
-      # [see note: pytorch repo ref]
-      # deep clone (fetch-depth 0) required for git merge-base
-      - name: Checkout PyTorch
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-          submodules: 'recursive'
+
       - name: Setup Linux
-        uses: ./.github/actions/setup-linux
+        uses: pytorch/pytorch/.github/actions/setup-linux@release/2.12
 
       - name: Login to ECR
         uses: ./.github/actions/ecr-login
@@ -137,7 +131,7 @@ jobs:
             } >> "${GITHUB_ENV}"
           fi
       - name: Setup nightly specific variables
-        if: ${{ github.event.ref == 'refs/heads/nightly' || startsWith(github.event.ref, 'refs/tags/ciflow/nightly/') }}
+        if: ${{ github.event_name == 'pull_request' || github.event.ref == 'refs/heads/nightly' || startsWith(github.event.ref, 'refs/tags/ciflow/nightly/') }}
         run: |
           {
             echo "DOCKER_IMAGE=pytorch-nightly";
@@ -169,13 +163,13 @@ jobs:
           fi
 
       - name: Teardown Linux
-        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.11
+        uses: pytorch/test-infra/.github/actions/teardown-linux@release/2.12
         if: always()
 
   validate:
     needs: build
     if: ${{ github.event_name == 'push' && (github.event.ref == 'refs/heads/nightly' || startsWith(github.event.ref, 'refs/tags/v')) }}
-    uses: pytorch/test-infra/.github/workflows/validate-docker-images.yml@release/2.11
+    uses: pytorch/test-infra/.github/workflows/validate-docker-images.yml@release/2.12
     with:
       channel: test
       ref: main

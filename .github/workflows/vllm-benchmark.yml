@@ -20,6 +20,12 @@ on:
         required: false
         type: string
         default: ''
+      compilation_config:
+        description: |
+          A JSON string for vLLM --compilation-config, applied to all benchmark tests, e.g. {"cudagraph_mode": "PIECEWISE", "use_inductor_graph_partition": true}
+        required: false
+        type: string
+        default: ''
       runners:
         description: |
           A comma-separated list of runners from .github/scripts/generate_vllm_benchmark_matrix.py to run the benchmark (optional, default to run everything)
@@ -44,7 +50,7 @@ jobs:
       torch_cuda_arch_list: '8.0 8.9 9.0 10.0 12.0'
       build_environment: linux-jammy-cuda13.0-py3.12-gcc11
     steps:
-      - uses: pytorch/test-infra/.github/actions/setup-uv@release/2.11
+      - uses: pytorch/test-infra/.github/actions/setup-uv@release/2.12
         with:
           python-version: "3.12"
           activate-environment: "true"
@@ -82,7 +88,7 @@ jobs:
 
       - name: Calculate docker image
         id: calculate-docker-image
-        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.11
+        uses: pytorch/test-infra/.github/actions/calculate-docker-image@release/2.12
         with:
           working-directory: pytorch/pytorch
           docker-image-name: ci-image:pytorch-linux-jammy-cuda13.0-cudnn9-py3.12-gcc11-vllm
@@ -120,4 +126,6 @@ jobs:
       pytorch_branch: ${{ inputs.pytorch_branch }}
       pytorch_commit: ${{ inputs.pytorch_commit }}
       models: ${{ matrix.models }}
+      compilation_config: ${{ inputs.compilation_config }}
+      is_nightly: ${{ github.event_name == 'schedule' }}
     secrets: inherit

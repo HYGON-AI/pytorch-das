@@ -14,7 +14,9 @@
 #include <ATen/Dispatch.h>
 #include <ATen/NumericUtils.h>
 #include <ATen/cuda/NumericLimits.cuh>
-#include <ATen/core/Tensor.h>
+
+#include <thrust/pair.h>
+
 namespace at::native {
 
 
