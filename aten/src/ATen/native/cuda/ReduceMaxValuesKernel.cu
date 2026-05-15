@@ -16,7 +16,7 @@
 #include <ATen/cuda/NumericLimits.cuh>
 
 #include <thrust/pair.h>
-
+#include <ATen/core/Tensor.h>
 namespace at::native {
 
 

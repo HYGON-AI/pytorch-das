@@ -17,6 +17,12 @@
 #include <ATen/ops/upsample_bicubic2d_backward_native.h>
 #endif
 
+#if defined(USE_ROCM) && ROCM_VERSION > 60100
+#define GRID_TYPE uint32_t*
+#else
+#define GRID_TYPE int*
+#endif
+
 namespace at::native {
 namespace {
 
@@ -290,7 +296,7 @@ static void upsample_bicubic2d_out_cuda_template(
         // staying well below the crossover point where the original
         // kernel catches up (~65k+ output elements).
         if (num_output_elements <= 18432 && input.size(0) * input.size(1) > 0) {
-          int* maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
+          GRID_TYPE maxGridSize = at::cuda::getCurrentDeviceProperties()->maxGridSize;
           int grid_z = std::min<int>(maxGridSize[2],
                                      input.size(0) * input.size(1));
           dim3 grid(num_blocks, 1, grid_z);
