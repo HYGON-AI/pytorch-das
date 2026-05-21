@@ -62,12 +62,7 @@ const std::map<ReduceOp::RedOpType, ncclRedOp_t> ncclOp = {
 
 inline bool isUnsupportedFloat8(at::ScalarType t) {
   return (
-      t == at::ScalarType::Float8_e5m2fnuz ||
-      t == at::ScalarType::Float8_e4m3fnuz ||
       t == at::ScalarType::Float8_e8m0fnu
-#ifndef NCCL_SUPPORTS_FP8
-      || t == at::ScalarType::Float8_e5m2 || t == at::ScalarType::Float8_e4m3fn
-#endif
   );
 }
 
