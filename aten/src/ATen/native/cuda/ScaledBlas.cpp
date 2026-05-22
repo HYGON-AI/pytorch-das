@@ -73,7 +73,7 @@ namespace{
 bool _scaled_mm_allowed_device(bool sm90_only=false, bool sm100_only=false) {
 #ifdef USE_ROCM
     static const std::vector<std::string> archs = {
-        "gfx942",
+        "gfx942","gfx938","gfx92a",
 #if ROCM_VERSION >= 60300
         "gfx1200", "gfx1201",
 #endif
@@ -530,10 +530,10 @@ _scaled_mm_out_cuda(const Tensor& mat1, const Tensor& mat2,
     TORCH_CHECK(ROCM_VERSION >= 70000, "Float4_e2m1fn_x2 is only supported for ROCm 7.0 and above");
   }
   if (mat1.scalar_type() == ScalarType::Float8_e5m2 || mat2.scalar_type() == ScalarType::Float8_e5m2) {
-    TORCH_CHECK(ROCM_VERSION >= 60500, "Float8_e5m2 is only supported for ROCm 6.5 and above");
+    TORCH_CHECK(ROCM_VERSION >= 60300, "Float8_e5m2 is only supported for ROCm 6.3 and above");
   }
   if (mat1.scalar_type() == ScalarType::Float8_e4m3fn || mat2.scalar_type() == ScalarType::Float8_e4m3fn) {
-    TORCH_CHECK(ROCM_VERSION >= 60500, "Float8_e4m3fn is only supported for ROCm 6.5 and above");
+    TORCH_CHECK(ROCM_VERSION >= 60300, "Float8_e4m3fn is only supported for ROCm 6.3 and above");
   }
 #endif
   if (bias) {
@@ -1397,12 +1397,12 @@ _scaled_mm_cuda_v2_out(
         "Float4_e2m1fn_x2 is only supported for ROCm 7.0 and above");
   }
   if (mat_a.scalar_type() == ScalarType::Float8_e5m2 || mat_b.scalar_type() == ScalarType::Float8_e5m2) {
-    TORCH_CHECK_NOT_IMPLEMENTED(ROCM_VERSION >= 60500,
-        "Float8_e5m2 is only supported for ROCm 6.5 and above");
+    TORCH_CHECK_NOT_IMPLEMENTED(ROCM_VERSION >= 60300,
+        "Float8_e5m2 is only supported for ROCm 6.3 and above");
   }
   if (mat_a.scalar_type() == ScalarType::Float8_e4m3fn || mat_b.scalar_type() == ScalarType::Float8_e4m3fn) {
-    TORCH_CHECK_NOT_IMPLEMENTED(ROCM_VERSION >= 60500,
-        "Float8_e4m3fn is only supported for ROCm 6.5 and above");
+    TORCH_CHECK_NOT_IMPLEMENTED(ROCM_VERSION >= 60300,
+        "Float8_e4m3fn is only supported for ROCm 6.3 and above");
   }
 #endif
   if (bias) {
