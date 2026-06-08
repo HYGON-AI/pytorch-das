@@ -29,7 +29,13 @@ from torch._inductor.utils import run_and_get_code, triton_version_uses_attrs_di
 from torch._library import capture_triton
 from torch.testing import FileCheck
 from torch.testing._internal import common_utils
-from torch.testing._internal.common_utils import parametrize, skipIfWindows, skipIfXpu
+from torch.testing._internal.common_cuda import evaluate_gfx_arch_within
+from torch.testing._internal.common_utils import (
+    MI350_ARCH,
+    parametrize,
+    skipIfWindows,
+    skipIfXpu,
+)
 from torch.testing._internal.inductor_utils import (
     get_func_call,
     GPU_TYPE,
@@ -4598,6 +4604,9 @@ class CustomOpTests(torch._inductor.test_case.TestCase):
     # PR: https://github.com/triton-lang/triton/pull/5092
     @requires_gpu
     def test_autotune_no_pre_or_post_hook_user_defined(self):
+        if torch.version.hip and not evaluate_gfx_arch_within([*MI350_ARCH]):
+            self.skipTest("fp16 atomic_add requires gfx950+")
+
         from triton.runtime.autotuner import Autotuner
 
         def init_to_zero(name):
