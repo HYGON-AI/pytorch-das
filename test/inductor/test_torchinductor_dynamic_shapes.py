@@ -30,6 +30,7 @@ from torch.testing._internal.common_utils import (
     MI350_ARCH,
     parametrize,
     serialTest,
+    skipIfRocm,
     skipIfRocmArch,
     TEST_CUDA_MEM_LEAK_CHECK,
     TEST_WITH_ASAN,
@@ -63,8 +64,6 @@ test_failures = {
     # PDL tests are CUDA SM90+ only, skip on CPU
     "test_pdl_mutation_dynamic_shapes": TestFailure(("cpu",), is_skip=True),
     "test_pdl_template_and_delay_dynamic_shapes": TestFailure(("cpu",), is_skip=True),
-    # Bool argmax/argmin fix is Triton-only (see #174069), skip on CPU
-    "test_max_min_bool_dynamic_shapes": TestFailure(("cpu",), is_skip=True),
     # calling div on only symint args
     "test_AllenaiLongformerBase_repro_dynamic_shapes": TestFailure(
         ("cpu", "cuda", "xpu", "mps")
