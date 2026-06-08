@@ -4633,6 +4633,8 @@ class CommonTemplate:
                     FileCheck().check_not("  call_triton").check("_convolution(").run(
                         code[0]
                     )
+                elif TEST_WITH_ROCM:
+                    FileCheck().check(".convolution(").run(code[0])
                 else:
                     FileCheck().check_not(".run(").check(".convolution(").run(code[0])
 
