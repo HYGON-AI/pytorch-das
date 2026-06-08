@@ -8943,6 +8943,17 @@ class FallbackKernel(ExternKernelAlloc):
                     indices,
                 )
                 if (
+                    kernel
+                    in (
+                        torch.ops.aten._scaled_dot_product_flash_attention.default,
+                        torch._prims.rng_prims.graphsafe_run_with_rng_state,
+                    )
+                    and indices == [(tuple, 7)]
+                    and output.dtype == torch.long
+                    and output.dim() == 0
+                ):
+                    V.graph.unaligned_buffers.add(buf.name)  # type: ignore[arg-type]
+                if (
                     config.assume_unaligned_fallback_output
                     or has_unaligned_input
                     or not tensor_is_aligned(output)
