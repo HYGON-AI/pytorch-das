@@ -5978,9 +5978,11 @@ def meta__scaled_dot_product_flash_attention(
     # it's possible we'll need to have some special handling in inductor for sdpa
     # See [Note] BC breaking change to flash seed/offset
     if torch.version.hip and torch.cuda.is_available() or device_hint(query) == "xpu":
-        # Maintain old path on AMD
-        seed = torch.empty((), dtype=torch.long, device="meta")
-        offset = torch.empty((), dtype=torch.long, device="meta")
+        # Maintain old path on AMD. Runtime returns seed/offset as scalar
+        # views into one int64 storage, so model that storage_offset here.
+        rng_state = torch.empty((2,), dtype=torch.long, device="meta")
+        seed = rng_state[0]
+        offset = rng_state[1]
     else:
         seed = torch.empty((2), dtype=torch.uint64, device="meta")
         offset = torch.empty((), dtype=torch.uint64, device="meta")
@@ -6520,9 +6522,11 @@ def meta__flash_attention_forward(
     # See [Note] BC breaking change to flash seed/offset
     seed, offset = None, None
     if torch.version.hip and torch.cuda.is_available():
-        # Maintain old path on AMD
-        seed = torch.empty((), dtype=torch.long, device="meta")
-        offset = torch.empty((), dtype=torch.long, device="meta")
+        # Maintain old path on AMD. Runtime returns seed/offset as scalar
+        # views into one int64 storage, so model that storage_offset here.
+        rng_state = torch.empty((2,), dtype=torch.long, device="meta")
+        seed = rng_state[0]
+        offset = rng_state[1]
     else:
         seed = torch.empty((2), dtype=torch.uint64, device="meta")
         offset = torch.empty((), dtype=torch.uint64, device="meta")
