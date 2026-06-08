@@ -305,6 +305,7 @@ class TestInlineAsmElementwise(TestCase):
                     *MI200_ARCH,
                     *MI300_ARCH,
                     *NAVI_ARCH,
+                    "gfx936",
                 ]
             )
         ):
@@ -354,6 +355,7 @@ class TestInlineAsmElementwise(TestCase):
                     *MI200_ARCH,
                     *MI300_ARCH,
                     *NAVI_ARCH,
+                    "gfx936",
                 ]
             )
         ):
