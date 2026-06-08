@@ -1650,8 +1650,27 @@ class TensorVariable(VariableTracker):
 
             mul_var = variables.TorchInGraphFunctionVariable(torch.mul)
             fma_var = variables.TorchInGraphFunctionVariable(inductor_prims.fma)
-            product = mul_var.call_function(tx, [tensor1, tensor2], {})
-            result = fma_var.call_function(tx, [product, value, self], {})
+            tensor1_dtype = getattr(tensor1, "dtype", None)
+            tensor2_dtype = getattr(tensor2, "dtype", None)
+            tensor1_device = getattr(tensor1, "device", None)
+            tensor2_device = getattr(tensor2, "device", None)
+            if (
+                value.is_python_constant()
+                and value.as_python_constant() == 1
+                and self.dtype is not None
+                and tensor1_dtype is not None
+                and tensor2_dtype is not None
+                and self.dtype == tensor1_dtype == tensor2_dtype
+                and self.dtype.is_floating_point
+                and self.device is not None
+                and tensor1_device is not None
+                and tensor2_device is not None
+                and self.device.type == tensor1_device.type == tensor2_device.type == "cuda"
+            ):
+                result = fma_var.call_function(tx, [tensor1, tensor2, self], {})
+            else:
+                product = mul_var.call_function(tx, [tensor1, tensor2], {})
+                result = fma_var.call_function(tx, [product, value, self], {})
             return self.call_method(tx, "copy_", [result], {})
         return None
 
