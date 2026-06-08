@@ -789,11 +789,6 @@ def convolution(
             new_cfg.kwargs["GROUP_SIZE_M"] = group_size_m
             return new_cfg
 
-        # TODO(jansel): try unroll for bigger kernels once fixed: https://github.com/openai/triton/issues/1254
-        conv_paras = {'input_nodes':(x, weight), 'layout':layout, 'KERNEL_H':kernel_shape[0],
-                      'KERNEL_W':kernel_shape[1], 'STRIDE_H':stride[0], 'STRIDE_W':stride[1],
-                      'PADDING_H':padding[0], 'PADDING_W':padding[1], 'GROUPS':groups, 
-                      'UNROLL':is_ones(kernel_shape), 'ALLOW_TF32': torch.backends.cudnn.fp32_precision == "tf32"}
         dtype_size = x.get_dtype().itemsize
         for cfg in conv_configs(
             sympy_product([x.get_size()[0], *x.get_size()[2:]]),
