@@ -17882,7 +17882,12 @@ if RUN_GPU:
             y = torch.randint(0, 50257, (B, T), dtype=torch.int64, device=GPU_TYPE)
 
             def wrapper(x, y):
-                with ctx:
+                sdpa_ctx = (
+                    torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH)
+                    if TEST_WITH_ROCM
+                    else contextlib.nullcontext()
+                )
+                with sdpa_ctx, ctx:
                     loss = model(x, y)
                 loss.backward()
 
