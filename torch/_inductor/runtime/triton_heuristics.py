@@ -762,9 +762,16 @@ class CachingAutotuner(KernelInterface):
         cfg_kwargs = cfg.kwargs
         if self.device_props.type == "hip":
             cfg_kwargs = {**cfg_kwargs}
-            for k in ("matrix_instr_nonkdim", "waves_per_eu", "kpack"):
+            hip_compile_options = ("matrix_instr_nonkdim", "waves_per_eu", "kpack")
+            for k in hip_compile_options:
                 if k in cfg_kwargs:
                     compile_meta[k] = cfg_kwargs.pop(k)
+            for k in list(cfg_kwargs):
+                option, _, suffix = k.rpartition("_")
+                if option in hip_compile_options and suffix.isdigit():
+                    compile_meta[option] = max(
+                        compile_meta.get(option, 0), cfg_kwargs.pop(k)
+                    )
         compile_meta["constants"].update(cfg_kwargs)
 
         for i in get_constexprs(self.fn):
