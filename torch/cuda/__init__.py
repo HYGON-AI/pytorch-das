@@ -2028,6 +2028,7 @@ __all__ = [
     "ipc_collect",
     "is_available",
     "is_bf16_supported",
+    "isCurrentDeviceEco",
     "is_current_stream_capturing",
     "is_initialized",
     "is_tf32_supported",
