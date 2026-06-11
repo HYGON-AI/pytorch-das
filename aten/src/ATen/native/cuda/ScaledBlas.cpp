@@ -73,7 +73,7 @@ namespace{
 bool _scaled_mm_allowed_device(bool sm90_only=false, bool sm100_only=false) {
 #ifdef USE_ROCM
     static const std::vector<std::string> archs = {
-        "gfx942","gfx938","gfx936","gfx92a",
+        "gfx942","gfx938","gfx92a",
 #if ROCM_VERSION >= 60300
         "gfx1200", "gfx1201",
 #endif
