@@ -172,7 +172,7 @@ def evaluate_platform_supports_fp8():
         if torch.version.hip:
             archs = ['gfx94']
             if ROCM_VERSION >= (6, 3):
-                archs.extend(['gfx120', 'gfx938', 'gfx936', 'gfx92a'])
+                archs.extend(['gfx120', 'gfx938','gfx92a'])
             if ROCM_VERSION >= (6, 5):
                 archs.append('gfx95')
             for arch in archs:
