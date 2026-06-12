@@ -419,8 +419,13 @@ class TestMatmulCuda(InductorTestCase):
     @parametrize("strided", [False, True])
     @parametrize("a_row_major", [False, True])
     @parametrize("b_row_major", [False, True])
+    @parametrize("use_hipblaslt", [False, True])
     @dtypes(torch.bfloat16, torch.float32, torch.float16)
-    def test_grouped_gemm_2d_2d(self, strided, a_row_major, b_row_major, dtype):
+    def test_grouped_gemm_2d_2d(self, strided, a_row_major, b_row_major, use_hipblaslt, dtype):
+        if use_hipblaslt:
+            os.environ["USE_HIPBLASLT_GROUPMM"] = "1"
+        else:
+            os.environ.pop("USE_HIPBLASLT_GROUPMM", None)
         device = "cuda"
         m, n, k, n_groups = 16, 32, 64, 4
         if a_row_major:
@@ -456,8 +461,13 @@ class TestMatmulCuda(InductorTestCase):
     @parametrize("strided", [False, True])
     @parametrize("a_row_major", [False, True])
     @parametrize("b_row_major", [False, True])
+    @parametrize("use_hipblaslt", [False, True])
     @dtypes(torch.bfloat16, torch.float32, torch.float16)
-    def test_grouped_gemm_2d_3d(self, strided, a_row_major, b_row_major, dtype):
+    def test_grouped_gemm_2d_3d(self, strided, a_row_major, b_row_major, use_hipblaslt, dtype):
+        if use_hipblaslt:
+            os.environ["USE_HIPBLASLT_GROUPMM"] = "1"
+        else:
+            os.environ.pop("USE_HIPBLASLT_GROUPMM", None)
         device = "cuda"
         s_int = int(strided)
         m, n, k, n_groups = 16, 32, 64, 4
@@ -511,8 +521,13 @@ class TestMatmulCuda(InductorTestCase):
     @parametrize("strided", [False, True])
     @parametrize("a_row_major", [False, True])
     @parametrize("b_row_major", [False, True])
+    @parametrize("use_hipblaslt", [False, True])
     @dtypes(torch.bfloat16, torch.float32, torch.float16)
-    def test_grouped_gemm_3d_3d(self, strided, a_row_major, b_row_major, dtype):
+    def test_grouped_gemm_3d_3d(self, strided, a_row_major, b_row_major, use_hipblaslt, dtype):
+        if use_hipblaslt:
+            os.environ["USE_HIPBLASLT_GROUPMM"] = "1"
+        else:
+            os.environ.pop("USE_HIPBLASLT_GROUPMM", None)
         device = "cuda"
         s_int = int(strided)
         m, n, k, n_groups = 16, 32, 64, 4
@@ -544,8 +559,13 @@ class TestMatmulCuda(InductorTestCase):
     @parametrize("strided", [False, True])
     @parametrize("a_row_major", [False, True])
     @parametrize("b_row_major", [False, True])
+    @parametrize("use_hipblaslt", [False, True])
     @dtypes(torch.bfloat16, torch.float32, torch.float16)
-    def test_grouped_gemm_3d_2d(self, strided, a_row_major, b_row_major, dtype):
+    def test_grouped_gemm_3d_2d(self, strided, a_row_major, b_row_major, use_hipblaslt, dtype):
+        if use_hipblaslt:
+            os.environ["USE_HIPBLASLT_GROUPMM"] = "1"
+        else:
+            os.environ.pop("USE_HIPBLASLT_GROUPMM", None)
         device = "cuda"
         s_int = int(strided)
         m, n, k, n_groups = 16, 32, 64, 4
