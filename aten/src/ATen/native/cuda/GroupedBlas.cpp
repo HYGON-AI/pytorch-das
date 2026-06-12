@@ -59,6 +59,13 @@
 #include <ATen/ops/vdot_native.h>
 #endif
 
+#ifdef USE_ROCM
+#include <ATen/native/hip/ck_group_gemm.h>
+#include <ATen/native/hip/hipblaslt_grouped_gemm.h>
+#endif
+#include <cstdlib>   
+#include <string> 
+
 using at::blas::ScalingType;
 using at::blas::SwizzleType;
 
@@ -713,6 +720,13 @@ std::optional<c10::ScalarType> out_dtype) {
   // To enable CK path, use env variable ROCM_ALLOW_GROUP_GEMM_CK=1.
   bool use_fast_path = false;
   // ifdef USE_ROCM_CK_GEMM is required since ROCm systems w/o CK should not call ck path.
+
+  bool use_hipblaslt = false;
+  static const auto env_hipblaslt = std::getenv("USE_HIPBLASLT_GROUPMM");
+  if (env_hipblaslt != nullptr && std::string(env_hipblaslt) == "1") {
+      use_hipblaslt = true;
+  }
+
 #if defined(USE_ROCM_CK_GEMM)
   if (at::globalContext().rocmAllowGroupGemmCk() && at::detail::getCUDAHooks().isGPUArch({"gfx942", "gfx950", "gfx90a"})) {
     use_fast_path = true;
@@ -723,7 +737,22 @@ std::optional<c10::ScalarType> out_dtype) {
   if (use_fast_path) {
     at::hip::detail::group_gemm_ck(mat_a, mat_b, offs, bias, out);
   } else {
-    _grouped_mm_fallback(mat_a, mat_b, offs, bias, out_dtype, out);
+      if(use_hipblaslt){
+        try {
+          at::hip::detail::hipblaslt_grouped_gemm(mat_a, mat_b, offs, bias, out);
+        } catch (const c10::Error& e) {
+          if (std::string(e.what()).find("no valid algorithm found") != std::string::npos) {
+            TORCH_WARN("hipblaslt_grouped_gemm failed with 'no valid algorithm found', falling back to generic fallback");
+            _grouped_mm_fallback(mat_a, mat_b, offs, bias, out_dtype, out);
+          }
+          else {
+            throw; 
+          }
+        }
+      }
+      else {
+      _grouped_mm_fallback(mat_a, mat_b, offs, bias, out_dtype, out);
+      }
   }
 #endif //ifndef USE_ROCM
   return out;
