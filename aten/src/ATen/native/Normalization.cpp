@@ -544,7 +544,7 @@ BatchNormBackend _select_batch_norm_backend(
       && cudnn_enabled
       && input.is_cuda()
       && input.dim() <= MIOPEN_DIM_MAX
-      && input.dim() >= 3
+      && input.dim() >= 2
       && input.scalar_type() != at::kDouble
       && (input.scalar_type() != at::kBFloat16)
       && weight.scalar_type() == at::kFloat // only FP32 weight for FP32 or FP16/BF16(mixed) input
@@ -552,6 +552,7 @@ BatchNormBackend _select_batch_norm_backend(
       && ((running_mean.defined() && running_var.defined())
         || (!running_mean.defined() && !running_var.defined() && training))
       && bn_miopen_enable()
+      && (input.dim() == 2 ? (std::getenv("USE_MIOPEN_BN1D") && std::string(std::getenv("USE_MIOPEN_BN1D")) == "1") : true)
       && (input.suggest_memory_format() == MemoryFormat::Contiguous
           || (is_miopen_2_16 && PYTORCH_MIOPEN_SUGGEST_NHWC_BATCHNORM &&
               (input.suggest_memory_format() == MemoryFormat::ChannelsLast
