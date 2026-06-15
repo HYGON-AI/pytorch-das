@@ -96,12 +96,7 @@ std::tuple<Tensor, Tensor, Tensor> miopen_batch_norm(
     }
   }
 
-  miopenBatchNormMode_t mode;
-  if (input->dim() == 2) {
-    mode = miopenBNPerActivation;
-  } else {
-    mode = miopenBNSpatial;
-  }
+  miopenBatchNormMode_t mode = miopenBNSpatial;
 
   auto output_t = (input->suggest_memory_format() == at::MemoryFormat::ChannelsLast ||
                    input->suggest_memory_format() == at::MemoryFormat::ChannelsLast3d )? 
@@ -208,13 +203,8 @@ std::tuple<Tensor, Tensor, Tensor> miopen_batch_norm_backward(
     checkNumel(c, t, num_features);
   }
 
-  miopenBatchNormMode_t mode;
-  if (input->dim() == 2) {
-    mode = miopenBNPerActivation;
-  } else {
-    mode = miopenBNSpatial;
-  }
-
+  miopenBatchNormMode_t mode = miopenBNSpatial;
+  
   auto grad_input_t  = (input->suggest_memory_format() == at::MemoryFormat::ChannelsLast ||
                         input->suggest_memory_format() == at::MemoryFormat::ChannelsLast3d)?
                         at::empty(input->sizes(), input->options(), input->suggest_memory_format()) :
