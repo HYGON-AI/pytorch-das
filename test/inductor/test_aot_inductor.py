@@ -276,6 +276,28 @@ class AOTInductorTestsTemplate:
                 model, example_inputs, "AOTInductorModelRunMinimalArrayrefInterface(", 1
             )
 
+    def test_loaded_modules_tracking(self):
+        if self.device != "cuda":
+            raise unittest.SkipTest("requires CUDA/HIP")
+
+        class Model(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = torch.nn.Linear(10, 10)
+
+            def forward(self, x, y):
+                return x + self.linear(y)
+
+        example_inputs = (
+            torch.randn(10, 10, device=self.device),
+            torch.randn(10, 10, device=self.device),
+        )
+        model = Model().to(self.device)
+        _, code = run_and_get_cpp_code(
+            AOTIRunnerUtil.compile, model, example_inputs
+        )
+        FileCheck().check("&kernels_.loaded_modules_").run(code)
+
     def test_triton_kernel_bool_param(self):
         if self.device != GPU_TYPE or self.device == "mps":
             raise unittest.SkipTest("requires GPU")
