@@ -3146,7 +3146,7 @@ def pointwise(
     assert not inductor_meta.get("no_x_dim")
 
     numel = functools.reduce(operator.mul, size_hints.values())
-    bs = max(256, min(numel // 128, 2048))
+    bs = max(256, min(numel // 128, 4096))
 
     hinted_configs = autotune_hints_to_configs(
         inductor_meta.get("autotune_hints", OrderedSet()),
@@ -3573,7 +3573,13 @@ def _reduction_configs(
     elif max_autotune_enabled:
         pass  # skip all these cases
     elif reduction_hint == ReductionHint.INNER:
-        return configs + [contiguous_config]
+        configs.append(contiguous_config)
+        xnumel = size_hints["x"]
+        if xnumel >= 4:
+            max_r = min(rnumel, MAX_R0_BLOCK)
+            for xb in (2, 4):
+                configs.append(make_config(xb, max_r, register_intensive=register_intensive))
+        return configs
     elif reduction_hint == ReductionHint.OUTER:
         return configs + [outer_config]
     elif reduction_hint == ReductionHint.OUTER_TINY:
@@ -3582,17 +3588,23 @@ def _reduction_configs(
     # We continue here under the following conditions:
     # - max_autotune_enabled is True
     # - max_autotune_enabled is False and reduction_hint is NOT one of the above cases
+    xnumel = size_hints["x"]
+    max_r = min(rnumel, MAX_R0_BLOCK)
     result_configs = configs + [
         contiguous_config,
         outer_config,
         tiny_config,
         make_config(64, 64),
         make_config(8, 512),
-        # halve the XBLOCK/Rn_BLOCK compared to outer_config
-        # TODO: this may only be beneficial when each iteration of the reduction
-        # is quite heavy. E.g. https://gist.github.com/shunting314/189a8ef69f90db9d614a823385147a72
         make_config(64, 4, num_warps=8),
     ]
+    if xnumel >= 4:
+        result_configs.extend(
+            [
+                make_config(2, max_r, register_intensive=register_intensive),
+                make_config(4, max_r, register_intensive=register_intensive),
+            ]
+        )
 
     if torch.version.hip:
         hip_configs = [
