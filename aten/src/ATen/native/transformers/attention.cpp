@@ -890,12 +890,18 @@ std::tuple<Tensor, Tensor> _scaled_dot_product_attention_math(
         "_scaled_dot_product_attention: Nested tensors for query / key are not supported when is_causal=True");
 
     // Replace attn_mask with causal mask; lower triangular elements take part
-    // in attention.
+    // in attention. Preserve tensor subclass semantics, e.g. DTensor, when
+    // math SDPA fallback creates the causal mask internally.
     const auto L = query.sym_size(-2), S = key_acc.sym_size(-2);
-    attn_mask =
-        at::ones_symint({L, S}, query.options().dtype(at::kBool)).tril();
+    if (at::areAnyTensorSubclassLike({query})) {
+      attn_mask = query.new_ones_symint(
+          {L, S}, query.options().dtype(at::kBool)).tril();
+    } else {
+      attn_mask =
+          at::ones_symint({L, S}, query.options().dtype(at::kBool)).tril();
+     }
     attn_mask = convert_boolean_attn_mask(attn_mask, query.dtype());
-    }
+  }
 
 
     // MQA/GQA handling

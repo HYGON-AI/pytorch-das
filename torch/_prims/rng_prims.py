@@ -407,7 +407,7 @@ def register_run_dtensor_rng_op():
 
     class RunDTensorRngOp(HigherOrderOperator):
         def __init__(self):
-            super().__init__("run_dtensor_rng_op", cacheable=True)
+            super().__init__("run_dtensor_rng_op", cacheable=False)
 
         def __call__(self, start_offset_incr, end_offset_incr, op, *args, **kwargs):
             # pyrefly: ignore [missing-attribute]

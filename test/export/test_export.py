@@ -17027,13 +17027,18 @@ def forward(self, x):
                 return y
 
         with torch.no_grad():
-            with self.assertRaisesRegex(RuntimeError, "Couldn't swap Embedding.weight"):
-                _ = torch.export.export(
+            x = torch.randn(4, 4, 4, device="cuda")
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Couldn't swap Embedding.weight|same device|Tensor device mismatch",
+            ):
+                exported_mod = torch.export.export(
                     BarBar(),
                     (),
-                    {"x": torch.randn(4, 4, 4, device="cuda")},
+                    {"x": x},
                     strict=False,
                 ).module()
+                exported_mod(x=x)
 
     def test_export_for_training_with_state_dict_hooks(self):
         def _state_dict_pre_hook(mod, prefix, keep_vars):

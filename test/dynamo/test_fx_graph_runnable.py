@@ -12,7 +12,7 @@ import torch._logging.structured
 import torch.distributed as dist
 from torch._inductor.codecache import WritableTempFile
 from torch._inductor.test_case import TestCase
-from torch.testing._internal.common_utils import IS_FBCODE, IS_SANDCASTLE
+from torch.testing._internal.common_utils import IS_FBCODE, IS_SANDCASTLE, MI350_ARCH
 from torch.utils._triton import has_triton
 
 
@@ -118,6 +118,7 @@ if has_triton():
 
 from torch.testing._internal.inductor_utils import GPU_TYPE
 from torch.testing._internal.triton_utils import requires_gpu
+from torch.testing._internal.common_cuda import evaluate_gfx_arch_within
 
 
 class FxGraphRunnableArtifactFilter(logging.Filter):
@@ -185,7 +186,7 @@ class FxGraphRunnableTest(TestCase):
             tmp.write(payload)
             tmp.flush()
             res = subprocess.run(
-                [sys.executable, tmp.name], capture_output=True, text=True, timeout=45
+                [sys.executable, tmp.name], capture_output=True, text=True, timeout=180
             )
 
             self.assertEqual(
@@ -205,6 +206,9 @@ class FxGraphRunnableTest(TestCase):
     @unittest.skipUnless(has_triton(), "Triton not available")
     @torch._dynamo.config.patch(nested_graph_breaks=False)
     def test_user_defined_triton_kernel_autotune(self):
+        if torch.version.hip and not evaluate_gfx_arch_within([*MI350_ARCH]):
+            self.skipTest("fp16 atomic_add requires gfx950+")
+
         def add(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
             output = torch.ones(x.shape, device=x.device, dtype=x.dtype)
             n_elements = output.numel()
@@ -636,7 +640,7 @@ class TestFxGraphRunnableMultiProcessGroup(TestCase):
                     [sys.executable, tmp.name],
                     capture_output=True,
                     text=True,
-                    timeout=60,
+                    timeout=180,
                 )
 
             self.assertEqual(

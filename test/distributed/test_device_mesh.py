@@ -852,18 +852,25 @@ class TestDeviceMeshGetItem(DTensorTestBase):
         tp_group_idx = int(self.rank / 2)
         self.assertEqual(mesh_3d["TP"].mesh.tolist(), tp_group[tp_group_idx])
 
-        dp_mesh = mesh["dp"]
-        ref_pg_count = _world.group_count
+        shard_group = [[0, 2], [1, 3], [4, 6], [5, 7]]
+        shard_group_idx = self.rank % 2 + self.rank // 4 * 2
+        self.assertEqual(mesh_3d["Shard"].mesh.tolist(), shard_group[shard_group_idx])
 
-        # When we call the "dp" slice second time, it should not create any new pg.
-        # As we are just using the cached result so the pg count should be the same.
-        dp_mesh_2 = mesh["dp"]
-        self.assertEqual(ref_pg_count, _world.group_count)
+        replicate_group = [[0, 4], [1, 5], [2, 6], [3, 7]]
+        replicate_group_idx = self.rank % 4
+        self.assertEqual(
+            mesh_3d["Replicate"].mesh.tolist(), replicate_group[replicate_group_idx]
+        )
 
         # When we call the "tp" slice, it should create a new pg, as the "tp" slice is called
         # for the first time.
-        tp_mesh = mesh["tp"]
-        self.assertTrue(_world.group_count > ref_pg_count)
+        hsdp_mesh_1 = mesh_3d[["Replicate", "Shard"]]
+        hsdp_mesh_2 = mesh_3d["Replicate", "Shard"]
+        hsdp_group = [[[0, 2], [4, 6]], [[1, 3], [5, 7]]]
+        hsdp_group_idx = self.rank % 2
+        self.assertEqual(hsdp_mesh_1.mesh.tolist(), hsdp_group[hsdp_group_idx])
+        self.assertEqual(hsdp_mesh_2.mesh.tolist(), hsdp_group[hsdp_group_idx])
+        self.assertEqual(hsdp_mesh_1, hsdp_mesh_2)
 
         # Test slicing out 1D mesh from a sub-2D mesh.
         shard_mesh = hsdp_mesh_2["Shard"]

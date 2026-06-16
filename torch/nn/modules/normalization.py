@@ -11,7 +11,7 @@ from .module import Module
 
 
 __all__ = ['LocalResponseNorm', 'CrossMapLRN2d', 'LayerNorm', 'FuseLayerNorm', 'GroupNorm', 'FuseLnDropout', \
-           'FuseLnAddDropoutBias', 'FuseLnAddDropout' 'FuseGroupNorm', 'FuseCeluGroupNorm', 'FuseGroupNormSilu', \
+           'FuseLnAddDropoutBias', 'FuseLnAddDropout', 'FuseGroupNorm', 'FuseCeluGroupNorm', 'FuseGroupNormSilu', \
            'RMSNorm', 'FuseRMSNorm', 'FuseRNDropout', 'FuseRNAddDropout', 'FuseRNAddDropoutBias']
 
 class LocalResponseNorm(Module):
