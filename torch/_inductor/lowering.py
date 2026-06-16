@@ -6661,12 +6661,16 @@ def _make_reduction_inner(
 def make_reduction(reduction_type: ReductionType, override_return_dtype=None):
     def inner(x, axis=None, keepdims=False, *, dtype=None):
         # For argmax/argmin on boolean tensors, cast to int32 first to ensure
-        # correct comparison. Triton and CPU vector codegen both use mask-like
-        # representations for bool values where direct ordering can produce
-        # incorrect indices.
+        # correct comparison in Triton and CPU C++ codegen.
+        # See https://github.com/pytorch/pytorch/issues/174069
+        # and https://github.com/pytorch/pytorch/issues/184893
         if (
             reduction_type in ("argmax", "argmin")
             and x.get_dtype() == torch.bool
+            and (
+                is_triton(x)
+                or (ir.get_device_type(x) == "cpu" and config.cpu_backend == "cpp")
+            )
         ):
             x = to_dtype(x, torch.int32)
         kwargs = _make_reduction_inner(
