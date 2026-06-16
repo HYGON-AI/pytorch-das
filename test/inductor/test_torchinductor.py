@@ -11194,30 +11194,17 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
                 x.min(1),
             )
 
-        def check(t):
-            if TEST_WITH_ROCM and self.device == "cuda":
-                # ROCm eager returns different tie-breaking indices for bool
-                # max(dim) on some large reductions. Use CPU eager as the
-                # semantic reference for this Inductor/Triton regression test.
-                actual = torch.compile(fn)(t.to(device=self.device))
-                actual = pytree.tree_map_only(
-                    torch.Tensor, lambda x: x.cpu(), actual
-                )
-                self.assertEqual(actual, fn(t))
-            else:
-                self.common(fn, (t,))
-
         # Unrolled reduction
         t1 = torch.randint(2, size=(6, 6), dtype=torch.bool)
-        check(t1)
+        self.common(fn, (t1,))
 
         # Persistent reduction
         t1 = torch.randint(2, size=(32, 32), dtype=torch.bool)
-        check(t1)
+        self.common(fn, (t1,))
 
         # Non-persistent reduction
         t1 = torch.randint(2, size=(1028, 1028), dtype=torch.bool)
-        check(t1)
+        self.common(fn, (t1,))
 
     def test_conv_backward(self):
         def fn(rank4_inps, rank3_inps, rank5_inps):
