@@ -2358,15 +2358,6 @@ from torch._classes import classes as classes  # usort: skip
 sys.modules.setdefault(f"{__name__}.ops", ops)
 sys.modules.setdefault(f"{__name__}.classes", classes)
 
-def _mkldnn_unsupported_dtype() -> bool:
-    return False
-
-
-if not hasattr(ops.mkldnn, "_is_mkldnn_bf16_supported"):
-    ops.mkldnn._is_mkldnn_bf16_supported = _mkldnn_unsupported_dtype
-if not hasattr(ops.mkldnn, "_is_mkldnn_fp16_supported"):
-    ops.mkldnn._is_mkldnn_fp16_supported = _mkldnn_unsupported_dtype
-
 # quantization depends on torch.fx and torch.ops
 # Import quantization
 from torch import quantization as quantization  # usort: skip
