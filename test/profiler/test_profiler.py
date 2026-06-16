@@ -2826,6 +2826,9 @@ if KinetoStepTracker.current_step() != initial_step + 2 * niters:
 
     @unittest.skipIf(not kineto_available(), "Kineto is required")
     @unittest.skipIf(not TEST_CUDA, "CUDA is required")
+    @unittest.skipIf(
+        TEST_WITH_ROCM, "ROCm Kineto kernel events do not report grid/block metadata"
+    )
     def test_kineto_kernel_metadata_in_trace(self):
         with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
             self.payload(use_cuda=True)
@@ -4081,6 +4084,10 @@ class TestProfilerEventsParity(TestCase):
                     f"activity_type mismatch for {e.name}",
                 )
 
+    @unittest.skipIf(
+        TEST_WITH_ROCM,
+        "ROCm Kineto kernel events do not report structured kernel metadata",
+    )
     def test_structured_metadata_matches_chrome_trace(self):
         from torch.autograd.profiler_util import _EVENT_METADATA_KEYS
 

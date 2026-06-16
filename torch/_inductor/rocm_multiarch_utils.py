@@ -32,15 +32,20 @@ def get_rocm_compiler() -> str:
             "PyTorch was not built with ROCm support or ROCM_HOME is not set."
         )
 
-    # ROCm's clang is at <ROCM_HOME>/llvm/bin/clang
-    clang_path = _join_rocm_home("llvm", "bin", "clang")
+    # Prefer aillvm clang when available. Triton can emit AMDGPU LLVM IR that
+    # requires newer intrinsic definitions than the default ROCm clang.
+    clang_paths = [
+        _join_rocm_home("aillvm", "bin", "clang"),
+        _join_rocm_home("llvm", "bin", "clang"),
+    ]
 
-    if not os.path.exists(clang_path):
-        raise RuntimeError(
-            f"ROCm clang not found at {clang_path}. ROCM_HOME is set to {ROCM_HOME}"
-        )
+    for clang_path in clang_paths:
+        if os.path.exists(clang_path):
+            return clang_path
 
-    return clang_path
+    raise RuntimeError(
+        f"ROCm clang not found in {clang_paths}. ROCM_HOME is set to {ROCM_HOME}"
+    )
 
 
 def get_rocm_bundler() -> str:

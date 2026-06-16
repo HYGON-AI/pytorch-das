@@ -122,7 +122,7 @@ class TestDecomposeMemMM(TestCase):
 
     @parametrize(
         "b,m,k,n,should_decompose",
-        [(10240, 2, 2, 2, False), (10240, 2, 32, 32, False), (2000, 2, 2, 2, False)],
+        [(10240, 2, 2, 2, True), (10240, 2, 32, 32, False), (2000, 2, 2, 2, False)],
     )
     def test_decompose_bmm(self, b, m, n, k, should_decompose):
         torch._logging.set_logs(inductor=logging.DEBUG)

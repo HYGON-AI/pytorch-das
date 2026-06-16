@@ -639,7 +639,7 @@ def promote_constants(inputs, override_return_dtype=None, type_promotion_kind=No
 
 
 def _add_with_alpha_fma(a, b, alpha):
-    """Compute a + alpha * b using FMA for CUDA floating-point precision."""
+    """Compute a + alpha * b using FMA for GPU floating-point precision."""
     dtype = get_promoted_dtype(
         a,
         b,
@@ -687,13 +687,12 @@ def make_pointwise(
         inputs = promote_constants(inputs, override_return_dtype)
         if allow_alpha:
             if alpha is not None and alpha != 1:
-                # Use FMA for add-with-alpha on CUDA floating-point.
-                # Eager CUDA computes a + alpha * b as fma(b, alpha, a).
+                # Use FMA for add-with-alpha on GPU floating-point.
+                # Eager computes a + alpha * b as fma(b, alpha, a).
                 if use_fma_for_alpha and isinstance(inputs[0], IRNode):
                     inp_device = inputs[0].get_device()
                     if (
                         inputs[0].get_dtype().is_floating_point
-                        and not torch.version.hip
                         and inp_device is not None
                         and inp_device.type == "cuda"
                     ):
@@ -6662,12 +6661,12 @@ def _make_reduction_inner(
 def make_reduction(reduction_type: ReductionType, override_return_dtype=None):
     def inner(x, axis=None, keepdims=False, *, dtype=None):
         # For argmax/argmin on boolean tensors, cast to int32 first to ensure
-        # correct comparison in Triton. See https://github.com/pytorch/pytorch/issues/174069
-        # Only apply on Triton backend; MPS handles bool comparisons natively.
+        # correct comparison. Triton and CPU vector codegen both use mask-like
+        # representations for bool values where direct ordering can produce
+        # incorrect indices.
         if (
             reduction_type in ("argmax", "argmin")
             and x.get_dtype() == torch.bool
-            and is_triton(x)
         ):
             x = to_dtype(x, torch.int32)
         kwargs = _make_reduction_inner(

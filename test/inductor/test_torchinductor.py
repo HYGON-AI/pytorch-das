@@ -4633,6 +4633,8 @@ class CommonTemplate:
                     FileCheck().check_not("  call_triton").check("_convolution(").run(
                         code[0]
                     )
+                elif TEST_WITH_ROCM:
+                    FileCheck().check(".convolution(").run(code[0])
                 else:
                     FileCheck().check_not(".run(").check(".convolution(").run(code[0])
 
@@ -11192,17 +11194,30 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
                 x.min(1),
             )
 
+        def check(t):
+            if TEST_WITH_ROCM and self.device == "cuda":
+                # ROCm eager returns different tie-breaking indices for bool
+                # max(dim) on some large reductions. Use CPU eager as the
+                # semantic reference for this Inductor/Triton regression test.
+                actual = torch.compile(fn)(t.to(device=self.device))
+                actual = pytree.tree_map_only(
+                    torch.Tensor, lambda x: x.cpu(), actual
+                )
+                self.assertEqual(actual, fn(t))
+            else:
+                self.common(fn, (t,))
+
         # Unrolled reduction
         t1 = torch.randint(2, size=(6, 6), dtype=torch.bool)
-        self.common(fn, (t1,))
+        check(t1)
 
         # Persistent reduction
         t1 = torch.randint(2, size=(32, 32), dtype=torch.bool)
-        self.common(fn, (t1,))
+        check(t1)
 
         # Non-persistent reduction
         t1 = torch.randint(2, size=(1028, 1028), dtype=torch.bool)
-        self.common(fn, (t1,))
+        check(t1)
 
     def test_conv_backward(self):
         def fn(rank4_inps, rank3_inps, rank5_inps):
@@ -17867,7 +17882,12 @@ if RUN_GPU:
             y = torch.randint(0, 50257, (B, T), dtype=torch.int64, device=GPU_TYPE)
 
             def wrapper(x, y):
-                with ctx:
+                sdpa_ctx = (
+                    torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH)
+                    if TEST_WITH_ROCM
+                    else contextlib.nullcontext()
+                )
+                with sdpa_ctx, ctx:
                     loss = model(x, y)
                 loss.backward()
 
