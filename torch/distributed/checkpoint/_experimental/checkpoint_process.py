@@ -316,46 +316,51 @@ class CheckpointProcess:
         logger.debug(
             "Closing CheckpointProcess for rank %d", self._rank_info.global_rank
         )
-        self._executor.shutdown(wait=True, cancel_futures=True)
+        try:
+            self.process_creation_future.result()
 
-        if self.process and self.process.processes[0].is_alive():
-            subprocess_pid = self.process.processes[0].pid
-            # send graceful termination to sub process
-            try:
-                # pyrefly: ignore [missing-attribute]
-                self._parent_end.send(
-                    WorkerRequest(
-                        request_type=RequestType.TERMINATE_PROCESS,
-                        payload={},
+            if self.process and self.process.processes[0].is_alive():
+                subprocess_pid = self.process.processes[0].pid
+                # send graceful termination to sub process
+                try:
+                    # pyrefly: ignore [missing-attribute]
+                    self._parent_end.send(
+                        WorkerRequest(
+                            request_type=RequestType.TERMINATE_PROCESS,
+                            payload={},
+                        )
                     )
-                )
-            except BrokenPipeError:
-                logger.warning(
-                    "BrokenPipeError when sending termination request - subprocess (PID: %d) may have already terminated",
-                    subprocess_pid,
-                )
-                # subprocess terminated unexpectedly and below code will raise a
-                # ProcessExitedException.
-
-            logger.debug(
-                "Waiting for subprocess to terminate gracefully (timeout: %ds)",
-                self._config.subprocess_shutdown_timeout_secs,
-            )
-
-            try:
-                if not self.process.join(
-                    timeout=self._config.subprocess_shutdown_timeout_secs
-                ):
-                    # graceful shutdown failed, kill the process.
+                except BrokenPipeError:
                     logger.warning(
-                        "Subprocess (PID: %d) did not terminate gracefully within %ds, killing it",
+                        "BrokenPipeError when sending termination request - subprocess (PID: %d) may have already terminated",
                         subprocess_pid,
-                        self._config.subprocess_shutdown_timeout_secs,
                     )
-                    self.process.processes[0].kill()
-                    logger.info("Subprocess killed forcefully")
-            except ProcessExitedException:
-                logger.exception("ProcessExitedException during subprocess termination")
-                raise
+                    # subprocess terminated unexpectedly and below code will raise a
+                    # ProcessExitedException.
+
+                logger.debug(
+                    "Waiting for subprocess to terminate gracefully (timeout: %ds)",
+                    self._config.subprocess_shutdown_timeout_secs,
+                )
+
+                try:
+                    if not self.process.join(
+                        timeout=self._config.subprocess_shutdown_timeout_secs
+                    ):
+                        # graceful shutdown failed, kill the process.
+                        logger.warning(
+                            "Subprocess (PID: %d) did not terminate gracefully within %ds, killing it",
+                            subprocess_pid,
+                            self._config.subprocess_shutdown_timeout_secs,
+                        )
+                        self.process.processes[0].kill()
+                        logger.info("Subprocess killed forcefully")
+                except ProcessExitedException:
+                    logger.exception(
+                        "ProcessExitedException during subprocess termination"
+                    )
+                    raise
+        finally:
+            self._executor.shutdown(wait=True, cancel_futures=True)
 
         logger.debug("CheckpointProcess closed successfully")
