@@ -1867,6 +1867,12 @@ class FakeTensorMode(TorchDispatchMode):
         if is_sparse_compressed(output):
             raise _BypassDispatchCache("sparse compressed output")
 
+        if (
+            not (isinstance(func, torch._ops.OpOverload) and func.is_view)
+            and output.storage_offset() != 0
+        ):
+            raise _BypassDispatchCache("non-zero storage offset output")
+
         # Can an in-place op really reference a kwarg? If so, then we need
         # to extend the implementation to handle it.
         for kval in kwargs.values():
