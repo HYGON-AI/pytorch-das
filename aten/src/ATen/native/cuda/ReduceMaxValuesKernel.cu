@@ -35,7 +35,9 @@ __inline__ __device__ ValueIndex<T> WarpReduceMax(ValueIndex<T> val,int count) {
     ValueIndex<T> val2;
     val2.value=WARP_SHFL_DOWN(val.value, offset);
     val2.index=__shfl_down(val.index, offset);
-    if(val2.value>val.value)val=val2;
+    if (detail::GreaterOrNan<T>{}(val2.value, val.value, val2.index, val.index)) {
+      val = val2;
+    }
   }
   return val;
 }
@@ -84,7 +86,8 @@ __global__ void max_not_contiguous_kernel(scalar_t* result, int64_t* indice, sca
     *(LoadT*)tvalue=*(LoadT*)(self+i);
     #pragma unroll
     for(int k=0;k<VEC;k++){
-      if(tvalue[k]>tmax[k].value){
+      if (detail::GreaterOrNan<scalar_t>{}(
+        tvalue[k], tmax[k].value, index, tmax[k].index)) {
         tmax[k].value=tvalue[k];
         tmax[k].index=index;
       }
