@@ -3153,7 +3153,7 @@ def pointwise(
     assert not inductor_meta.get("no_x_dim")
 
     numel = functools.reduce(operator.mul, size_hints.values())
-    bs = max(256, min(numel // 128, 4096))
+    bs = max(256, min(numel // 128, 2048))
 
     hinted_configs = autotune_hints_to_configs(
         inductor_meta.get("autotune_hints", OrderedSet()),
