@@ -1261,27 +1261,29 @@ class TestFP8Matmul(TestCase):
             )
             return out
 
-        if (torch.xpu.is_available() or
-            (torch.cuda.is_available() and
-             torch.cuda.get_device_capability() == (9, 0) and
-             torch.version.cuda and
-             torch.version.cuda >= "12.9") or (not torch.cuda.is_available() and torch.cpu.is_available())):
+        is_cuda_device = "cuda" in device
+        is_xpu_device = "xpu" in device
+
+        if is_xpu_device or not is_cuda_device:
             out = e5m2()
             self.assertEqual(out, torch.ones_like(out) * 128.)
+        elif (torch.cuda.get_device_capability() == (9, 0) and
+              torch.version.cuda and torch.version.cuda >= "12.9"):
+            out = e5m2()
+            self.assertEqual(out, torch.ones_like(out) * 128.)
+        elif torch.version.hip:
+            # Note re.compile is used, not re.escape. This is to accommodate fn vs fnuz type message.
+            with self.assertRaisesRegex(
+                ValueError,
+                r"expected mat_b\.dtype\(\) to be at::kFloat8_e4m3fn(uz)?, but got c10::Float8_e5m2(fnuz)?"
+            ):
+                e5m2()
         else:
-            if torch.version.hip:
-                # Note re.compile is used, not re.escape. This is to accommodate fn vs fnuz type message.
-                with self.assertRaisesRegex(
-                    ValueError,
-                    r"expected mat_b\.dtype\(\) to be at::kFloat8_e4m3fn(uz)?, but got c10::Float8_e5m2(fnuz)?"
-                ):
-                    e5m2()
-            else:
-                with self.assertRaisesRegex(
-                    RuntimeError,
-                    r"Expected b\.dtype\(\) == at::kFloat8_e4m3fn to be true, but got false\.",
-                ):
-                    e5m2()
+            with self.assertRaisesRegex(
+                RuntimeError,
+                r"Expected b\.dtype\(\) == at::kFloat8_e4m3fn to be true, but got false\.",
+            ):
+                e5m2()
 
     @unittest.skipIf(not PLATFORM_SUPPORTS_FP8 or IS_WINDOWS, f8_msg)
     @skipCUDAIf(not SM89OrLater, "rowwise implementation is currently sm89-sm100 specific")
