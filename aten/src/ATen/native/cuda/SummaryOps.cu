@@ -397,10 +397,10 @@ Tensor _bincount_cuda(
     hipGetDevice(&device_id);
     hipDeviceProp_t props; 
     hipGetDeviceProperties(&props,device_id);
-    char* found = std::strchr(props.gcnArchName, 'gfx928');
-    if (found != nullptr) {
+    bool is_gfx928 = (std::strstr(props.gcnArchName, "gfx928") != nullptr);
+    if (is_gfx928) {
       return _bincount_cuda_template<scalar_t, float>(
-        self, weights.to(kFloat), minlength);
+          self, weights.to(kFloat), minlength);
     }
     else{
       return _bincount_cuda_template<scalar_t, double>(
