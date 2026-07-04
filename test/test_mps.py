@@ -1012,6 +1012,20 @@ class TestMPS(TestCaseMPS):
         self.assertEqual(tensor_mps.to(device="cpu"), tensor_cpu)
         self.assertEqual(tensor.to(device="cpu"), tensor_0)
 
+        # Regression test for https://github.com/pytorch/pytorch/issues/183631:
+        # fill_ on a byte-dtype view with a non-4-byte-aligned storage offset
+        # used to drop one byte at the vec4 boundary and clobber the byte
+        # before the view. Exercise all four offset misalignments and
+        # head/tail combinations.
+        for offs_head in range(4):
+            for offs_tail in range(4):
+                expected = torch.zeros(64, dtype=torch.int8)
+                expected[offs_head:64 - offs_tail].fill_(7)
+                actual = torch.zeros(64, dtype=torch.int8, device="mps")
+                actual[offs_head:64 - offs_tail].fill_(7)
+                self.assertEqual(actual.cpu(), expected,
+                                 f"offs_head={offs_head} offs_tail={offs_tail}")
+
     def test_cdist_large(self, device="mps"):
         for cm in ['use_mm_for_euclid_dist_if_necessary', 'use_mm_for_euclid_dist', 'donot_use_mm_for_euclid_dist']:
             x = torch.randn(100, 10, device=device)
@@ -9953,6 +9967,22 @@ class TestSDPA(TestCaseMPS):
         out_mps = F.scaled_dot_product_attention(q.to('mps'), k.to('mps'), v.to('mps'), attn_mask=mask.to('mps'))
         self._compare_tensors(out_mps.cpu(), out_cpu)
 
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
+    def test_sdpa_math_mps_bool_mask_1pass(self, dtype):
+        torch.manual_seed(0)
+        q = torch.randn(1, 1, 8, 64, dtype=dtype, device='mps')
+        k = torch.randn(1, 1, 512, 64, dtype=dtype, device='mps')
+        v = torch.randn(1, 1, 512, 64, dtype=dtype, device='mps')
+        mask = torch.eye(8, 512, dtype=torch.bool, device='mps')
+
+        out_mps, _ = torch.ops.aten._scaled_dot_product_attention_math_for_mps(
+            q, k, v, mask
+        )
+        out_cpu = F.scaled_dot_product_attention(
+            q.cpu(), k.cpu(), v.cpu(), attn_mask=mask.cpu()
+        )
+        self._compare_tensors(out_mps.cpu(), out_cpu)
+
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float])
     def test_sdpa_2pass(self, dtype):
         # Regression test for https://github.com/pytorch/pytorch/issues/174861
@@ -10184,6 +10214,26 @@ class TestSDPA(TestCaseMPS):
         head_dim = 64  # supported head dimension for vector attention
         q, k, v = self.generate_qkv(batch, NH, q_len, s_len, head_dim, layout, dtype)
         self.run_fast_attention_test(q, k, v, with_mask)
+
+    def test_fast_vector_permuted_inputs_regression(self):
+        # Regression test for https://github.com/pytorch/pytorch/issues/181133
+        torch.manual_seed(0)
+        B, S, H, D = 84, 3, 3, 64
+        dtype = torch.float32
+        q = torch.randn(B, S, H, D, dtype=dtype)
+        k = torch.randn(B, S, H, D, dtype=dtype)
+        v = torch.randn(B, S, H, D, dtype=dtype)
+
+        q_mps = q.to("mps").permute(0, 2, 1, 3)
+        k_mps = k.to("mps").permute(0, 2, 1, 3)
+        v_mps = v.to("mps").permute(0, 2, 1, 3)
+        q_cpu = q.permute(0, 2, 1, 3)
+        k_cpu = k.permute(0, 2, 1, 3)
+        v_cpu = v.permute(0, 2, 1, 3)
+
+        y_mps = F.scaled_dot_product_attention(q_mps, k_mps, v_mps)
+        y_cpu = F.scaled_dot_product_attention(q_cpu, k_cpu, v_cpu)
+        self._compare_tensors(y_mps.cpu(), y_cpu)
 
     @unittest.skip("Full attention fast kernel not implemented yet")
     @parametrize("dtype", [torch.float16, torch.float32])
