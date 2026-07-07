@@ -372,7 +372,7 @@ std::tuple<Tensor,Tensor,Tensor>fuse_rn_add_dropout_bias_cuda(
     bool training){
     AT_ASSERTM(self.sizes() == other.sizes(), "x must be the same size as y");
     AT_ASSERTM(p >=0.0f&&p<1.0f, "p mast be between 0 and 1");
-    AT_ASSERTM(self.is_cuda()&&other.is_cuda(), "x and y must on hcu");
+    AT_ASSERTM(self.is_cuda()&&other.is_cuda(), "x and y must be CUDA tensors");
     const int cols=self.sizes().back();
     AT_ASSERT(cols>=64,"cols must >= 64");
     AT_ASSERT(cols%4==0,"cols%4 must be 0");
@@ -572,4 +572,3 @@ std::tuple<Tensor,Tensor,Tensor,Tensor>fuse_rn_add_dropout_bias_backward_cuda(
 }
 }
 }
-

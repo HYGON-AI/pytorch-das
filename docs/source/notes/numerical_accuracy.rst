@@ -119,9 +119,9 @@ For scenarios where reduced-precision reductions are preferred for speed, they c
 
 .. _fp16_on_mi200:
 
-Reduced Precision FP16 and BF16 GEMMs and Convolutions on AMD Instinct MI200 devices
+Reduced Precision FP16 and BF16 GEMMs and Convolutions on HCU MI200-class devices
 ------------------------------------------------------------------------------------
-On AMD Instinct MI200 GPUs, the FP16 and BF16 V_DOT2 and MFMA matrix instructions flush input and output denormal values to zero. FP32 and FP64 MFMA matrix instructions do not flush input and output denormal values to zero. The affected instructions are only used by rocBLAS (GEMM) and MIOpen (convolution) kernels; all other PyTorch operations will not encounter this behavior. All other supported AMD GPUs will not encounter this behavior.
+On HCU MI200-class devices, the FP16 and BF16 V_DOT2 and MFMA matrix instructions flush input and output denormal values to zero. FP32 and FP64 MFMA matrix instructions do not flush input and output denormal values to zero. The affected instructions are only used by rocBLAS (GEMM) and MIOpen (convolution) kernels; all other PyTorch operations will not encounter this behavior. Other supported ROCm/HIP devices will not encounter this behavior.
 
 rocBLAS and MIOpen provide alternate implementations for affected FP16 operations. Alternate implementations for BF16 operations are not provided; BF16 numbers have a larger dynamic range than FP16 numbers and are less likely to encounter denormal values. For the FP16 alternate implementations, FP16 input values are cast to an intermediate BF16 value and then cast back to FP16 output after the accumulate FP32 operations. In this way, the input and output types are unchanged.
 

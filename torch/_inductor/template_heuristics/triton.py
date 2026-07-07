@@ -1713,7 +1713,7 @@ class ROCmConfigHeuristic(BaseConfigHeuristic):
 
             # Check if gemm specific arg exists - add to key if does
             group_m = getattr(conf, "group_m", None)
-            # AMD GPU crashes if group_m = 0
+            # ROCm devices may crash if group_m = 0
             if group_m is not None and group_m <= 0:
                 group_m = 8
             if group_m is not None:

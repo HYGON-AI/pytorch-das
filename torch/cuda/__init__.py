@@ -190,7 +190,7 @@ def is_available() -> bool:
 def is_bf16_supported(including_emulation: bool = True):
     r"""Return a bool indicating if the current CUDA/ROCm device supports dtype bfloat16."""
     # Check for ROCm, if true return true, no ROCM_VERSION check required,
-    # since it is supported on AMD GPU archs.
+    # since it is supported on ROCm/HCU architecture targets.
     if torch.version.hip:
         return True
 
@@ -945,14 +945,14 @@ def _raw_device_uuid_amdsmi() -> list[str] | None:
         try:
             handler = amdsmi.amdsmi_get_processor_handles()[idx]
         except amdsmi.AmdSmiException:
-            warnings.warn("Cannot get amd device handler", stacklevel=2)
+            warnings.warn("Cannot get amdsmi processor handle", stacklevel=2)
             return None
         try:
             uuid = amdsmi.amdsmi_get_gpu_asic_info(handler)["asic_serial"][
                 2:
             ]  # Removes 0x prefix from serial
         except amdsmi.AmdSmiException:
-            warnings.warn("Cannot get uuid for amd device", stacklevel=2)
+            warnings.warn("Cannot get device UUID from amdsmi", stacklevel=2)
             return None
         uuids.append(
             str(uuid).lower()
@@ -1351,14 +1351,14 @@ def _get_amdsmi_device_index_from_hip_index(device: int) -> int:
         _cached_hip_to_amdsmi = dict(gen())
         if not _cached_hip_to_amdsmi and len(amdsmi_handles) > 1:
             warnings.warn(
-                "Cannot translate HIP ID to AMD SMI ID due to"
+                "Cannot translate HIP ID to amdsmi device index due to"
                 " lack of translation information prior to ROCm 6.4."
                 " Functions that rely on amdsmi"
                 " (e.g. temperature()) may operate on wrong devices."
             )
     if device not in _cached_hip_to_amdsmi:
         warnings.warn(
-            f"Cannot translate HIP ID {device} to AMD SMI ID due to"
+            f"Cannot translate HIP ID {device} to amdsmi device index due to"
             " undetected HIP ID from amdsmi."
             " amdsmi_get_gpu_enumeration_info() only report these HIP IDs"
             f" {list(_cached_hip_to_amdsmi.keys())}."

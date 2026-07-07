@@ -35,7 +35,7 @@ Developer tools which you might find useful:
   (See also [generated_dirs.txt](generated_dirs.txt) which
   specifies the list of directories with generated files.)
 
-Important if you want to run on AMD GPU:
+Important if you want to run on HCU with ROCm/HIP:
 
 * [amd_build](amd_build) - HIPify scripts, for transpiling CUDA
   into AMD HIP.  Right now, PyTorch and Caffe2 share logic for how to

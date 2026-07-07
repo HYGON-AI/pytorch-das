@@ -323,7 +323,7 @@ bool check_flash_attention_hardware_support(sdp_params const& params, bool debug
         auto dprops = at::cuda::getCurrentDeviceProperties();
         if (debug) {
             TORCH_WARN(
-                    "Flash attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+                    "Flash attention was not compiled for the current HCU architecture. Attempting to run on architecture ", dprops->gcnArchName);
         }
         return false;
     }
@@ -331,7 +331,7 @@ bool check_flash_attention_hardware_support(sdp_params const& params, bool debug
     if (aotriton::isArchExperimentallySupported(stream)) {
       static const bool enable_experimental = c10::utils::check_env("TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL") == true;
       if (!enable_experimental) {
-        TORCH_WARN_ONCE("Flash Efficient attention on Current AMD GPU is still experimental."
+        TORCH_WARN_ONCE("Flash Efficient attention on the current HCU device is still experimental."
             " Enable it with TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1.");
         return false;
       }
@@ -388,7 +388,7 @@ bool check_mem_efficient_hardware_support(sdp_params const& params, bool debug) 
         auto dprops = at::cuda::getCurrentDeviceProperties();
         if (debug) {
             TORCH_WARN(
-                    "Mem Efficient attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+                    "Mem Efficient attention was not compiled for the current HCU architecture. Attempting to run on architecture ", dprops->gcnArchName);
         }
         return false;
     }
@@ -396,7 +396,7 @@ bool check_mem_efficient_hardware_support(sdp_params const& params, bool debug) 
     if (aotriton::isArchExperimentallySupported(stream)) {
       static const bool enable_experimental = c10::utils::check_env("TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL") == true;
       if (!enable_experimental) {
-        TORCH_WARN_ONCE("Mem Efficient attention on Current AMD GPU is still experimental."
+        TORCH_WARN_ONCE("Mem Efficient attention on the current HCU device is still experimental."
             " Enable it with TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1.");
         return false;
       }

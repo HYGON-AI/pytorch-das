@@ -1912,7 +1912,7 @@ class triton:
     codegen_upcast_to_fp32 = True
 
     # Whether persistent matmul kernels should be enabled. On NVIDIA H100+ with TMA support,
-    # this enables TMA persistent kernels. On AMD GPUs without TMA, this enables
+    # this enables TMA persistent kernels. On ROCm devices without TMA, this enables
     # non-TMA persistent kernels as a fallback.
     enable_persistent_tma_matmul = (
         os.environ.get("ENABLE_PERSISTENT_TMA_MATMUL", "0") == "1"

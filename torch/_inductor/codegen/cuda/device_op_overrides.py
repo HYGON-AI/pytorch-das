@@ -136,7 +136,7 @@ class CUDADeviceOpOverrides(DeviceOpOverrides):
             }
         """
         if torch.version.hip is not None:
-            # Adjusting the warp size to GPU supported wavefront size on AMD GPU
+            # Adjusting the warp size to the wavefront size reported on ROCm devices
             prop = torch.cuda.get_device_properties(torch.cuda.current_device())
             source_codes = source_codes.replace(
                 "32*numWarps", str(prop.warp_size) + "*numWarps"

@@ -123,7 +123,7 @@ class TestCppWrapperHipify(TestCase):
             }
         """
         if torch.version.hip is not None:
-            # Adjusting the warp size to GPU supported wavefront size on AMD GPU
+            # Adjusting the warp size to the wavefront size used on ROCm devices
             prop = torch.cuda.get_device_properties(torch.cuda.current_device())
             expected = expected.replace(
                 "32*numWarps", str(prop.warp_size) + "*numWarps"

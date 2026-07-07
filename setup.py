@@ -138,7 +138,7 @@
 #     ie `TORCH_XPU_ARCH_LIST="ats-m150,lnl-m"`
 #
 #   PYTORCH_ROCM_ARCH
-#     specify which AMD GPU targets to build for.
+#     specify which ROCm architecture targets to build for.
 #     ie `PYTORCH_ROCM_ARCH="gfx900;gfx906"`
 #
 #   ONNX_NAMESPACE

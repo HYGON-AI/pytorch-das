@@ -102,7 +102,7 @@ std::tuple<Tensor,Tensor> fuse_dropout_add_cuda(
     bool training){
     AT_ASSERTM(self.sizes() == other.sizes(), "x must be the same size as y");
     AT_ASSERTM(p >=0.0f&&p<1.0f, "p mast be between 0 and 1");
-    AT_ASSERTM(self.is_cuda()&&other.is_cuda(), "self and other must on hcu");
+    AT_ASSERTM(self.is_cuda()&&other.is_cuda(), "self and other must be CUDA tensors");
   p=1-p;
   if(training){
       Tensor ret = at::empty_like(self);
@@ -187,5 +187,3 @@ std::tuple<Tensor,Tensor> fuse_dropout_add_backward_cuda(
 }
 }
 }
-
-

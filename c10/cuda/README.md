@@ -5,7 +5,7 @@ useful when writing CUDA code; for example, C++ wrappers for the CUDA C API.
 
 **Important notes for developers.** If you want to add files or functionality
 to this folder, TAKE NOTE.  The code in this folder is very special,
-because on our AMD GPU build, we transpile it into c10/hip to provide a
+because on our ROCm/HCU build, we transpile it into c10/hip to provide a
 ROCm environment.  Thus, if you write:
 
 ```

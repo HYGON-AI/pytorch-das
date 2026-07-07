@@ -7585,7 +7585,7 @@ def addcmul(self, tensor1, tensor2, *, value=1):
     Matches eager CUDA kernel order: self + value * (tensor1 * tensor2)
     This is computed as: fma(value, tensor1 * tensor2, self)
 
-    Note: FMA is only used for floating-point types on non-AMD GPUs. For integer types,
+    Note: FMA is only used for floating-point types on non-ROCm GPU targets. For integer types,
     we fall back to regular arithmetic since FMA doesn't support integers.
 
     For floating-point types, we use mul_rn (round-to-nearest multiplication)
@@ -7662,7 +7662,7 @@ def addcdiv(self, tensor1, tensor2, *, value=1):
     For value=1: self + tensor1 / tensor2 (no FMA needed, just add the division)
     For value!=1: fma(value, div_rn(tensor1, tensor2), self)
 
-    Note: FMA is only used for floating-point types on non-AMD GPUs. For integer types,
+    Note: FMA is only used for floating-point types on non-ROCm GPU targets. For integer types,
     we fall back to regular arithmetic since FMA doesn't support integers.
 
     We use div_rn (round-to-nearest division) to force proper rounding, preventing

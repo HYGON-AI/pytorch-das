@@ -87,11 +87,11 @@ C10_HOST_DEVICE inline c10::complex<T> pow(
 }
 
 // Regression in ROCm 7.2. See https://github.com/ROCm/rocm-libraries/pull/3836.
-// Specialized version for complex<float> on AMD GPUs to use FMA-based
+// Specialized version for complex<float> on ROCm GPU targets to use FMA-based
 // multiplication
 #if defined(__HIPCC__)
 namespace detail {
-// FMA-aware complex multiplication for float precision on AMD GPUs.
+// FMA-aware complex multiplication for float precision on ROCm GPU targets.
 // This prevents SLP vectorizer from breaking FMA formation, which causes
 // numerical precision loss in complex arithmetic.
 // The issue occurs when vectorizer packs scalar multiplies before backend

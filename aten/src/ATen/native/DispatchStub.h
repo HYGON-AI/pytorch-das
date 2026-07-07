@@ -40,7 +40,7 @@
 // Supported device types for registration:
 //   - CPU: Central Processing Unit
 //   - CUDA: NVIDIA GPUs
-//   - HIP: AMD GPUs
+//   - HIP: ROCm/HIP GPUs
 //   - MPS: Apple Silicon GPUs (Metal Performance Shaders)
 //   - MTIA: Meta Training and Inference Devices
 //   - XPU: Intel GPUs

@@ -89,7 +89,7 @@ typedef enum {
   kDLMetal = 8,
   /*! \brief Verilog simulator buffer */
   kDLVPI = 9,
-  /*! \brief ROCm GPUs for AMD GPUs */
+  /*! \brief ROCm GPUs */
   kDLROCM = 10,
   /*!
    * \brief Pinned ROCm CPU memory allocated by hipMallocHost
