@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
 #pragma once
 #ifndef CUTLASSFA_ADAPTER_H
 #define CUTLASSFA_ADAPTER_H
