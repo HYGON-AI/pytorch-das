@@ -1,5 +1,35 @@
-The PyTorch repository and source distributions bundle several libraries that are 
-compatibly licensed.  We list these here.
+The PyTorch repository and source distributions reference several third-party
+components. We list preserved source paths and governing license materials here.
+
+Entries below cover submodule-backed components referenced by this repository.
+Their upstream license texts are preserved locally under ./licenses/.
+
+Name: aiter
+License: MIT
+Files: ./aiter
+  For details, see: ./licenses/aiter.LICENSE
+
+Name: composable_kernel
+License: MIT
+Files: ./composable_kernel
+  For details, see: ./licenses/composable_kernel.LICENSE
+
+Name: cutlass-core
+License: BSD-3-Clause
+Files: ./cutlass (excluding ./cutlass/examples/python/CuTeDSL)
+  For details, see: ./licenses/cutlass.LICENSE
+
+Name: cutlass-cutedsl
+License: NVIDIA EULA
+Files: ./cutlass/examples/python/CuTeDSL
+  For details, see: ./licenses/cutlass.CuTeDSL.EULA.txt
+  Distribution note: Separately governed component; requires explicit
+  compatibility review before public redistribution.
+
+Name: flash-attention
+License: BSD-3-Clause
+Files: ./flash-attention
+  For details, see: ./licenses/flash-attention.LICENSE
 
 Name: miniz-3.0.2
 License: MIT

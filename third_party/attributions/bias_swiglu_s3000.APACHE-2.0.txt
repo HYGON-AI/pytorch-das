@@ -1,0 +1,33 @@
+Source file:
+  aten/src/ATen/native/lightop/cuda/bias_swiglu.cu
+
+Current retained file header:
+  Copyright (c) 2023, S-3000 CORPORATION. All rights reserved.
+  Licensed under the Apache License, Version 2.0.
+
+Repository provenance checked for this import:
+  - Introduced in commit 978afabff0e ("add fuse_bias_gelu and fuse_bias_swiglu")
+    with the Apache-2.0 header naming SUGON CORPORATION.
+  - Updated in commit 1c62861a1b5 ("[das-hcu]update hcu , S-3000") to rename
+    the retained copyright holder in the file header from SUGON CORPORATION to
+    S-3000 CORPORATION.
+
+Separate upstream NOTICE status:
+  The external upstream repository or project name could not be identified from
+  current repository materials.
+  No standalone upstream NOTICE file for this imported source file was found in
+  current repository history. The retained Apache-2.0 file header is the
+  available upstream attribution notice in this tree.
+
+Retained Apache-2.0 notice text:
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
