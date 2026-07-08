@@ -28,6 +28,12 @@ Unless explicitly stated in a specific source file or third-party notice, files
 that originate from upstream PyTorch remain governed by the upstream PyTorch
 license terms.
 
+## Third-Party Sources
+
+This release may require a matched standalone third-party source bundle before
+build. See [THIRD_PARTY_BUNDLE.md](THIRD_PARTY_BUNDLE.md) for the current bundle
+URL, extraction path, and compliance notes.
+
 ## Build and Installation
 
 Build and installation should follow the release notes or packaging instructions

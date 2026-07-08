@@ -1,9 +1,17 @@
 =======================================================================
 Software under third_party
 =======================================================================
-Software libraries under third_party are provided as github submodule
-links, and their content is not part of the Caffe2 codebase. Their
-licences can be found under the respective software repositories.
+The upstream PyTorch repository references third-party software through
+submodule links and related build scripts. For Hygon PyTorch source releases,
+the third_party source tree may be provided as a separate matched source
+bundle.
+
+The matched third-party bundle must be extracted to third_party/ before build.
+License texts, copyright notices, NOTICE files, and Hygon modification records
+for third-party components are preserved in that standalone bundle.
+
+See THIRD_PARTY_BUNDLE.md for the current bundle information, extraction path,
+and compliance notes.
 
 =======================================================================
 Earlier BSD License

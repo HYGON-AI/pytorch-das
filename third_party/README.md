@@ -1,6 +1,10 @@
 This folder contains vendored copies of third-party libraries and git submodule
 references used by the PyTorch tree.
 
+For Hygon PyTorch source releases, this directory may be replaced by a matched
+standalone third-party source bundle before build. See ../THIRD_PARTY_BUNDLE.md
+for the current bundle information, extraction path, and compliance notes.
+
 Relevant submodule-backed components currently referenced by this repository
 include:
 
@@ -39,5 +43,7 @@ include:
 
 The submodule references remain declared in .gitmodules. Local preserved copies
 of the relevant upstream license texts are stored under third_party/licenses/ so
-that the current tree retains licensing information even when submodules are not
-initialized.
+that this repository retains licensing information even when submodules are not
+initialized. When a standalone third-party source bundle is used, the extracted
+bundle must preserve the applicable upstream license texts, copyright notices,
+NOTICE files, and Hygon modification records.
