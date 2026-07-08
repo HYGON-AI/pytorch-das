@@ -1,0 +1,22 @@
+File:
+  torch/_inductor/kernel/vendored_templates/cutedsl/dense_blockscaled_gemm_persistent.py
+
+Observed in-tree header:
+  Copyright (c) 2025 - 2026 NVIDIA CORPORATION & AFFILIATES.
+  SPDX-License-Identifier: BSD-3-Clause
+
+Current attribution summary:
+  - This file already lives in the PyTorch source tree and retains its original
+    NVIDIA BSD-3-Clause header in-tree.
+  - Repository history shows upstream PyTorch NVGEMM import commits:
+    c4fd6ef5d93 ("[Inductor][NVGEMM] Add CuTeDSL Blockscaled GEMM Kernel")
+    ae622b433f9 ("[Inductor][NVGEMM] Add CuTeDSL Blockscaled GEMM Kernel")
+  - Repository history also shows follow-up docstring restoration commits:
+    c84f1cb9af1 ("[Inductor][NVGEMM] Restore fp4 kernel docstrings")
+    fec0bf53461 ("[Inductor][NVGEMM] Restore fp4 kernel docstrings")
+
+Notes:
+  - This file is not the build-mirrored grouped_gemm.py path governed by the
+    cutlass CuTeDSL EULA entry in NOTICE.
+  - Preserve the in-tree BSD-3-Clause header and do not rewrite the retained
+    NVIDIA copyright notice to Hygon.

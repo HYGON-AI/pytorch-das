@@ -1,8 +1,10 @@
 The PyTorch repository and source distributions reference several third-party
 components. We list preserved source paths and governing license materials here.
 
-Entries below cover submodule-backed components referenced by this repository.
-Their upstream license texts are preserved locally under ./licenses/.
+Most entries below cover submodule-backed components referenced by this
+repository. Their upstream license texts are preserved locally under
+./licenses/, unless a specific entry points to a preserved component-local
+LICENSE path instead.
 
 Name: aiter
 License: MIT
@@ -25,6 +27,9 @@ Files: ./cutlass/examples/python/CuTeDSL
   For details, see: ./licenses/cutlass.CuTeDSL.EULA.txt
   Distribution note: Separately governed component; requires explicit
   compatibility review before public redistribution.
+  Scope note: This entry covers the CuTeDSL subtree and the build-mirrored
+  grouped_gemm.py path only; it does not reclassify unrelated vendored cutedsl
+  files that retain their own in-tree headers.
 
 Name: flash-attention
 License: BSD-3-Clause

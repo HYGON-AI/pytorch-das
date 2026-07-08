@@ -497,4 +497,16 @@ copyright and license notices:
    License: NVIDIA EULA
    Preserved license text: third_party/licenses/cutlass.CuTeDSL.EULA.txt
    Notes: This file is mirrored into the PyTorch tree during build by
-   mirror_inductor_external_kernels() in setup.py.
+   mirror_inductor_external_kernels() in setup.py. This EULA-scoped path is
+   separate from other vendored cutedsl files that retain their own in-tree
+   BSD-3-Clause headers.
+
+4. File:
+   torch/_inductor/kernel/vendored_templates/cutedsl/dense_blockscaled_gemm_persistent.py
+   Origin: NVIDIA CORPORATION & AFFILIATES; upstream PyTorch NVGEMM import
+   License: BSD-3-Clause
+   Preserved attribution record:
+   third_party/attributions/dense_blockscaled_gemm_persistent_nvidia.BSD-3-Clause.txt
+   Notes: The original NVIDIA BSD-3-Clause header is retained in-tree. This
+   file is not the build-mirrored grouped_gemm.py path governed by the CuTeDSL
+   EULA entry above.

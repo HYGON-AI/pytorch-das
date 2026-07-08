@@ -21,6 +21,9 @@ include:
   Usage: Mirrored into PyTorch Inductor vendored CuTeDSL kernels during build.
   Distribution note: Separately governed component; do not treat it as part of
   the CUTLASS BSD-3-Clause core license scope.
+  Scope note: This EULA boundary applies to the CuTeDSL subtree and the
+  build-mirrored grouped_gemm.py path, not to every file under
+  torch/_inductor/kernel/vendored_templates/cutedsl.
 
 - third_party/composable_kernel
   Upstream: https://github.com/ROCm/composable_kernel
@@ -47,3 +50,11 @@ that this repository retains licensing information even when submodules are not
 initialized. When a standalone third-party source bundle is used, the extracted
 bundle must preserve the applicable upstream license texts, copyright notices,
 NOTICE files, and Hygon modification records.
+
+The extracted standalone bundle must also carry the current top-level
+third_party compliance materials from this repository, including:
+
+- third_party/README.md
+- third_party/LICENSES_BUNDLED.txt
+- third_party/licenses/
+- third_party/attributions/
