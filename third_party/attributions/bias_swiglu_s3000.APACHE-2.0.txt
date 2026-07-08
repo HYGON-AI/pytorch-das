@@ -5,19 +5,19 @@ Current retained file header:
   Copyright (c) 2023, S-3000 CORPORATION. All rights reserved.
   Licensed under the Apache License, Version 2.0.
 
-Repository provenance checked for this import:
+Repository provenance checked for this file:
   - Introduced in commit 978afabff0e ("add fuse_bias_gelu and fuse_bias_swiglu")
-    with the Apache-2.0 header naming SUGON CORPORATION.
+    directly under aten/src/ATen/native/lightop/cuda/ with the Apache-2.0
+    header naming SUGON CORPORATION.
   - Updated in commit 1c62861a1b5 ("[das-hcu]update hcu , S-3000") to rename
     the retained copyright holder in the file header from SUGON CORPORATION to
     S-3000 CORPORATION.
 
-Separate upstream NOTICE status:
-  The external upstream repository or project name could not be identified from
-  current repository materials.
-  No standalone upstream NOTICE file for this imported source file was found in
-  current repository history. The retained Apache-2.0 file header is the
-  available upstream attribution notice in this tree.
+Repository interpretation for open-source review:
+  This file is treated as a Hygon lightop historical source file rather than a
+  separately tracked external third-party import. The retained Apache-2.0 file
+  header and repository history above are the preserved provenance record for
+  this file in the current tree.
 
 Retained Apache-2.0 notice text:
   Licensed under the Apache License, Version 2.0 (the "License");

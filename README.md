@@ -30,9 +30,17 @@ license terms.
 
 ## Third-Party Sources
 
-This release may require a matched standalone third-party source bundle before
-build. See [THIRD_PARTY_BUNDLE.md](THIRD_PARTY_BUNDLE.md) for the current bundle
-URL, extraction path, and compliance notes.
+This release uses a split source-release model:
+
+- the PyTorch repository provides the main source tree, repository notices, and
+  release-facing documentation
+- a matched standalone third-party source bundle provides the `third_party/`
+  source tree used for build and redistribution
+
+Before build, download the matched standalone third-party source bundle for this
+repository release. See [THIRD_PARTY_BUNDLE.md](THIRD_PARTY_BUNDLE.md) for the
+current bundle identifier, extraction path, release responsibilities, and
+compliance notes.
 
 ## Build and Installation
 

@@ -1,5 +1,9 @@
 # Third-Party Bundle Release Record
 
+This file records the verification status of the standalone `third_party`
+bundle expected by the current repository release. It is the repo-side audit
+record for the split source-release model, not the bundle contents themselves.
+
 ## Reference Bundle
 
 - Bundle name: `third_party_mayp_0602.zip`
@@ -46,6 +50,18 @@ Verified candidate contents:
 The refreshed candidate is the current review target. It still needs an
 official published URL or release handoff before public release is complete.
 
+## Bundle Owner Pending Actions
+
+The owner of the standalone `third_party` bundle still needs to:
+
+1. Publish the refreshed candidate contents, or an equivalent updated bundle
+   revision, to an official downloadable location.
+2. Assign the final published bundle a stable bundle name or version
+   identifier.
+3. Publish the final bundle URL, size, and SHA-256.
+4. Confirm that the published bundle extracts to a `third_party/` tree
+   containing the current compliance materials listed below.
+
 ## Required Release Gate
 
 Before public release, regenerate or refresh the standalone third-party bundle
@@ -56,7 +72,15 @@ so that the extracted `third_party` tree contains:
 3. The full `third_party/licenses/` directory
 4. The full `third_party/attributions/` directory
 
-Do not treat the reference bundle as release-ready. Public release should use
-the refreshed candidate bundle (or an equivalent published revision with the
-same compliance materials), and that published revision must be hashed and
-recorded here as a distinct bundle revision.
+Do not treat the reference bundle as release-ready. Public release should use a
+published bundle revision whose extracted contents match the current repository
+expectation above.
+
+## Close Condition
+
+This record can be considered closed for a given repository release only after:
+
+1. a final standalone bundle revision is published
+2. the published URL, size, and SHA-256 are recorded here
+3. the published bundle is verified to contain the required compliance
+   materials
