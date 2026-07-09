@@ -1,9 +1,22 @@
-This folder contains vendored copies of third-party libraries and git submodule
-references used by the PyTorch tree.
+This directory records the third-party dependency entry points, submodule
+references, and repository-side compliance materials used by the PyTorch tree.
+It should not be interpreted as the complete third-party source delivery for
+Hygon PyTorch source release.
 
-For Hygon PyTorch source releases, this directory may be replaced by a matched
-standalone third-party source bundle before build. See ../THIRD_PARTY_BUNDLE.md
-for the current bundle information, extraction path, and compliance notes.
+For Hygon PyTorch source releases, the actual build may replace this directory
+with a matched standalone third-party source bundle before compilation. In
+practice, the build workflow may remove the repository copy of `third_party/`
+and then extract the matched standalone bundle into the repository root. See
+../THIRD_PARTY_BUNDLE.md for the current bundle information, extraction path,
+and compliance notes.
+
+Accordingly, this repository copy of `third_party/` mainly serves three
+purposes:
+
+- preserve dependency entry points and submodule references
+- preserve repository-side compliance reference materials
+- define the compliance baseline that the standalone third-party bundle is
+  expected to carry forward
 
 Relevant submodule-backed components currently referenced by this repository
 include:
@@ -46,10 +59,11 @@ include:
 
 The submodule references remain declared in .gitmodules. Local preserved copies
 of the relevant upstream license texts are stored under third_party/licenses/ so
-that this repository retains licensing information even when submodules are not
+that the repository retains licensing information even when submodules are not
 initialized. When a standalone third-party source bundle is used, the extracted
-bundle must preserve the applicable upstream license texts, copyright notices,
-NOTICE files, and Hygon modification records.
+bundle becomes the complete third-party source delivery for build and
+redistribution, and it must preserve the applicable upstream license texts,
+copyright notices, NOTICE files, and Hygon modification records.
 
 The extracted standalone bundle must also carry the current top-level
 third_party compliance materials from this repository, including:
@@ -58,3 +72,7 @@ third_party compliance materials from this repository, including:
 - third_party/LICENSES_BUNDLED.txt
 - third_party/licenses/
 - third_party/attributions/
+
+If the repository copy of these compliance materials is updated, the matched
+standalone third-party bundle is expected to refresh the corresponding files as
+part of the next published bundle revision.
