@@ -3,11 +3,11 @@
 ## Open Source Attribution
 
 This repository is based on the official PyTorch project and contains
-Hygon-maintained modifications for the PyTorch 2.12 development line.
+Hygon-maintained modifications based on the official PyTorch 2.12.0 release.
 
 - Upstream project: PyTorch
-- Upstream source: https://github.com/pytorch/pytorch
-- Upstream documentation: https://pytorch.org/docs/stable/
+- Upstream source: https://github.com/pytorch/pytorch/tree/v2.12.0
+- Upstream documentation: https://docs.pytorch.org/docs/2.12/
 - Upstream README preserved in this repository: [README_ORIGIN.md](README_ORIGIN.md)
 - License: BSD-3-Clause
 
