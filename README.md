@@ -11,6 +11,10 @@ Hygon-maintained modifications for the PyTorch 2.12 development line.
 - Upstream README preserved in this repository: [README_ORIGIN.md](README_ORIGIN.md)
 - License: BSD-3-Clause
 
+`README_ORIGIN.md` is preserved as an upstream reference copy for comparison and
+review. It keeps upstream wording as-is and does not define the public release
+messaging for this Hygon repository.
+
 The original PyTorch copyright, license terms, and disclaimers are preserved in
 [LICENSE](LICENSE). Third-party notices are preserved in [NOTICE](NOTICE) where
 applicable.
