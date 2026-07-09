@@ -84,3 +84,16 @@ This record can be considered closed for a given repository release only after:
 2. the published URL, size, and SHA-256 are recorded here
 3. the published bundle is verified to contain the required compliance
    materials
+
+## Repository Retention Note
+
+The repository copy of `third_party/` may retain only a minimal set of
+repository-side explanatory materials, such as:
+
+1. `third_party/README.md`
+2. `third_party/LICENSES_BUNDLED.txt`
+
+This does not relax the standalone bundle requirements above. The complete
+third-party license texts, attribution materials, and modified third-party
+source trees are still expected to be delivered in the published standalone
+bundle.

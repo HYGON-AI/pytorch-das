@@ -467,47 +467,10 @@ and reference the following license:
 Additional Third-Party Source File Attributions
 =======================================================================
 
-The following source files live outside third_party/ but retain third-party
-copyright and license notices:
+The repository source tree may contain files outside third_party/ that retain
+their own original third-party copyright or license notices.
 
-1. File: aten/src/ATen/native/lightop/cuda/bias_swiglu.cu
-   Origin: Hygon lightop historical source file
-   Historical file header owner: SUGON CORPORATION / S-3000 CORPORATION
-   License: Apache-2.0
-   Preserved attribution record:
-   third_party/attributions/bias_swiglu_s3000.APACHE-2.0.txt
-   Notes: Repository history shows that this file was introduced directly into
-   the Hygon lightop tree with an Apache-2.0 header naming SUGON
-   CORPORATION and later updated to S-3000 CORPORATION. This repository
-   treats the file as a Hygon historical source file in the lightop module,
-   not as a separately tracked external third-party import.
-
-2. File: aten/src/ATen/native/transformers/hip/flash_attn/ck/launch_kernel_pt.hpp
-   Origin: Advanced Micro Devices, Inc.; adapted as a PyTorch-specific CK Tile
-   integration helper
-   Related third-party source: third_party/composable_kernel
-   License: MIT
-   Preserved license text: third_party/licenses/composable_kernel.LICENSE
-   Notes: The original MIT header is retained in the file and the file itself
-   marks the implementation as a PyTorch-specific version.
-
-3. Build-mirrored file:
-   torch/_inductor/kernel/vendored_templates/cutedsl/kernels/cutedsl_grouped_gemm.py
-   Source path:
-   third_party/cutlass/examples/python/CuTeDSL/blackwell/grouped_gemm.py
-   License: NVIDIA EULA
-   Preserved license text: third_party/licenses/cutlass.CuTeDSL.EULA.txt
-   Notes: This file is mirrored into the PyTorch tree during build by
-   mirror_inductor_external_kernels() in setup.py. This EULA-scoped path is
-   separate from other vendored cutedsl files that retain their own in-tree
-   BSD-3-Clause headers.
-
-4. File:
-   torch/_inductor/kernel/vendored_templates/cutedsl/dense_blockscaled_gemm_persistent.py
-   Origin: NVIDIA CORPORATION & AFFILIATES; upstream PyTorch NVGEMM import
-   License: BSD-3-Clause
-   Preserved attribution record:
-   third_party/attributions/dense_blockscaled_gemm_persistent_nvidia.BSD-3-Clause.txt
-   Notes: The original NVIDIA BSD-3-Clause header is retained in-tree. This
-   file is not the build-mirrored grouped_gemm.py path governed by the CuTeDSL
-   EULA entry above.
+When a matched standalone third-party source bundle is used for build and
+redistribution, the complete third-party license texts, attribution materials,
+and modified third-party source records are expected to be delivered with that
+bundle.

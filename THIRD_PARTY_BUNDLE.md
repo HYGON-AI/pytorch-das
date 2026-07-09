@@ -73,6 +73,19 @@ the current repository-side compliance state.
 This candidate describes the expected content shape for the final standalone
 bundle, but it is not yet a published public bundle revision.
 
+## Repository Copy Expectations
+
+The repository copy of `third_party/` does not need to mirror the complete
+bundle contents. For repository-side open-source review, the repository mainly
+keeps:
+
+- `third_party/README.md`
+- `third_party/LICENSES_BUNDLED.txt`
+
+The full third-party license texts, attribution materials, and modified
+third-party source trees are expected to be delivered in the matched standalone
+bundle.
+
 ## Usage
 
 Before building this PyTorch source package, extract the matched standalone
