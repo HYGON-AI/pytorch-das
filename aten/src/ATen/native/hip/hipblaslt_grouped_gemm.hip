@@ -94,6 +94,54 @@ int64_t blas_leading_dim(
   return layout == BlasMatrixLayout::RowMajor ? row_stride : col_stride;
 }
 
+#if (defined(USE_ROCM) && ROCM_VERSION >= 70000)
+#define AT_HIPBLASLT_EXT_HAS_ACCESSORS 1
+#else
+#define AT_HIPBLASLT_EXT_HAS_ACCESSORS 0
+#endif
+
+void set_hipblaslt_ext_epilogue_bias(
+    hipblaslt_ext::GemmEpilogue& epilogue,
+    hipDataType bias_type) {
+#if AT_HIPBLASLT_EXT_HAS_ACCESSORS
+  epilogue.setMode(HIPBLASLT_EPILOGUE_BIAS);
+  epilogue.setBiasDataType(bias_type);
+#else
+  epilogue.mode = HIPBLASLT_EPILOGUE_BIAS;
+  epilogue.bias_data_type = bias_type;
+#endif
+  return;
+}
+
+void set_hipblaslt_ext_inputs(
+    hipblaslt_ext::GemmInputs& inputs,
+    const void* a,
+    const void* b,
+    const void* c,
+    const void* d,
+    const void* alpha,
+    const void* beta,
+    const void* bias) {
+#if AT_HIPBLASLT_EXT_HAS_ACCESSORS
+  inputs.setA(a);
+  inputs.setB(b);
+  inputs.setC(c);
+  inputs.setD(d);
+  inputs.setAlpha(alpha);
+  inputs.setBeta(beta);
+  inputs.setBias(bias);
+#else
+  inputs.a = a;
+  inputs.b = b;
+  inputs.c = c;
+  inputs.d = d;
+  inputs.alpha = alpha;
+  inputs.beta = beta;
+  inputs.bias = bias;
+#endif
+  return;
+}
+
 struct HipBlasltUserArgs {
   HipBlasltUserArgs() : stream_(nullptr), raw_(nullptr), event_(nullptr) {}
   HipBlasltUserArgs(hipStream_t stream, size_t size, bool host)
@@ -311,8 +359,7 @@ void hipblaslt_groupedgemm(
     const hipDataType bias_type = _hip_type_from_scalar_type(bias[0]->scalar_type());
     TORCH_CHECK(bias_type == HIP_R_32F || bias_type == HIP_R_16BF,
                 "hipblaslt_groupedgemm: bias type must be f32 or bf16");
-    epilogue[0].mode = HIPBLASLT_EPILOGUE_BIAS;
-    epilogue[0].bias_data_type = bias_type;
+    set_hipblaslt_ext_epilogue_bias(epilogue[0], bias_type);
   }
 
   std::vector<hipblaslt_ext::GemmInputs> inputs(num_groups);
@@ -320,17 +367,15 @@ void hipblaslt_groupedgemm(
     TORCH_CHECK(m[i] > 0 && n[i] > 0 && k[i] > 0 && b[i] > 0,
                 "hipblaslt_groupedgemm: invalid problem dimensions at group ", i);
 
-    inputs[i].a = inputA[i].data_ptr();
-    inputs[i].b = inputB[i].data_ptr();
-    inputs[i].c = outputD[i].data_ptr();
-    inputs[i].d = outputD[i].data_ptr();
-    inputs[i].alpha = use_int8
-        ? static_cast<const void*>(&int_one)
-        : static_cast<const void*>(&one);
-    inputs[i].beta = use_int8
-        ? static_cast<const void*>(&int_zero)
-        : static_cast<const void*>(&beta_val);
-    inputs[i].bias = bias[i]->data_ptr();
+    set_hipblaslt_ext_inputs(
+        inputs[i],
+        inputA[i].data_ptr(),
+        inputB[i].data_ptr(),
+        outputD[i].data_ptr(),
+        outputD[i].data_ptr(),
+        use_int8 ? static_cast<const void*>(&int_one) : static_cast<const void*>(&one),
+        use_int8 ? static_cast<const void*>(&int_zero) : static_cast<const void*>(&beta_val),
+        bias[i]->data_ptr());
   }
 
   hipblaslt_ext::GroupedGemm grouped_gemm(
@@ -441,8 +486,7 @@ void hipblaslt_groupedgemm_raw(
     const hipDataType bias_type = _hip_type_from_scalar_type(bias_scalar_type);
     TORCH_CHECK(bias_type == HIP_R_32F || bias_type == HIP_R_16BF,
                 "hipblaslt_groupedgemm: bias type must be f32 or bf16");
-    epilogue[0].mode = HIPBLASLT_EPILOGUE_BIAS;
-    epilogue[0].bias_data_type = bias_type;
+    set_hipblaslt_ext_epilogue_bias(epilogue[0], bias_type);
   }
 
   std::vector<hipblaslt_ext::GemmInputs> inputs(num_groups);
@@ -450,17 +494,15 @@ void hipblaslt_groupedgemm_raw(
     TORCH_CHECK(m[i] > 0 && n[i] > 0 && k[i] > 0 && b[i] > 0,
                 "hipblaslt_groupedgemm: invalid problem dimensions at group ", i);
 
-    inputs[i].a = inputA[i];
-    inputs[i].b = inputB[i];
-    inputs[i].c = outputD[i];
-    inputs[i].d = outputD[i];
-    inputs[i].alpha = use_int8
-        ? static_cast<const void*>(&int_one)
-        : static_cast<const void*>(&one);
-    inputs[i].beta = use_int8
-        ? static_cast<const void*>(&int_zero)
-        : static_cast<const void*>(&beta_val);
-    inputs[i].bias = bias[i];
+    set_hipblaslt_ext_inputs(
+        inputs[i],
+        inputA[i],
+        inputB[i],
+        outputD[i],
+        outputD[i],
+        use_int8 ? static_cast<const void*>(&int_one) : static_cast<const void*>(&one),
+        use_int8 ? static_cast<const void*>(&int_zero) : static_cast<const void*>(&beta_val),
+        bias[i]);
   }
 
   hipblaslt_ext::GroupedGemm grouped_gemm(
