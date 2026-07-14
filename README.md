@@ -34,17 +34,15 @@ license terms.
 
 ## Third-Party Sources
 
-This release uses a split source-release model:
+Third-party libraries are managed as Git submodules, consistent with upstream
+PyTorch. Initialize them before building:
 
-- the PyTorch repository provides the main source tree, repository notices, and
-  release-facing documentation
-- a matched standalone third-party source bundle provides the `third_party/`
-  source tree used for build and redistribution
+```bash
+git submodule sync
+git submodule update --init --recursive
+```
 
-Before build, download the matched standalone third-party source bundle for this
-repository release. See [THIRD_PARTY_BUNDLE.md](THIRD_PARTY_BUNDLE.md) for the
-current bundle identifier, extraction path, release responsibilities, and
-compliance notes.
+The licenses for those libraries are provided in their respective repositories.
 
 ## Build and Installation
 

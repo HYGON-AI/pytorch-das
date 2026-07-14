@@ -1,17 +1,9 @@
 =======================================================================
 Software under third_party
 =======================================================================
-The upstream PyTorch repository references third-party software through
-submodule links and related build scripts. For Hygon PyTorch source releases,
-the third_party source tree may be provided as a separate matched source
-bundle.
-
-The matched third-party bundle must be extracted to third_party/ before build.
-License texts, copyright notices, NOTICE files, and Hygon modification records
-for third-party components are preserved in that standalone bundle.
-
-See THIRD_PARTY_BUNDLE.md for the current bundle information, extraction path,
-and compliance notes.
+Software libraries under third_party are provided as github submodule
+links, and their content is not part of the Caffe2 codebase. Their
+licences can be found under the respective software repositories.
 
 =======================================================================
 Earlier BSD License
@@ -462,15 +454,3 @@ and reference the following license:
     LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
     OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
     PERFORMANCE OF THIS SOFTWARE.
-
-=======================================================================
-Additional Third-Party Source File Attributions
-=======================================================================
-
-The repository source tree may contain files outside third_party/ that retain
-their own original third-party copyright or license notices.
-
-When a matched standalone third-party source bundle is used for build and
-redistribution, the complete third-party license texts, attribution materials,
-and modified third-party source records are expected to be delivered with that
-bundle.

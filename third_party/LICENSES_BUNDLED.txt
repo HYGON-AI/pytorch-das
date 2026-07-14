@@ -1,9 +1,5 @@
 The PyTorch repository and source distributions bundle several libraries that are
-compatibly licensed. We list these here.
-
-For Hygon PyTorch source releases that use a matched standalone third-party
-source bundle, the complete third-party license texts and additional attribution
-materials are expected to be delivered with that standalone bundle.
+compatibly licensed.  We list these here.
 
 Name: miniz-3.0.2
 License: MIT
