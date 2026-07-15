@@ -1,0 +1,24 @@
+# Copyright 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
+name: quality-baseline-scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      fail_on_hard_findings:
+        description: Fail this run when hard findings exist
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    uses: HYGON-AI/open-source-governance/.github/workflows/quality-baseline-reusable.yml@v0.1.0
+    with:
+      fail_on_hard_findings: ${{ inputs.fail_on_hard_findings }}
+      runner_labels_json: '["self-hosted","linux","x64","internal","quality"]'
+      trivy_skip_db_update: false
+      artifact_retention_days: 30
