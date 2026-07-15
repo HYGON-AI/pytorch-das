@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "project_name": "pytorch-das",
+  "project_type": "upstream-derived",
+  "target_branch": "2.12.0-dev-opensources",
+  "license_id": "BSD-3-Clause",
+  "company_name": "Hygon Information Technology Co., Ltd.",
+  "compliance": {
+    "profile": "compliance-standard-v1",
+    "upstream_repo": "https://github.com/pytorch/pytorch.git",
+    "upstream_ref": "v2.12.0",
+    "expected_upstream_commit": "0d62256a2b23365f8e1604297eb23a6545102aa8"
+  },
+  "quality": {
+    "profile": "quality-standard-v1",
+    "max_file_mb": 50
+  },
+  "quality_gate": {
+    "profile": "pr-gate-standard-v1"
+  }
+}
