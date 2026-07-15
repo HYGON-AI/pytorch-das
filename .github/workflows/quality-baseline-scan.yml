@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   scan:
-    uses: HYGON-AI/open-source-governance/.github/workflows/quality-baseline-reusable.yml@v0.1.1
+    uses: HYGON-AI/open-source-governance/.github/workflows/quality-baseline-reusable.yml@v0.1.2
     with:
       fail_on_hard_findings: ${{ inputs.fail_on_hard_findings }}
       runner_labels_json: '["self-hosted","linux","x64","internal","quality"]'
