@@ -11,6 +11,11 @@
 #include <ATen/native/TensorIterator.h>
 #include <ATen/native/cuda/Loops.cuh>
 
+#include <array>
+#include <cstdlib>
+#include <cstring>
+#include <limits>
+
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
 #else
@@ -208,9 +213,305 @@ void float8_copy_kernel_cuda(TensorIteratorBase &iter) {
   }
 }
 
+
+namespace {
+
+constexpr int kPermuteCopyMaxDims = 8;
+constexpr int kTransposeTileDim = 32;
+constexpr int kTransposeBlockRows = 8;
+constexpr int kTransposeSmallDimThreshold = 16;
+constexpr int kTransposeSmallDimThreads = 256;
+
+struct Transpose2DDesc {
+  int64_t rows;
+  int64_t cols;
+};
+
+bool permute_copy_fastpath_enabled() {
+  static const bool enabled = [] {
+    const char* value = std::getenv("PYTORCH_PERMUTE_COPY_FASTPATH");
+    return value == nullptr || std::strcmp(value, "0") != 0;
+  }();
+  return enabled;
+}
+
+bool is_supported_permute_copy_dtype(ScalarType dtype) {
+  return dtype == kHalf || dtype == kFloat || dtype == kBFloat16;
+}
+
+bool can_launch_permute_copy_transpose2d(const Transpose2DDesc& desc) {
+  const auto* dprops = at::cuda::getCurrentDeviceProperties();
+  const int64_t max_grid_x = static_cast<int64_t>(dprops->maxGridSize[0]);
+  const int64_t max_grid_y = static_cast<int64_t>(dprops->maxGridSize[1]);
+  const int64_t max_u32 = static_cast<int64_t>(std::numeric_limits<unsigned int>::max());
+  const bool small = desc.rows <= kTransposeSmallDimThreshold || desc.cols <= kTransposeSmallDimThreshold;
+  const int64_t minor = desc.rows <= kTransposeSmallDimThreshold ? desc.cols : desc.rows;
+  const int64_t grid_x = small ? (minor + kTransposeSmallDimThreads - 1) / kTransposeSmallDimThreads
+                                : (desc.cols + kTransposeTileDim - 1) / kTransposeTileDim;
+  const int64_t grid_y = small ? 1 : (desc.rows + kTransposeTileDim - 1) / kTransposeTileDim;
+  return grid_x > 0 && grid_y > 0 &&
+      grid_x <= max_grid_x && grid_y <= max_grid_y &&
+      grid_x <= max_u32 && grid_y <= max_u32;
+}
+
+bool classify_2d_transpose(const Tensor& src, const Tensor& dst, Transpose2DDesc& transpose) {
+  if (!dst.is_contiguous() || src.is_contiguous() || src.sizes() != dst.sizes()) {
+    return false;
+  }
+
+  std::array<int64_t, kPermuteCopyMaxDims> sizes{};
+  std::array<int64_t, kPermuteCopyMaxDims> strides{};
+  int ndim = 0;
+  for (int64_t dim = 0; dim < dst.dim(); ++dim) {
+    if (dst.size(dim) == 1) {
+      continue;
+    }
+    if (ndim >= kPermuteCopyMaxDims) {
+      return false;
+    }
+    sizes[ndim] = dst.size(dim);
+    strides[ndim] = src.stride(dim);
+    ++ndim;
+  }
+  if (ndim < 2) {
+    return false;
+  }
+
+  std::array<int, kPermuteCopyMaxDims> physical_order{};
+  for (int i = 0; i < ndim; ++i) {
+    physical_order[i] = i;
+  }
+  for (int i = 1; i < ndim; ++i) {
+    int key = physical_order[i];
+    int j = i - 1;
+    while (j >= 0 && strides[physical_order[j]] > strides[key]) {
+      physical_order[j + 1] = physical_order[j];
+      --j;
+    }
+    physical_order[j + 1] = key;
+  }
+
+  for (int i = 0; i < ndim; ++i) {
+    if (strides[physical_order[i]] <= 0) {
+      return false;
+    }
+  }
+  if (strides[physical_order[0]] != 1) {
+    return false;
+  }
+  for (int i = 1; i < ndim; ++i) {
+    const int prev_dim = physical_order[i - 1];
+    const int cur_dim = physical_order[i];
+    if (strides[cur_dim] != strides[prev_dim] * sizes[prev_dim]) {
+      return false;
+    }
+  }
+
+  for (int split = 1; split < ndim; ++split) {
+    bool prefix_is_fastest = true;
+    for (int i = 0; i < split; ++i) {
+      if (physical_order[i] != split - 1 - i) {
+        prefix_is_fastest = false;
+        break;
+      }
+    }
+    bool suffix_is_slowest = true;
+    for (int i = split; i < ndim; ++i) {
+      if (physical_order[i] != ndim - 1 - (i - split)) {
+        suffix_is_slowest = false;
+        break;
+      }
+    }
+    if (prefix_is_fastest && suffix_is_slowest) {
+      int64_t rows = 1;
+      int64_t cols = 1;
+      for (int i = split; i < ndim; ++i) {
+        rows *= sizes[i];
+      }
+      for (int i = 0; i < split; ++i) {
+        cols *= sizes[i];
+      }
+      if (rows > 1 && cols > 1) {
+        transpose.rows = rows;
+        transpose.cols = cols;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+template <typename scalar_t, int TILE_DIM, int BLOCK_ROWS>
+C10_LAUNCH_BOUNDS_1(TILE_DIM * BLOCK_ROWS)
+__global__ void permute_copy_transpose2d_kernel(
+    const scalar_t* C10_RESTRICT src,
+    scalar_t* C10_RESTRICT dst,
+    int64_t rows,
+    int64_t cols) {
+  constexpr int kTilePad = 1;
+  __shared__ scalar_t tile[TILE_DIM][TILE_DIM + kTilePad];
+
+  int64_t x = static_cast<int64_t>(blockIdx.x) * TILE_DIM + threadIdx.x;
+  int64_t y = static_cast<int64_t>(blockIdx.y) * TILE_DIM + threadIdx.y;
+
+#pragma unroll
+  for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+    if (x < cols && y + j < rows) {
+      tile[threadIdx.y + j][threadIdx.x] = src[(y + j) * cols + x];
+    }
+  }
+
+  __syncthreads();
+
+  x = static_cast<int64_t>(blockIdx.y) * TILE_DIM + threadIdx.x;
+  y = static_cast<int64_t>(blockIdx.x) * TILE_DIM + threadIdx.y;
+
+#pragma unroll
+  for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+    if (x < rows && y + j < cols) {
+      dst[(y + j) * rows + x] = tile[threadIdx.x][threadIdx.y + j];
+    }
+  }
+}
+
+template <typename scalar_t>
+C10_LAUNCH_BOUNDS_1(kTransposeSmallDimThreads)
+__global__ void permute_copy_transpose2d_small_rows_kernel(
+    const scalar_t* C10_RESTRICT src,
+    scalar_t* C10_RESTRICT dst,
+    int64_t rows,
+    int64_t cols) {
+  const int64_t col = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (col >= cols) {
+    return;
+  }
+
+#pragma unroll
+  for (int64_t row = 0; row < kTransposeSmallDimThreshold; ++row) {
+    if (row < rows) {
+      dst[col * rows + row] = src[row * cols + col];
+    }
+  }
+}
+
+template <typename scalar_t>
+C10_LAUNCH_BOUNDS_1(kTransposeSmallDimThreads)
+__global__ void permute_copy_transpose2d_small_cols_kernel(
+    const scalar_t* C10_RESTRICT src,
+    scalar_t* C10_RESTRICT dst,
+    int64_t rows,
+    int64_t cols) {
+  const int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (row >= rows) {
+    return;
+  }
+
+#pragma unroll
+  for (int64_t col = 0; col < kTransposeSmallDimThreshold; ++col) {
+    if (col < cols) {
+      dst[col * rows + row] = src[row * cols + col];
+    }
+  }
+}
+
+template <typename scalar_t>
+void launch_permute_copy_transpose2d(const Tensor& src, Tensor& dst, const Transpose2DDesc& desc) {
+  auto stream = at::cuda::getCurrentCUDAStream();
+  if (desc.rows <= kTransposeSmallDimThreshold) {
+    const int64_t blocks = (desc.cols + kTransposeSmallDimThreads - 1) / kTransposeSmallDimThreads;
+    permute_copy_transpose2d_small_rows_kernel<scalar_t>
+        <<<blocks, kTransposeSmallDimThreads, 0, stream>>>(
+            src.const_data_ptr<scalar_t>(),
+            dst.mutable_data_ptr<scalar_t>(),
+            desc.rows,
+            desc.cols);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return;
+  }
+  if (desc.cols <= kTransposeSmallDimThreshold) {
+    const int64_t blocks = (desc.rows + kTransposeSmallDimThreads - 1) / kTransposeSmallDimThreads;
+    permute_copy_transpose2d_small_cols_kernel<scalar_t>
+        <<<blocks, kTransposeSmallDimThreads, 0, stream>>>(
+            src.const_data_ptr<scalar_t>(),
+            dst.mutable_data_ptr<scalar_t>(),
+            desc.rows,
+            desc.cols);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return;
+  }
+
+  dim3 block(kTransposeTileDim, kTransposeBlockRows);
+  dim3 grid(
+      static_cast<unsigned int>((desc.cols + kTransposeTileDim - 1) / kTransposeTileDim),
+      static_cast<unsigned int>((desc.rows + kTransposeTileDim - 1) / kTransposeTileDim));
+  permute_copy_transpose2d_kernel<scalar_t, kTransposeTileDim, kTransposeBlockRows>
+      <<<grid, block, 0, stream>>>(
+          src.const_data_ptr<scalar_t>(),
+          dst.mutable_data_ptr<scalar_t>(),
+          desc.rows,
+          desc.cols);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+bool try_permute_materialize_copy_cuda(TensorIteratorBase& iter) {
+  if (!permute_copy_fastpath_enabled()) {
+    return false;
+  }
+  if (iter.noutputs() != 1 || iter.ninputs() != 1) {
+    return false;
+  }
+  if (iter.dtype(0) != iter.dtype(1) || !is_supported_permute_copy_dtype(iter.dtype(0))) {
+    return false;
+  }
+
+  Tensor dst = iter.output(0);
+  const Tensor src = iter.input(0);
+  if (src.is_contiguous()) {
+    return false;
+  }
+  if (!dst.is_cuda() || !src.is_cuda() || dst.device() != src.device() ||
+      dst.numel() == 0 || dst.sizes() != src.sizes()) {
+    return false;
+  }
+  if (src.is_alias_of(dst)) {
+    return false;
+  }
+  if (!src.is_non_overlapping_and_dense() || !dst.is_non_overlapping_and_dense()) {
+    return false;
+  }
+
+  Transpose2DDesc transpose{};
+  if (!dst.is_contiguous() || !classify_2d_transpose(src, dst, transpose)) {
+    return false;
+  }
+  if (!can_launch_permute_copy_transpose2d(transpose)) {
+    return false;
+  }
+
+  switch (iter.dtype(0)) {
+    case kHalf:
+      launch_permute_copy_transpose2d<Half>(src, dst, transpose);
+      return true;
+    case kFloat:
+      launch_permute_copy_transpose2d<float>(src, dst, transpose);
+      return true;
+    case kBFloat16:
+      launch_permute_copy_transpose2d<BFloat16>(src, dst, transpose);
+      return true;
+    default:
+      return false;
+  }
+}
+
+} // namespace
+
 // TODO: We probably can use the opaque type trick to avoid creating duplicate
 // kernels for equivalent bit lengths
 void direct_copy_kernel_cuda(TensorIteratorBase &iter) {
+  if (try_permute_materialize_copy_cuda(iter)) {
+    return;
+  }
+
   ScalarType dtype = iter.dtype(0);
   if (isQIntType(dtype)) {
     AT_DISPATCH_QINT_TYPES(dtype, "copy_", [&] {
