@@ -1,0 +1,21 @@
+name: Quality Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - "2.12.0-dev-opensources"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Checks
+    uses: HYGON-AI/open-source-governance/.github/workflows/pr-quality-gate.yml@06c58218abacc2b96894628e2586530ac319a4e5
+    permissions:
+      contents: read
