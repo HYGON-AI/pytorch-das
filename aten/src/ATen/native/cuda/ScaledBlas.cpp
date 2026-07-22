@@ -535,6 +535,16 @@ _scaled_mm_out_cuda(const Tensor& mat1, const Tensor& mat2,
   if (mat1.scalar_type() == ScalarType::Float8_e4m3fn || mat2.scalar_type() == ScalarType::Float8_e4m3fn) {
     TORCH_CHECK(ROCM_VERSION >= 60300, "Float8_e4m3fn is only supported for ROCm 6.3 and above");
   }
+  if (!_scaled_mm_is_fnuz()) {
+    TORCH_CHECK(
+        mat1.scalar_type() != ScalarType::Float8_e4m3fnuz &&
+            mat2.scalar_type() != ScalarType::Float8_e4m3fnuz &&
+            mat1.scalar_type() != ScalarType::Float8_e5m2fnuz &&
+            mat2.scalar_type() != ScalarType::Float8_e5m2fnuz,
+        "torch._scaled_mm on this architecture does not support Float8 FNUZ inputs; "
+        "use Float8 non-FNUZ dtypes. hipBLASLt maps FNUZ types to non-FNUZ "
+        "types on this hardware");
+  }
 #endif
   if (bias) {
     TORCH_CHECK(out.scalar_type() != kFloat,
@@ -605,15 +615,10 @@ _scaled_mm_out_cuda(const Tensor& mat1, const Tensor& mat2,
     }
 #else
     // For ROCm, match behavior of f8f8bf16_rowwise type checking, for unit test purposes.
-    Tensor b = mat2;
-    if (_scaled_mm_is_fnuz()) {
-      TORCH_CHECK_VALUE(b.dtype() == at::kFloat8_e4m3fnuz,
-          "Expected b.dtype() == at::kFloat8_e4m3fnuz, got: ", b.dtype());
-    }
-    else {
-      TORCH_CHECK_VALUE(b.dtype() == at::kFloat8_e4m3fn,
-          "Expected b.dtype() == at::kFloat8_e4m3fn, got: ", b.dtype());
-    }
+    TORCH_CHECK_VALUE(
+        (mat1.dtype() == at::kFloat8_e4m3fn || mat1.dtype() == at::kFloat8_e5m2) &&
+            (mat2.dtype() == at::kFloat8_e4m3fn || mat2.dtype() == at::kFloat8_e5m2),
+        "hipblaslt rowwise _scaled_mm expects Float8_e4m3fn or Float8_e5m2 inputs on this architecture");
     // Until more than bf16 is supported.
     TORCH_CHECK_VALUE(out.scalar_type() == ScalarType::BFloat16,
          "hipblaslt rowwise _scaled_mm only supports BFloat16 output but got ", out.scalar_type());
@@ -754,13 +759,10 @@ _scaled_rowwise_rowwise(
 #else
 
   // For ROCm, match behavior of f8f8bf16_rowwise type checking, for unit test purposes.
-  //Tensor b = mat_b;
-  if (_scaled_mm_is_fnuz()) {
-    TORCH_CHECK_VALUE(mat_b.dtype() == at::kFloat8_e4m3fnuz, "expected mat_b.dtype() to be at::kFloat8_e4m3fnuz, but got ", mat_b.dtype());
-  }
-  else {
-    TORCH_CHECK_VALUE(mat_b.dtype() == at::kFloat8_e4m3fn, "expected mat_b.dtype() to be at::kFloat8_e4m3fn, but got ", mat_b.dtype());
-  }
+  TORCH_CHECK_VALUE(
+      (mat_a.dtype() == at::kFloat8_e4m3fn || mat_a.dtype() == at::kFloat8_e5m2) &&
+          (mat_b.dtype() == at::kFloat8_e4m3fn || mat_b.dtype() == at::kFloat8_e5m2),
+      "hipblaslt rowwise _scaled_mm expects Float8_e4m3fn or Float8_e5m2 inputs on this architecture");
   // Until more than bf16 is supported.
   TORCH_CHECK_VALUE(out.scalar_type() == ScalarType::BFloat16,
        "hipblaslt rowwise _scaled_mm only supports BFloat16 output but got ", out.scalar_type());
@@ -1403,6 +1405,16 @@ _scaled_mm_cuda_v2_out(
   if (mat_a.scalar_type() == ScalarType::Float8_e4m3fn || mat_b.scalar_type() == ScalarType::Float8_e4m3fn) {
     TORCH_CHECK_NOT_IMPLEMENTED(ROCM_VERSION >= 60300,
         "Float8_e4m3fn is only supported for ROCm 6.3 and above");
+  }
+  if (!_scaled_mm_is_fnuz()) {
+    TORCH_CHECK_NOT_IMPLEMENTED(
+        mat_a.scalar_type() != ScalarType::Float8_e4m3fnuz &&
+            mat_b.scalar_type() != ScalarType::Float8_e4m3fnuz &&
+            mat_a.scalar_type() != ScalarType::Float8_e5m2fnuz &&
+            mat_b.scalar_type() != ScalarType::Float8_e5m2fnuz,
+        "torch._scaled_mm on this architecture does not support Float8 FNUZ inputs; "
+        "use Float8 non-FNUZ dtypes. hipBLASLt maps FNUZ types to non-FNUZ "
+        "types on this hardware");
   }
 #endif
   if (bias) {
