@@ -54,7 +54,10 @@ class RocshmemLibFinder:
 
         lib_name = f"librocshmem_device_{arch}.bc"
 
+        rocshmem_home = os.environ.get("ROCSHMEM_HOME")
         search_paths = [
+            os.path.join(rocshmem_home, "lib64") if rocshmem_home else None,
+            "/opt/rocmshmem/lib64",
             os.path.join(sysconfig.get_path("purelib"), "amd", "rocshmem", "lib"),
             "/opt/rocm/lib",
             "/usr/local/lib",
@@ -428,32 +431,173 @@ if has_triton():
             _semantic=_semantic,
         )
 
-    # Collective stubs: rocSHMEM *_wg collectives are not exposed in current
-    # device bitcode, so Triton kernels cannot call them yet.
+    def _rocshmem_collective_type(dtype) -> str:  # type: ignore[no-untyped-def]
+        dtype_name = str(dtype).replace("tl.", "")
+        dtype_map = {
+            "int8": "schar",
+            "uint8": "uchar",
+            "int16": "short",
+            "uint16": "ushort",
+            "int32": "int",
+            "uint32": "uint",
+            "int64": "longlong",
+            "uint64": "ulonglong",
+            "fp32": "float",
+            "fp64": "double",
+        }
+        if dtype_name not in dtype_map:
+            raise TypeError(
+                f"Unsupported rocSHMEM collective dtype: {dtype_name}. "
+                f"Supported dtypes: {list(dtype_map.keys())}"
+            )
+        return dtype_map[dtype_name]
+
+    def _rocshmem_reduce_type(dtype) -> str:  # type: ignore[no-untyped-def]
+        dtype_name = str(dtype).replace("tl.", "")
+        dtype_map = {
+            "int16": "short",
+            "int32": "int",
+            "int64": "longlong",
+            "fp32": "float",
+            "fp64": "double",
+        }
+        if dtype_name not in dtype_map:
+            raise TypeError(
+                f"Unsupported rocSHMEM reduce dtype: {dtype_name}. "
+                f"Supported dtypes: {list(dtype_map.keys())}"
+            )
+        return dtype_map[dtype_name]
 
     @triton.jit
     def alltoall(team, dest, source, nelems_per_pe):  # type: ignore[no-untyped-def]
-        """Not available: rocshmem_alltoallmem_wg is not in current device bitcode."""
-        tl.static_assert(
-            False,
-            "rocshmem_alltoallmem_wg is not available in current device bitcode. "
-            "Use host-side rocshmem_alltoallmem_on_stream instead.",
+        """Workgroup-scoped fixed-size all-to-all over a rocSHMEM team."""
+        tl.static_assert(dest.type == source.type)
+        return _alltoall_wg(
+            team.to(tl.int64),
+            dest.to(tl.int64),
+            source.to(tl.int64),
+            nelems_per_pe.to(tl.int32),
+            dest.type.element_ty,
+        )
+
+    @core.extern
+    def _alltoall_wg(  # type: ignore[no-untyped-def]
+        team,
+        dest,
+        source,
+        nelems_per_pe,
+        dtype,
+        _semantic=None,
+    ):
+        type_name = _rocshmem_collective_type(dtype)
+        return core.extern_elementwise(
+            "",
+            "",
+            [team, dest, source, nelems_per_pe],
+            {
+                (
+                    core.dtype("int64"),
+                    core.dtype("int64"),
+                    core.dtype("int64"),
+                    core.dtype("int32"),
+                ): (f"rocshmem_{type_name}_alltoall_wg", core.dtype("int32"))
+            },
+            is_pure=False,
+            _semantic=_semantic,
         )
 
     @triton.jit
     def broadcast(team, dest, source, nelems, pe_root):  # type: ignore[no-untyped-def]
-        """Not available: rocshmem_broadcastmem_wg is not in current device bitcode."""
-        tl.static_assert(
-            False,
-            "rocshmem_broadcastmem_wg is not available in current device bitcode. "
-            "Use host-side rocshmem_broadcastmem_on_stream instead.",
+        """Workgroup-scoped broadcast over a rocSHMEM team."""
+        tl.static_assert(dest.type == source.type)
+        return _broadcast_wg(
+            team.to(tl.int64),
+            dest.to(tl.int64),
+            source.to(tl.int64),
+            nelems.to(tl.int32),
+            pe_root.to(tl.int32),
+            dest.type.element_ty,
+        )
+
+    @core.extern
+    def _broadcast_wg(  # type: ignore[no-untyped-def]
+        team,
+        dest,
+        source,
+        nelems,
+        pe_root,
+        dtype,
+        _semantic=None,
+    ):
+        type_name = _rocshmem_collective_type(dtype)
+        return core.extern_elementwise(
+            "",
+            "",
+            [team, dest, source, nelems, pe_root],
+            {
+                (
+                    core.dtype("int64"),
+                    core.dtype("int64"),
+                    core.dtype("int64"),
+                    core.dtype("int32"),
+                    core.dtype("int32"),
+                ): (f"rocshmem_{type_name}_broadcast_wg", core.dtype("int32"))
+            },
+            is_pure=False,
+            _semantic=_semantic,
         )
 
     @triton.jit
     def reduce(team, dest, source, nreduce, operation: tl.constexpr):  # type: ignore[no-untyped-def]
-        """Not available: rocshmem team reduce wg ops are not in current device bitcode."""
+        """Workgroup-scoped team reduction for rocSHMEM-supported dtypes."""
+        tl.static_assert(dest.type == source.type)
         tl.static_assert(
-            False,
-            "rocshmem team reduce is not available in current device bitcode. "
-            "Use host-side rocshmem reduce API instead.",
+            source.type.element_ty == tl.int16
+            or source.type.element_ty == tl.int32
+            or source.type.element_ty == tl.int64
+            or source.type.element_ty == tl.float32
+            or source.type.element_ty == tl.float64,
+            "rocSHMEM Triton reduce currently supports int16, int32, int64, "
+            "float32, and float64 only.",
+        )
+        return _reduce_wg(
+            team,
+            dest.to(tl.int64),
+            source.to(tl.int64),
+            nreduce.to(tl.int32),
+            operation,
+            dest.type.element_ty,
+        )
+
+    @core.extern
+    def _reduce_wg(  # type: ignore[no-untyped-def]
+        team,
+        dest,
+        source,
+        nreduce,
+        operation,
+        dtype,
+        _semantic=None,
+    ):
+        op_name = operation.value if hasattr(operation, "value") else operation
+        if op_name not in {"sum", "min", "max", "prod"}:
+            raise ValueError(
+                "Unsupported rocSHMEM reduce operation: "
+                f"{op_name}. Supported ops are sum, min, max, prod."
+            )
+        type_name = _rocshmem_reduce_type(dtype)
+        return core.extern_elementwise(
+            "",
+            "",
+            [team, dest, source, nreduce],
+            {
+                (
+                    core.dtype("int32"),
+                    core.dtype("int64"),
+                    core.dtype("int64"),
+                    core.dtype("int32"),
+                ): (f"rocshmem_{type_name}_{op_name}_reduce_wg", core.dtype("int32"))
+            },
+            is_pure=False,
+            _semantic=_semantic,
         )

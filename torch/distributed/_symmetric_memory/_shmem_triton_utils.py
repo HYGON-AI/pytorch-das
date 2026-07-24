@@ -78,7 +78,7 @@ if has_triton():
     def build_requires_shmem_decorator(  # type: ignore[no-untyped-def]
         *,
         jit_func,
-        find_device_library: Callable[[], str],
+        find_device_library: Callable[[], str | dict[str, str]],
         extern_libs_key: str,
         registry: type[ShmemKernelRegistry],
         init_hook: Callable[..., None],
@@ -95,7 +95,10 @@ if has_triton():
             )
 
         lib_path = find_device_library()
-        extern_libs = {extern_libs_key: lib_path}
+        if isinstance(lib_path, dict):
+            extern_libs = lib_path
+        else:
+            extern_libs = {extern_libs_key: lib_path}
         registry.register(jit_func.fn.__name__)
         triton.knobs.runtime.jit_post_compile_hook = init_hook
         return GridCallableWithExtern(jit_func, extern_libs)
