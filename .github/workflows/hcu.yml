@@ -1,0 +1,64 @@
+name: hcu
+
+on:
+  push:
+    tags:
+      - ciflow/hcu/*
+  workflow_dispatch:
+    inputs:
+      tests-to-include:
+        description: Space-separated tests passed to the existing PyTorch test runner.
+        required: false
+        default: ""
+        type: string
+  schedule:
+    - cron: 0 18 * * *
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id }}-${{ github.event_name == 'schedule' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  hcu-preflight:
+    if: ${{ github.repository == 'HYGON-AI/pytorch-das' && vars.HCU_CI_ENABLED == 'true' }}
+    uses: ./.github/workflows/_hcu-preflight.yml
+    with:
+      hcu-enabled: true
+      hcu-build-runner: ${{ vars.HCU_BUILD_RUNNER }}
+      hcu-test-runner: ${{ vars.HCU_TEST_RUNNER }}
+      hcu-ci-image: ${{ vars.HCU_CI_IMAGE }}
+      expected-device-count: ${{ vars.HCU_EXPECTED_DEVICE_COUNT }}
+
+  hcu-build:
+    if: ${{ needs.hcu-preflight.outputs.allowed == 'true' }}
+    needs: hcu-preflight
+    uses: ./.github/workflows/_hcu-build.yml
+    with:
+      runner: ${{ vars.HCU_BUILD_RUNNER }}
+      ci-image: ${{ vars.HCU_CI_IMAGE }}
+      artifact-name: hcu-build-${{ github.run_id }}-${{ github.run_attempt }}
+      build-environment: linux-jammy-rocm-hcu-py3.10
+
+  hcu-test:
+    if: ${{ needs.hcu-build.result == 'success' }}
+    needs: hcu-build
+    uses: ./.github/workflows/_hcu-test.yml
+    with:
+      runner: ${{ vars.HCU_TEST_RUNNER }}
+      ci-image: ${{ vars.HCU_CI_IMAGE }}
+      expected-device-count: ${{ vars.HCU_EXPECTED_DEVICE_COUNT }}
+      artifact-name: ${{ needs.hcu-build.outputs.artifact-name }}
+      build-environment: ${{ needs.hcu-build.outputs.build-environment }}
+      tests-to-include: ${{ github.event.inputs.tests-to-include || '' }}
+      test-matrix: |
+        {"include":[
+          {"config":"smoke","shard":1,"num_shards":1},
+          {"config":"default","shard":1,"num_shards":3},
+          {"config":"default","shard":2,"num_shards":3},
+          {"config":"default","shard":3,"num_shards":3},
+          {"config":"distributed","shard":1,"num_shards":1}
+        ]}
