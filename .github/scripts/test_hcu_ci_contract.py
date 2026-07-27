@@ -51,6 +51,7 @@ class HcuCiContractTest(unittest.TestCase):
 
         self.assertIn("HCU_REUSE_OLD_WHL: \"0\"", build_workflow)
         self.assertIn("hcu-build-manifest.json", build_workflow)
+        self.assertIn("--volume /opt/hyhal:/opt/hyhal:ro", build_workflow)
         self.assertIn("uses: ./.github/actions/upload-build-artifacts", build_workflow)
         self.assertIn("use-gha: true", build_workflow)
         self.assertIn("SOURCE_SHA: ${{ github.sha }}", build_workflow)
