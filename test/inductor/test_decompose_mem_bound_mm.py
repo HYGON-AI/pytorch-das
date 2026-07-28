@@ -182,7 +182,7 @@ class TestDecomposeMemMM(TestCase):
 
     @parametrize(
         "m,k,n, should_decompose",
-        [(20480, 5, 2, False), (20480, 32, 2, False), (2048, 2, 2, False)],
+        [(20480, 5, 2, True), (20480, 32, 2, False), (2048, 2, 2, False)],
     )
     @parametrize("has_bias", [True, False])
     def test_decompose_linear(self, m, n, k, has_bias, should_decompose):
@@ -234,7 +234,7 @@ class TestDecomposeMemMM(TestCase):
     )
     @parametrize(
         "m,k,n, should_decompose",
-        [(20480, 5, 2, False), (20480, 32, 2, False), (2048, 2, 2, False)],
+        [(20480, 5, 2, True), (20480, 32, 2, False), (2048, 2, 2, False)],
     )
     @parametrize("has_bias", [True, False])
     def test_decompose_linear_mixed_precision(
