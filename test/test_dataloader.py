@@ -1989,7 +1989,6 @@ except RuntimeError as e:
     def test_multiprocessing_iterdatapipe(self):
         self._test_multiprocessing_iterdatapipe(with_dill=False)
 
-    @unittest.expectedFailure
     @skipIfNoNumpy
     @unittest.skipIf(not TEST_CUDA_IPC, "CUDA IPC not available")
     @skipIfNoDill
