@@ -1867,9 +1867,11 @@ class FakeTensorMode(TorchDispatchMode):
         if is_sparse_compressed(output):
             raise _BypassDispatchCache("sparse compressed output")
 
+        from torch.fx.experimental.symbolic_shapes import statically_known_true
+
         if (
             not (isinstance(func, torch._ops.OpOverload) and func.is_view)
-            and output.storage_offset() != 0
+            and not statically_known_true(output.storage_offset() == 0)
         ):
             raise _BypassDispatchCache("non-zero storage offset output")
 
