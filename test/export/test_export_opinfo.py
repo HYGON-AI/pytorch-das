@@ -3,6 +3,7 @@
 # flake8: noqa
 
 import itertools
+import os
 import subprocess
 import sys
 import unittest
@@ -41,13 +42,11 @@ export_failures = {
     xfail("linalg.lstsq", "grad_oriented"),
     xfail("nn.functional.ctc_loss"),
     xfail("nn.functional.gaussian_nll_loss"),
-    xfail("sparse.sampled_addmm"),
     xfail("tensor_split"),
 }
 
 # following are failing fake export on cuda device
 fake_export_failures = {
-    xfail("geqrf"),
     xfail("histogram"),
     xfail("masked.amax"),
     xfail("masked.amin"),
@@ -60,14 +59,6 @@ fake_export_failures = {
     xfail("masked.std"),
     xfail("masked.sum"),
     xfail("masked.var"),
-    xfail("nn.functional.grid_sample"),
-    xfail("to_sparse"),
-    # following are failing due to OptionalDeviceGuard
-    xfail("__getitem__"),
-    xfail("nn.functional.batch_norm"),
-    xfail("nn.functional.instance_norm"),
-    xfail("nn.functional.multi_margin_loss"),
-    xfail("nonzero"),
 }
 
 fake_decomposition_failures = {
@@ -215,7 +206,7 @@ for op in ops:
             (
                 subprocess.check_output(
                     [sys.executable, "-c", test_script],
-                    env={"CUDA_VISIBLE_DEVICES": ""},
+                    env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
                 )
             )
             .decode("ascii")
@@ -282,7 +273,7 @@ cuda_calls_behavior_unchanged()
             (
                 subprocess.check_output(
                     [sys.executable, "-c", test_script],
-                    env={"CUDA_VISIBLE_DEVICES": ""},
+                    env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
                 )
             )
             .decode("ascii")
