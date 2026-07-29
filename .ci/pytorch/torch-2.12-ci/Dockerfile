@@ -45,8 +45,11 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # 安装 GCC Toolset 13
 # ----------------------------
 
-RUN wget "${RESOURCE_SERVER}/thirdparty/rpms.tar.gz" \
-        -O /tmp/rpms.tar.gz && \
+RUN wget \
+        --timeout=30 \
+        --tries=3 \
+        -O /tmp/rpms.tar.gz \
+        "${RESOURCE_SERVER}/thirdparty/rpms.tar.gz" && \
     mkdir -p /tmp/rpms && \
     tar -xf /tmp/rpms.tar.gz \
         -C /tmp/rpms && \
@@ -97,14 +100,10 @@ COPY dtk/ ${ROCM_PATH}/
 
 COPY pytorch/ ${TOOLKIT_DIR}/
 
-
 # ----------------------------
 # 拷贝环境准备脚本
 # ----------------------------
-
 COPY prepare.sh /usr/local/bin/prepare-pytorch.sh
-
-
 # ----------------------------
 # 准备 PyTorch 2.12 编译环境
 #
@@ -120,7 +119,6 @@ COPY prepare.sh /usr/local/bin/prepare-pytorch.sh
 RUN chmod 755 /usr/local/bin/prepare-pytorch.sh && \
     /usr/local/bin/prepare-pytorch.sh && \
     rm -f /usr/local/bin/prepare-pytorch.sh
-
 
 # ----------------------------
 # 拷贝编译脚本
@@ -149,9 +147,7 @@ RUN echo "===== PyTorch 2.12 build environment =====" && \
     test -f "${TOOLKIT_DIR}/version.txt" && \
     echo "Source version: $(cat "${TOOLKIT_DIR}/version.txt")"
 
-
 WORKDIR /pytorch
-
 
 # 容器保持运行，由 GitHub Actions 使用 docker exec 执行编译
 CMD ["tail", "-f", "/dev/null"]
