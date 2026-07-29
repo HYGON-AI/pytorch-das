@@ -63,9 +63,9 @@ jobs:
           ls -la /opt/dtk | head -n 20
 
           echo "===== CI files ====="
-          test -f .ci/pytorch/github-2.12/Dockerfile
-          test -f .ci/pytorch/github-2.12/prepare.sh
-          test -f .ci/pytorch/github-2.12/build.sh
+          test -f .ci/pytorch/torch-2.12-ci/Dockerfile
+          test -f .ci/pytorch/torch-2.12-ci/prepare.sh
+          test -f .ci/pytorch/torch-2.12-ci/build.sh
 
       # 3. 准备 Docker build context
       #
@@ -89,15 +89,15 @@ jobs:
 
           # 拷贝 Dockerfile 和脚本
           cp \
-            .ci/pytorch/github-2.12/Dockerfile \
+            .ci/pytorch/torch-2.12-ci/Dockerfile \
             "${BUILD_CONTEXT}/Dockerfile"
 
           cp \
-            .ci/pytorch/github-2.12/prepare.sh \
+            .ci/pytorch/torch-2.12-ci/prepare.sh \
             "${BUILD_CONTEXT}/prepare.sh"
 
           cp \
-            .ci/pytorch/github-2.12/build.sh \
+            .ci/pytorch/torch-2.12-ci/build.sh \
             "${BUILD_CONTEXT}/build.sh"
 
           # 防止脚本在 Windows 提交后带 CRLF
