@@ -12,9 +12,11 @@ permissions:
 
 jobs:
   build:
-    runs-on: self-hosted
-
-    # PyTorch 编译时间较长，给 6 小时
+    runs-on: 
+      - self-hosted          
+      - Linux
+      - X64
+      - hygon-hcu-torch
     timeout-minutes: 360
 
     env:
@@ -134,7 +136,15 @@ jobs:
 
           echo "===== DTK files ====="
           ls -la "${BUILD_CONTEXT}/dtk" | sed -n '1,20p'
+      - name: Check resource server
+        shell: bash
+        run: |
+          echo "Runner: ${RUNNER_NAME}"
+          echo "Machine: $(hostname)"
 
+          curl -I \
+            --connect-timeout 10 \
+            http://42.228.13.241:18000/thirdparty/rpms.tar.gz
       # 4. 构建 PyTorch 2.12 编译镜像
       #
       # prepare.sh 会在 Dockerfile 的 RUN 阶段执行。
