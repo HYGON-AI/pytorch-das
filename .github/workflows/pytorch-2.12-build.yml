@@ -52,7 +52,17 @@ jobs:
           test -f .ci/pytorch/torch-2.12-ci/Dockerfile
           test -f .ci/pytorch/torch-2.12-ci/prepare.sh
           test -f .ci/pytorch/torch-2.12-ci/build.sh
-
+      - name: Prepare DTK 26.04
+        run: |
+          set -e
+          rm -rf /tmp/dtk2604 "${BUILD_CONTEXT}/dtk"
+          mkdir -p /tmp/dtk2604 "${BUILD_CONTEXT}/dtk"
+          wget -qO /tmp/dtk2604.tar.gz "${DTK_PKG_URL}"
+          tar -xzf /tmp/dtk2604.tar.gz -C /tmp/dtk2604
+          DTK_ROOT=$(dirname "$(dirname "$(find /tmp/dtk2604 -path '*/.info/rocm_version' | head -1)")")
+          cp -a "${DTK_ROOT}/." "${BUILD_CONTEXT}/dtk/"
+          echo "DTK版本："
+          cat "${BUILD_CONTEXT}/dtk/.info/rocm_version"
       # 3. 准备 Docker build context
       - name: Prepare Docker build context
         shell: bash

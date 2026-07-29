@@ -38,3 +38,8 @@ USE_GLOG=1 \
 USE_GFLAGS=1 \
 PYTORCH_ROCM_ARCH=${AMDGPU_TARGETS} \
 python3 setup.py bdist_wheel
+
+mkdir -p /dist
+cp -v /pytorch/dist/*.whl /dist/
+echo "PyTorch wheel编译完成："
+ls -lh /dist/
