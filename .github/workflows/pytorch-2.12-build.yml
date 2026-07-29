@@ -101,14 +101,6 @@ jobs:
           ls -la "${BUILD_CONTEXT}/pytorch" | sed -n '1,20p'
           echo "===== DTK files ====="
           ls -la "${BUILD_CONTEXT}/dtk" | sed -n '1,20p'
-      - name: Check resource server
-        shell: bash
-        run: |
-          echo "Runner: ${RUNNER_NAME}"
-          echo "Machine: $(hostname)"
-          curl -I \
-            --connect-timeout 10 \
-            http://42.228.13.241:18000/thirdparty/rpms.tar.gz
       # 4. 构建 PyTorch 2.12 编译镜像
       - name: Build compile image
         shell: bash
