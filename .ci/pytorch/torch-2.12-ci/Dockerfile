@@ -5,23 +5,14 @@
 # ============================================================
 
 ARG PYTHON_VERSION=3.10
-
 FROM harbor.sourcefind.cn:5443/dcu/admin/base/dev:rockylinux8.6-mpi5.0-gcc11.3-cmake3.29-py${PYTHON_VERSION}-mkl2024.2.0.664
-
-
-# ----------------------------
 # 构建参数
 # ----------------------------
-
 ARG PYTHON_VERSION=3.10
 ARG DTK_VERSION=2604
 ARG INSTALL_TORCH_VERSION=2.12.0
-
-
 # ----------------------------
 # 基础环境变量
-# ----------------------------
-
 ENV ROCM_PATH=/opt/dtk \
     DTKROOT=/opt/dtk \
     TOOLKIT_DIR=/pytorch \
@@ -57,8 +48,6 @@ RUN wget \
         /tmp/rpms.tar.gz \
         /var/cache/yum
 # 配置内部 pip 源
-# ----------------------------
-
 RUN mkdir -p /root/.pip && \
     printf '%s\n' \
         '[global]' \
@@ -66,63 +55,22 @@ RUN mkdir -p /root/.pip && \
         'trusted-host = 10.16.1.201' \
         > /root/.pip/pip.conf && \
     cat /root/.pip/pip.conf
-
-
-# ----------------------------
 # 拷贝 DTK
-#
-# 要求 Docker build context 中存在：
-# ci/pytorch-2.12/dtk/
-# ----------------------------
-
 COPY dtk/ ${ROCM_PATH}/
-
-
-# ----------------------------
 # 拷贝 PyTorch 2.12 源码
-#
-# 要求 Docker build context 中存在：
-# ci/pytorch-2.12/pytorch/
-# ----------------------------
-
 COPY pytorch/ ${TOOLKIT_DIR}/
-
-# ----------------------------
 # 拷贝环境准备脚本
-# ----------------------------
 COPY prepare.sh /usr/local/bin/prepare-pytorch.sh
-# ----------------------------
 # 准备 PyTorch 2.12 编译环境
-#
-# 主要执行：
-# 1. 安装 Python 依赖
-# 2. 安装 MAGMA
-# 3. 替换 third_party
-# 4. 准备 fbjni
-# 5. 修改 DTK 路径
-# 6. 执行 build_amd.py
-# ----------------------------
-
 RUN chmod 755 /usr/local/bin/prepare-pytorch.sh && \
     /usr/local/bin/prepare-pytorch.sh && \
     rm -f /usr/local/bin/prepare-pytorch.sh
-
-# ----------------------------
 # 拷贝编译脚本
-#
 # workflow 启动容器后可以直接运行：
 # docker exec 容器名 bash /usr/local/bin/build-pytorch.sh
-# ----------------------------
-
 COPY build.sh /usr/local/bin/build-pytorch.sh
-
 RUN chmod 755 /usr/local/bin/build-pytorch.sh
-
-
-# ----------------------------
 # 环境检查
-# ----------------------------
-
 RUN echo "===== PyTorch 2.12 build environment =====" && \
     echo "Expected PyTorch version: ${INSTALL_TORCH_VERSION}" && \
     echo "DTK index version: ${DTK_VERSION}" && \
