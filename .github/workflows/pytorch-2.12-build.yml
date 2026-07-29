@@ -144,7 +144,6 @@ jobs:
           set -o pipefail
 
           docker build \
-            --progress=plain \
             --build-arg PYTHON_VERSION="${PYTHON_VERSION}" \
             --build-arg DTK_VERSION="${DTK_VERSION}" \
             --build-arg INSTALL_TORCH_VERSION="${TORCH_VERSION}" \
