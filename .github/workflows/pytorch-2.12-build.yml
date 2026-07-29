@@ -14,7 +14,7 @@ jobs:
   build:
     runs-on: self-hosted
 
-    # PyTorch 编译时间较长，先给 6 小时
+    # PyTorch 编译时间较长，给 6 小时
     timeout-minutes: 360
 
     env:
@@ -29,12 +29,16 @@ jobs:
 
       IMAGE_NAME: "pytorch-2.12-build:${{ github.run_id }}"
       CONTAINER_NAME: "pytorch-2.12-${{ github.run_id }}"
-      BUILD_CONTEXT: "${{ runner.temp }}/pytorch-2.12-${{ github.run_id }}"
 
     steps:
       # 1. 拉取当前个人分支的 PyTorch 源码
       - name: Checkout PyTorch source
         uses: actions/checkout@v4
+
+      - name: Set build context
+        shell: bash
+        run: |
+         echo "BUILD_CONTEXT=${RUNNER_TEMP}/pytorch-2.12-${GITHUB_RUN_ID}" >> "${GITHUB_ENV}"
 
       # 2. 检查 self-hosted runner 环境
       - name: Check runner environment
