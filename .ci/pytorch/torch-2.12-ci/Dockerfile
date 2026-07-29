@@ -30,21 +30,11 @@ ENV ROCM_PATH=/opt/dtk \
     GITLAB_SITE=42.228.13.241:10068 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
-
-
 # 使用 GCC Toolset 13
 ENV PATH=/opt/rh/gcc-toolset-13/root/usr/bin:${PATH}
-
 ENV LD_LIBRARY_PATH=/opt/rh/gcc-toolset-13/root/usr/lib64:${LD_LIBRARY_PATH}
-
-
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-
-# ----------------------------
 # 安装 GCC Toolset 13
-# ----------------------------
-
 RUN wget \
         --timeout=30 \
         --tries=3 \
@@ -66,9 +56,6 @@ RUN wget \
         /tmp/rpms \
         /tmp/rpms.tar.gz \
         /var/cache/yum
-
-
-# ----------------------------
 # 配置内部 pip 源
 # ----------------------------
 
