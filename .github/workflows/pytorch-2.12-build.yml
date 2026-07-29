@@ -63,7 +63,7 @@ jobs:
           ls -la /opt/dtk | head -n 20
 
           echo "===== CI files ====="
-          test -f .ci/pytorch/torch-2.12-ci/DockerfileModel
+          test -f .ci/pytorch/torch-2.12-ci/DockfileModel
           test -f .ci/pytorch/torch-2.12-ci/prepare.sh
           test -f .ci/pytorch/torch-2.12-ci/build.sh
 
@@ -89,8 +89,8 @@ jobs:
 
           # 拷贝 Dockerfile 和脚本
           cp \
-            .ci/pytorch/torch-2.12-ci/DockerfileModel \
-            "${BUILD_CONTEXT}/DockerfileModel"
+            .ci/pytorch/torch-2.12-ci/DockfileModel \
+            "${BUILD_CONTEXT}/DockfileModel"
 
           cp \
             .ci/pytorch/torch-2.12-ci/prepare.sh \
@@ -143,7 +143,7 @@ jobs:
             --build-arg PYTHON_VERSION="${PYTHON_VERSION}" \
             --build-arg DTK_VERSION="${DTK_VERSION}" \
             --build-arg INSTALL_TORCH_VERSION="${TORCH_VERSION}" \
-            -f "${BUILD_CONTEXT}/DockerfileModel" \
+            -f "${BUILD_CONTEXT}/DockfileModel" \
             -t "${IMAGE_NAME}" \
             "${BUILD_CONTEXT}" \
             2>&1 | tee build_logs/docker-build.log
