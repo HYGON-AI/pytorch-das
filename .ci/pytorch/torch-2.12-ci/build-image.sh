@@ -134,7 +134,6 @@ grep -A7 -B2 'DTK version installed' "${BUILD_CONTEXT}/Dockerfile"
 # 5. 构建镜像
 docker build \
     --network=host \
-    --progress=plain \
     --no-cache \
     --build-arg "PYTHON_VERSION=${PYTHON_VERSION}" \
     --build-arg "DTK_VERSION=2604" \
