@@ -30,10 +30,10 @@ jobs:
         ls /opt/dtk
 
     # 3. 编译环境准备
-    - name: Prepare build environment
-      run: |
-        chmod +x pytorch.sh
-        ./pytorch.sh
+    # - name: Prepare build environment
+    #   run: |
+    #     chmod +x pytorch.sh
+    #     ./pytorch.sh
 
     # 4. 编译
     - name: Build pytorch wheel
