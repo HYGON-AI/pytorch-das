@@ -12,7 +12,7 @@ jobs:
       - self-hosted          
       - Linux
       - X64
-      - hygon-hcu-torch
+      - bw1100
     timeout-minutes: 360
     env:
       TORCH_VERSION: "2.12.0"
