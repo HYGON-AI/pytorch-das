@@ -111,12 +111,38 @@ jobs:
           ls -la "${BUILD_CONTEXT}/pytorch" | sed -n '1,20p'
           echo "===== DTK files ====="
           ls -la "${BUILD_CONTEXT}/dtk" | sed -n '1,20p'
+      # 解决DTK2504冲突的问题
+      - name: Force replace DTK in Dockerfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          dockerfile = Path(os.environ["BUILD_CONTEXT"]) / "Dockerfile"
+          content = dockerfile.read_text()
+          content, count = re.subn(
+              r"(?m)^COPY\s+dtk/?\s+.*$",
+              """COPY dtk/ /tmp/dtk2604/
+          RUN rm -rf /opt/dtk && \
+              mv /tmp/dtk2604 /opt/dtk && \
+              echo "DTK version installed in image:" && \
+              cat /opt/dtk/.info/rocm_version""",
+              content,
+              count=1,
+          )
+          if count != 1:
+              raise RuntimeError("Dockerfile 中没有找到 COPY dtk 这一行")
+          dockerfile.write_text(content)
+          PY
+          echo "修改后的 DTK 部分："
+          grep -A5 -B2 "dtk2604" "${BUILD_CONTEXT}/Dockerfile"
       # 4. 构建 PyTorch 2.12 编译镜像
       - name: Build compile image
         shell: bash
         run: |
           set -o pipefail
-
           docker build \
             --network host \
             --build-arg PYTHON_VERSION="${PYTHON_VERSION}" \
