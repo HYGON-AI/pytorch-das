@@ -1,0 +1,66 @@
+name: PyTorch 2.12 Build
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ljz/pytorch-2.12-ci
+
+jobs:
+  build:
+    runs-on: self-hosted
+
+    env:
+      TORCH_VERSION: 2.12.0
+      TOOLKIT_DIR: /pytorch
+      ROCM_PATH: /opt/dtk
+      RESOURCE_SERVER: http://42.228.13.241:18000
+
+    steps:
+    # 1. 拉源码
+    - name: Checkout pytorch
+      uses: actions/checkout@v4
+
+    # 2. 检查环境
+    - name: Check environment
+      run: |
+        hostname
+        python3 --version
+        gcc --version
+        ls /opt
+        ls /opt/dtk
+
+    # 3. 编译环境准备
+    - name: Prepare build environment
+      run: |
+        chmod +x pytorch.sh
+        ./pytorch.sh
+
+    # 4. 编译
+    - name: Build pytorch wheel
+      run: |
+        export ROCM_PATH=/opt/dtk
+        export USE_ROCM=1
+        python3 - <<EOF
+        import torch
+        print(torch.__version__)
+        EOF
+
+        python3 setup.py bdist_wheel
+
+
+    # 5. manylinux处理
+    - name: Repair wheel
+      run: |
+        mkdir -p /dist
+        auditwheel repair \
+        --plat manylinux_2_28_x86_64 \
+        -w /dist \
+        dist/*.whl
+
+    # 6. 保存产物
+    - name: Upload wheel
+      uses: actions/upload-artifact@v4
+      with:
+        name: pytorch-2.12-wheel
+        path:
+          /dist/*.whl
