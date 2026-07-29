@@ -21,6 +21,7 @@ jobs:
       TORCH_VERSION: "2.12.0"
       DTK_VERSION: "2604"
       PYTHON_VERSION: "3.10"
+      DTK_PKG_URL: "http://10.16.1.201:8000/dtk-pkg/dtk26.04/DTK-26.04-rc4-centos8-x86_64.tar.gz"
 
       ROCM_PATH: "/opt/dtk"
       TOOLKIT_DIR: "/pytorch"
@@ -63,7 +64,7 @@ jobs:
           ls -la /opt/dtk | head -n 20
 
           echo "===== CI files ====="
-          test -f .ci/pytorch/torch-2.12-ci/DockfileModel
+          test -f .ci/pytorch/torch-2.12-ci/Dockerfile
           test -f .ci/pytorch/torch-2.12-ci/prepare.sh
           test -f .ci/pytorch/torch-2.12-ci/build.sh
 
@@ -89,8 +90,8 @@ jobs:
 
           # 拷贝 Dockerfile 和脚本
           cp \
-            .ci/pytorch/torch-2.12-ci/DockfileModel \
-            "${BUILD_CONTEXT}/DockfileModel"
+            .ci/pytorch/torch-2.12-ci/Dockerfile \
+            "${BUILD_CONTEXT}/Dockerfile"
 
           cp \
             .ci/pytorch/torch-2.12-ci/prepare.sh \
@@ -127,8 +128,12 @@ jobs:
           echo "===== Build context ====="
           du -sh "${BUILD_CONTEXT}"
           ls -la "${BUILD_CONTEXT}"
-          ls -la "${BUILD_CONTEXT}/pytorch" | head -n 20
-          ls -la "${BUILD_CONTEXT}/dtk" | head -n 20
+
+          echo "===== PyTorch source ====="
+          ls -la "${BUILD_CONTEXT}/pytorch" | sed -n '1,20p'
+
+          echo "===== DTK files ====="
+          ls -la "${BUILD_CONTEXT}/dtk" | sed -n '1,20p'
 
       # 4. 构建 PyTorch 2.12 编译镜像
       #
@@ -143,7 +148,7 @@ jobs:
             --build-arg PYTHON_VERSION="${PYTHON_VERSION}" \
             --build-arg DTK_VERSION="${DTK_VERSION}" \
             --build-arg INSTALL_TORCH_VERSION="${TORCH_VERSION}" \
-            -f "${BUILD_CONTEXT}/DockfileModel" \
+            -f "${BUILD_CONTEXT}/Dockerfile" \
             -t "${IMAGE_NAME}" \
             "${BUILD_CONTEXT}" \
             2>&1 | tee build_logs/docker-build.log
@@ -160,7 +165,7 @@ jobs:
             --name "${CONTAINER_NAME}" \
             --network host \
             --ipc host \
-            --shm-size=80g \
+            --shm-size=64g \
             "${IMAGE_NAME}" \
             tail -f /dev/null
 
