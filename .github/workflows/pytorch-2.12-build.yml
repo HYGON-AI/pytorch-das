@@ -1,66 +1,245 @@
 name: PyTorch 2.12 Build
+
 on:
   workflow_dispatch:
+
   push:
     branches:
       - ljz/pytorch-2.12-ci
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: self-hosted
 
+    # PyTorch 编译时间较长，先给 6 小时
+    timeout-minutes: 360
+
     env:
-      TORCH_VERSION: 2.12.0
-      TOOLKIT_DIR: /pytorch
-      ROCM_PATH: /opt/dtk
-      RESOURCE_SERVER: http://42.228.13.241:18000
+      TORCH_VERSION: "2.12.0"
+      DTK_VERSION: "2604"
+      PYTHON_VERSION: "3.10"
+
+      ROCM_PATH: "/opt/dtk"
+      TOOLKIT_DIR: "/pytorch"
+
+      AMDGPU_TARGETS: "gfx906;gfx926;gfx928;gfx936;gfx938"
+
+      IMAGE_NAME: "pytorch-2.12-build:${{ github.run_id }}"
+      CONTAINER_NAME: "pytorch-2.12-${{ github.run_id }}"
+      BUILD_CONTEXT: "${{ runner.temp }}/pytorch-2.12-${{ github.run_id }}"
 
     steps:
-    # 1. 拉源码
-    - name: Checkout pytorch
-      uses: actions/checkout@v4
+      # 1. 拉取当前个人分支的 PyTorch 源码
+      - name: Checkout PyTorch source
+        uses: actions/checkout@v4
 
-    # 2. 检查环境
-    - name: Check environment
-      run: |
-        hostname
-        python3 --version
-        gcc --version
-        ls /opt
-        ls /opt/dtk
+      # 2. 检查 self-hosted runner 环境
+      - name: Check runner environment
+        shell: bash
+        run: |
+          set -euxo pipefail
 
-    # 3. 编译环境准备
-    # - name: Prepare build environment
-    #   run: |
-    #     chmod +x pytorch.sh
-    #     ./pytorch.sh
+          echo "===== Host ====="
+          hostname
 
-    # 4. 编译
-    - name: Build pytorch wheel
-      run: |
-        export ROCM_PATH=/opt/dtk
-        export USE_ROCM=1
-        python3 - <<EOF
-        import torch
-        print(torch.__version__)
-        EOF
+          echo "===== Current branch ====="
+          echo "${GITHUB_REF_NAME}"
 
-        python3 setup.py bdist_wheel
+          echo "===== Docker ====="
+          docker --version
 
+          echo "===== Disk ====="
+          df -h
 
-    # 5. manylinux处理
-    - name: Repair wheel
-      run: |
-        mkdir -p /dist
-        auditwheel repair \
-        --plat manylinux_2_28_x86_64 \
-        -w /dist \
-        dist/*.whl
+          echo "===== DTK ====="
+          test -d /opt/dtk
+          ls -la /opt/dtk | head -n 20
 
-    # 6. 保存产物
-    - name: Upload wheel
-      uses: actions/upload-artifact@v4
-      with:
-        name: pytorch-2.12-wheel
-        path:
-          /dist/*.whl
+          echo "===== CI files ====="
+          test -f .ci/pytorch/github-2.12/Dockerfile
+          test -f .ci/pytorch/github-2.12/prepare.sh
+          test -f .ci/pytorch/github-2.12/build.sh
+
+      # 3. 准备 Docker build context
+      #
+      # Dockerfile 中需要：
+      #   COPY pytorch/ /pytorch/
+      #   COPY dtk/ /opt/dtk/
+      #   COPY prepare.sh ...
+      #   COPY build.sh ...
+      - name: Prepare Docker build context
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          rm -rf "${BUILD_CONTEXT}"
+
+          mkdir -p \
+            "${BUILD_CONTEXT}/pytorch" \
+            "${BUILD_CONTEXT}/dtk" \
+            build_logs \
+            artifacts
+
+          # 拷贝 Dockerfile 和脚本
+          cp \
+            .ci/pytorch/github-2.12/Dockerfile \
+            "${BUILD_CONTEXT}/Dockerfile"
+
+          cp \
+            .ci/pytorch/github-2.12/prepare.sh \
+            "${BUILD_CONTEXT}/prepare.sh"
+
+          cp \
+            .ci/pytorch/github-2.12/build.sh \
+            "${BUILD_CONTEXT}/build.sh"
+
+          # 防止脚本在 Windows 提交后带 CRLF
+          sed -i 's/\r$//' \
+            "${BUILD_CONTEXT}/prepare.sh" \
+            "${BUILD_CONTEXT}/build.sh"
+
+          chmod +x \
+            "${BUILD_CONTEXT}/prepare.sh" \
+            "${BUILD_CONTEXT}/build.sh"
+
+          # 当前仓库本身就是 PyTorch 源码。
+          # build context 在 runner.temp 下，因此不会产生递归复制。
+          tar \
+            --exclude="./.git" \
+            --exclude="./build" \
+            --exclude="./dist" \
+            -cf - . |
+            tar -xf - -C "${BUILD_CONTEXT}/pytorch"
+
+          # 将 runner 上已有的 DTK 拷贝进 build context。
+          # -L 用于解析 /opt/dtk 可能存在的软链接。
+          cp -aL \
+            /opt/dtk/. \
+            "${BUILD_CONTEXT}/dtk/"
+
+          echo "===== Build context ====="
+          du -sh "${BUILD_CONTEXT}"
+          ls -la "${BUILD_CONTEXT}"
+          ls -la "${BUILD_CONTEXT}/pytorch" | head -n 20
+          ls -la "${BUILD_CONTEXT}/dtk" | head -n 20
+
+      # 4. 构建 PyTorch 2.12 编译镜像
+      #
+      # prepare.sh 会在 Dockerfile 的 RUN 阶段执行。
+      - name: Build compile image
+        shell: bash
+        run: |
+          set -o pipefail
+
+          docker build \
+            --progress=plain \
+            --build-arg PYTHON_VERSION="${PYTHON_VERSION}" \
+            --build-arg DTK_VERSION="${DTK_VERSION}" \
+            --build-arg INSTALL_TORCH_VERSION="${TORCH_VERSION}" \
+            -f "${BUILD_CONTEXT}/Dockerfile" \
+            -t "${IMAGE_NAME}" \
+            "${BUILD_CONTEXT}" \
+            2>&1 | tee build_logs/docker-build.log
+
+      # 5. 启动编译容器
+      - name: Start compile container
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+
+          docker run -d \
+            --name "${CONTAINER_NAME}" \
+            --network host \
+            --ipc host \
+            --shm-size=80g \
+            "${IMAGE_NAME}" \
+            tail -f /dev/null
+
+          docker ps \
+            --filter "name=${CONTAINER_NAME}"
+
+      # 6. 在容器内执行 build.sh
+      - name: Build PyTorch wheel
+        shell: bash
+        run: |
+          set -o pipefail
+
+          docker exec \
+            -e ROCM_PATH="/opt/dtk" \
+            -e TOOLKIT_DIR="/pytorch" \
+            -e AMDGPU_TARGETS="${AMDGPU_TARGETS}" \
+            "${CONTAINER_NAME}" \
+            bash -lc "/usr/local/bin/build-pytorch.sh" \
+            2>&1 | tee build_logs/pytorch-build.log
+
+      # 7. 确认 wheel 并统一放到容器 /dist
+      - name: Collect wheel in container
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          docker exec "${CONTAINER_NAME}" bash -lc '
+            set -e
+
+            mkdir -p /dist
+
+            if compgen -G "/dist/*.whl" > /dev/null; then
+              echo "Wheel already exists in /dist"
+            elif compgen -G "/pytorch/dist/*.whl" > /dev/null; then
+              cp -v /pytorch/dist/*.whl /dist/
+            else
+              echo "ERROR: no wheel found"
+              find /pytorch -maxdepth 3 -name "*.whl" -type f || true
+              exit 1
+            fi
+
+            echo "===== Generated wheels ====="
+            ls -lh /dist/*.whl
+          '
+
+      # 8. 从容器复制 wheel 到 runner 工作目录
+      - name: Copy wheel from container
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          rm -rf artifacts
+          mkdir -p artifacts
+
+          docker cp \
+            "${CONTAINER_NAME}:/dist/." \
+            artifacts/
+
+          ls -lh artifacts/
+
+      # 9. 上传 wheel
+      - name: Upload PyTorch wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytorch-2.12-wheel-${{ github.run_number }}
+          path: artifacts/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
+      # 10. 上传日志
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytorch-2.12-build-logs-${{ github.run_number }}
+          path: build_logs/*.log
+          if-no-files-found: warn
+          retention-days: 14
+        #11.清理容器和临时镜像
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+          docker rmi "${IMAGE_NAME}" 2>/dev/null || true
+          rm -rf "${BUILD_CONTEXT}" || true
