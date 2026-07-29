@@ -52,107 +52,20 @@ jobs:
           test -f .ci/pytorch/torch-2.12-ci/Dockerfile
           test -f .ci/pytorch/torch-2.12-ci/prepare.sh
           test -f .ci/pytorch/torch-2.12-ci/build.sh
-      - name: Prepare DTK 26.04
-        run: |
-          set -e
-          rm -rf /tmp/dtk2604 "${BUILD_CONTEXT}/dtk"
-          mkdir -p /tmp/dtk2604 "${BUILD_CONTEXT}/dtk"
-          wget -qO /tmp/dtk2604.tar.gz "${DTK_PKG_URL}"
-          tar -xzf /tmp/dtk2604.tar.gz -C /tmp/dtk2604
-          DTK_ROOT=$(dirname "$(dirname "$(find /tmp/dtk2604 -path '*/.info/rocm_version' | head -1)")")
-          cp -a "${DTK_ROOT}/." "${BUILD_CONTEXT}/dtk/"
-          echo "DTK版本："
-          cat "${BUILD_CONTEXT}/dtk/.info/rocm_version"
-      # 3. 准备 Docker build context
-      - name: Prepare Docker build context
-        shell: bash
-        run: |
-          set -euxo pipefail
-          rm -rf "${BUILD_CONTEXT}"
-          mkdir -p \
-            "${BUILD_CONTEXT}/pytorch" \
-            "${BUILD_CONTEXT}/dtk" \
-            build_logs \
-            artifacts
-          # 拷贝 Dockerfile 和脚本
-          cp \
-            .ci/pytorch/torch-2.12-ci/Dockerfile \
-            "${BUILD_CONTEXT}/Dockerfile"
-          cp \
-            .ci/pytorch/torch-2.12-ci/prepare.sh \
-            "${BUILD_CONTEXT}/prepare.sh"
-          cp \
-            .ci/pytorch/torch-2.12-ci/build.sh \
-            "${BUILD_CONTEXT}/build.sh"
-          # 防止脚本在 Windows 提交后带 CRLF
-          sed -i 's/\r$//' \
-            "${BUILD_CONTEXT}/prepare.sh" \
-            "${BUILD_CONTEXT}/build.sh"
-          chmod +x \
-            "${BUILD_CONTEXT}/prepare.sh" \
-            "${BUILD_CONTEXT}/build.sh"
-          # 当前仓库本身就是 PyTorch 源码。
-          # build context 在 runner.temp 下，因此不会产生递归复制。
-          tar \
-            --exclude="./.git" \
-            --exclude="./build" \
-            --exclude="./dist" \
-            -cf - . |
-            tar -xf - -C "${BUILD_CONTEXT}/pytorch"
-          # 将 runner 上已有的 DTK 拷贝进 build context。
-          # -L 用于解析 /opt/dtk 可能存在的软链接。
-          cp -aL \
-            /opt/dtk/. \
-            "${BUILD_CONTEXT}/dtk/"
-          echo "===== Build context ====="
-          du -sh "${BUILD_CONTEXT}"
-          ls -la "${BUILD_CONTEXT}"
-          echo "===== PyTorch source ====="
-          ls -la "${BUILD_CONTEXT}/pytorch" | sed -n '1,20p'
-          echo "===== DTK files ====="
-          ls -la "${BUILD_CONTEXT}/dtk" | sed -n '1,20p'
-      # 解决DTK2504冲突的问题
-      - name: Force replace DTK in Dockerfile
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os
-          import re
-          from pathlib import Path
-          dockerfile = Path(os.environ["BUILD_CONTEXT"]) / "Dockerfile"
-          content = dockerfile.read_text()
-          content, count = re.subn(
-              r"(?m)^COPY\s+dtk/?\s+.*$",
-              """COPY dtk/ /tmp/dtk2604/
-          RUN rm -rf /opt/dtk && \
-              mv /tmp/dtk2604 /opt/dtk && \
-              echo "DTK version installed in image:" && \
-              cat /opt/dtk/.info/rocm_version""",
-              content,
-              count=1,
-          )
-          if count != 1:
-              raise RuntimeError("Dockerfile 中没有找到 COPY dtk 这一行")
-          dockerfile.write_text(content)
-          PY
-          echo "修改后的 DTK 部分："
-          grep -A5 -B2 "dtk2604" "${BUILD_CONTEXT}/Dockerfile"
-      # 4. 构建 PyTorch 2.12 编译镜像
-      - name: Build compile image
+      - name: Build PyTorch 2.12 compile image
         shell: bash
         run: |
           set -o pipefail
-          docker build \
-            --network host \
-            --build-arg PYTHON_VERSION="${PYTHON_VERSION}" \
-            --build-arg DTK_VERSION="${DTK_VERSION}" \
-            --build-arg INSTALL_TORCH_VERSION="${TORCH_VERSION}" \
-            -f "${BUILD_CONTEXT}/Dockerfile" \
-            -t "${IMAGE_NAME}" \
-            "${BUILD_CONTEXT}" \
+          mkdir -p build_logs artifacts
+          chmod +x .ci/pytorch/torch-2.12-ci/build-image.sh
+          chmod +x .ci/pytorch/torch-2.12-ci/prepare.sh
+          chmod +x .ci/pytorch/torch-2.12-ci/build.sh
+          bash .ci/pytorch/torch-2.12-ci/build-image.sh \
+            "${DTK_PKG_URL}" \
+            "${IMAGE_NAME}" \
+            "${PYTHON_VERSION}" \
             2>&1 | tee build_logs/docker-build.log
-      # 5. 启动编译容器
+      # 启动编译容器
       - name: Start compile container
         shell: bash
         run: |
@@ -167,7 +80,7 @@ jobs:
             tail -f /dev/null
           docker ps \
             --filter "name=${CONTAINER_NAME}"
-      # 6. 在容器内执行 build.sh
+      # 在容器内执行 build.sh
       - name: Build PyTorch wheel
         shell: bash
         run: |
@@ -179,13 +92,11 @@ jobs:
             "${CONTAINER_NAME}" \
             bash -lc "/usr/local/bin/build-pytorch.sh" \
             2>&1 | tee build_logs/pytorch-build.log
-
-      # 7. 确认 wheel 并统一放到容器 /dist
+      # 确认 wheel 并统一放到容器 /dist
       - name: Collect wheel in container
         shell: bash
         run: |
           set -euxo pipefail
-
           docker exec "${CONTAINER_NAME}" bash -lc '
             set -e
             mkdir -p /dist
