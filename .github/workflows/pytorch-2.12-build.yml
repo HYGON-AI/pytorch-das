@@ -76,6 +76,7 @@ jobs:
             --network host \
             --ipc host \
             --shm-size=64g \
+            -v /opt/hyhal:/opt/hyhal:ro \
             "${IMAGE_NAME}" \
             tail -f /dev/null
           docker ps \

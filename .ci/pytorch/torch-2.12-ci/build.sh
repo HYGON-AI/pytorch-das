@@ -94,7 +94,134 @@ USE_GFLAGS=1 \
 PYTORCH_ROCM_ARCH=${AMDGPU_TARGETS} \
 python3 setup.py bdist_wheel
 
-mkdir -p /dist
-cp -v /pytorch/dist/*.whl /dist/
-echo "PyTorch wheel编译完成："
-ls -lh /dist/
+# 生成 manylinux wheel
+echo "===== PyTorch 原始 wheel 编译完成 ====="
+raw_wheels=(/pytorch/dist/*.whl)
+if [[ ${#raw_wheels[@]} -eq 0 ]]; then
+    echo "ERROR: /pytorch/dist 中没有找到 wheel"
+    exit 1
+fi
+rm -rf /dist
+mkdir -p /dist/raw
+# 保存原始 linux_x86_64 wheel
+cp -v "${raw_wheels[@]}" /dist/raw/
+echo "===== 安装原始 wheel ====="
+python3 -m pip install \
+    --no-deps \
+    --force-reinstall \
+    /dist/raw/*.whl
+# 确保 auditwheel 和 patchelf 可用
+if ! command -v auditwheel >/dev/null 2>&1; then
+    python3 -m pip install auditwheel
+fi
+
+if ! command -v patchelf >/dev/null 2>&1; then
+    yum install -y patchelf
+fi
+# Rocky Linux 8 通常得到 2.28，即 manylinux_2_28_x86_64
+GLIBC_VERSION="$(
+    ldd --version |
+        awk 'NR == 1 {print $NF}'
+)"
+
+PLATFORM="manylinux_${GLIBC_VERSION//./_}_x86_64"
+
+echo "GLIBC_VERSION=${GLIBC_VERSION}"
+echo "PLATFORM=${PLATFORM}"
+# 必须从安装后的 torch 中获取 lib 目录，不能误用源码目录
+TORCH_PATH="$(
+    cd / &&
+        python3 -c '
+import importlib.util
+spec = importlib.util.find_spec("torch")
+if spec is None or not spec.submodule_search_locations:
+    raise RuntimeError("没有找到已安装的 torch")
+print(spec.submodule_search_locations[0])
+'
+)"
+
+echo "TORCH_PATH=${TORCH_PATH}"
+export LD_LIBRARY_PATH="/opt/intel/oneapi/mkl/2024.2/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="${TORCH_PATH}/lib:${LD_LIBRARY_PATH}"
+EXCLUDE_LIBS=(
+    libgalaxyhip.so.5
+    libMIOpen.so.1
+    librccl.so.1
+    libhipblas.so.0
+    libhipfft.so
+    libhiprand.so.1
+    libhipsolver.so.0
+    libhipsparse.so.0
+    libhipnn.so
+    librocblas.so.0
+    librocsolver.so.0
+    librocfft.so.0
+    librocrand.so.1
+    librocsparse.so.0
+    librocm_smi64.so.2
+    librocfft-device-0.so.0
+    librocfft-device-1.so.0
+    librocfft-device-2.so.0
+    librocfft-device-3.so.0
+    libc10.so
+    libc10_hip.so
+    libtorch_cpu.so
+    libtorch_hip.so
+    libtorch_python.so
+    libtorch.so
+    libtorchaudio_ffmpeg4.so
+    libtorchaudio_ffmpeg5.so
+    libtorchaudio_ffmpeg6.so
+    libtorchaudio.so
+    libtorchaudio_sox.so
+    _torchaudio_ffmpeg4.so
+    _torchaudio_ffmpeg5.so
+    _torchaudio_ffmpeg6.so
+    _torchaudio.so
+    _torchaudio_sox.so
+    libavcodec.so.58
+    libavcodec.so.59
+    libavcodec.so.60
+    libavdevice.so.58
+    libavdevice.so.59
+    libavdevice.so.60
+    libavfilter.so.7
+    libavfilter.so.8
+    libavfilter.so.9
+    libavformat.so.58
+    libavformat.so.59
+    libavformat.so.60
+    libavutil.so.56
+    libavutil.so.57
+    libavutil.so.58
+    libsox.so
+    libomp.so
+    libhipblaslt.so.0
+    libhipblas.so.2
+    libhipfft.so.0
+    libhipsparse.so.1
+    librocblas.so.4
+    librocsparse.so.1
+    libnuma.so.1
+)
+
+AUDITWHEEL_ARGS=()
+
+for library in "${EXCLUDE_LIBS[@]}"; do
+    AUDITWHEEL_ARGS+=(--exclude "${library}")
+done
+
+echo "===== 开始生成 ${PLATFORM} wheel ====="
+auditwheel repair \
+    --plat "${PLATFORM}" \
+    "${AUDITWHEEL_ARGS[@]}" \
+    -w /dist \
+    /dist/raw/*.whl
+echo "===== wheel ====="
+ls -lh /dist/raw/
+echo "===== manylinux wheel ====="
+find /dist \
+    -maxdepth 1 \
+    -type f \
+    -name '*.whl' \
+    -exec ls -lh {} \;
