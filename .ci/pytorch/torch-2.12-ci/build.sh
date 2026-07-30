@@ -39,11 +39,22 @@ if [[ -f /opt/dtk/env.sh ]]; then
     source /opt/dtk/env.sh
     set -u
 fi
-# 防止env.sh恢复成其他路径
+# GCC13重新生效
+if [[ -f /opt/rh/gcc-toolset-13/enable ]]; then
+    set +u
+    source /opt/rh/gcc-toolset-13/enable
+    set -u
+fi
+# 固定编译器
+export CC=/opt/rh/gcc-toolset-13/root/usr/bin/gcc
+export CXX=/opt/rh/gcc-toolset-13/root/usr/bin/g++
+export CMAKE_C_COMPILER=${CC}
+export CMAKE_CXX_COMPILER=${CXX}
+# DTK路径
 export ROCM_PATH=/opt/dtk
 export DTKROOT=/opt/dtk
 export HIP_PATH=/opt/dtk/hip
-export PATH="/opt/dtk/bin:/opt/dtk/llvm/bin:${PATH}"
+export PATH="/opt/rh/gcc-toolset-13/root/usr/bin:/opt/dtk/bin:/opt/dtk/llvm/bin:${PATH}"
 export LD_LIBRARY_PATH="/opt/dtk/lib:/opt/dtk/lib64:${LD_LIBRARY_PATH:-}"
 export CMAKE_PREFIX_PATH="/opt/dtk:${CMAKE_PREFIX_PATH:-}"
 # 查找DTK中的HIP clang编译器
@@ -72,11 +83,20 @@ echo "ROCM_PATH: ${ROCM_PATH}"
 "${HIP_COMPILER}" --version
 export HIPCXX="${HIP_COMPILER}"
 export CMAKE_ARGS="${CMAKE_ARGS:-} \
+-DCMAKE_C_COMPILER=${CC} \
+-DCMAKE_CXX_COMPILER=${CXX} \
 -DCMAKE_HIP_COMPILER=${HIP_COMPILER} \
 -DCMAKE_HIP_COMPILER_ROCM_ROOT=/opt/dtk \
 -DCMAKE_PREFIX_PATH=/opt/dtk"
 # 清除上一次失败留下的CMake缓存
 rm -rf /pytorch/build
+echo "===== Compiler Check ====="
+echo "CC=${CC}"
+echo "CXX=${CXX}"
+${CC} --version | head -1
+${CXX} --version | head -1
+which gcc
+which g++
 
 USE_ROCM_CK_GEMM=0 \
 USE_ROCM_CK_SDPA=0 \

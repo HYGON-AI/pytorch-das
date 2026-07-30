@@ -18,8 +18,10 @@ ENV ROCM_PATH=/opt/dtk \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 # 使用 GCC Toolset 13
-ENV PATH=/opt/rh/gcc-toolset-13/root/usr/bin:${PATH}
-ENV LD_LIBRARY_PATH=/opt/rh/gcc-toolset-13/root/usr/lib64:${LD_LIBRARY_PATH}
+ENV PATH=/opt/rh/gcc-toolset-13/root/usr/bin:${PATH} \
+    LD_LIBRARY_PATH=/opt/rh/gcc-toolset-13/root/usr/lib64:${LD_LIBRARY_PATH} \
+    CC=/opt/rh/gcc-toolset-13/root/usr/bin/gcc \
+    CXX=/opt/rh/gcc-toolset-13/root/usr/bin/g++
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # 安装 GCC Toolset 13
 RUN wget \
