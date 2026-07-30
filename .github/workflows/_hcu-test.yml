@@ -99,6 +99,7 @@ jobs:
         env:
           BUILD_ENVIRONMENT: ${{ inputs.build-environment }}
           CI_IMAGE: ${{ inputs.ci-image }}
+          HCU_EXPECTED_DEVICE_COUNT: ${{ inputs.expected-device-count }}
           TEST_CONFIG: ${{ matrix.config }}
           SHARD_NUMBER: ${{ matrix.shard }}
           NUM_TEST_SHARDS: ${{ matrix.num_shards }}
@@ -117,6 +118,7 @@ jobs:
             ${HCU_DOCKER_GPU_ARGS} \
             --env-file "${env_file}" \
             --env BUILD_ENVIRONMENT \
+            --env HCU_EXPECTED_DEVICE_COUNT \
             --env TEST_CONFIG \
             --env SHARD_NUMBER \
             --env NUM_TEST_SHARDS \
@@ -130,11 +132,34 @@ jobs:
 
           echo "HCU_TEST_CONTAINER=${container_name}" >> "${GITHUB_ENV}"
           echo "HCU_TEST_LABEL=org.pytorch.hcu.run=${run_label}" >> "${GITHUB_ENV}"
-          docker exec --tty "${container_name}" bash -lc 'python3 -m pip install $(echo dist/*.whl)[opt-einsum]'
+          docker exec "${container_name}" bash -lc \
+            'set -euo pipefail
+             source_root=/var/lib/jenkins/workspace
+             mapfile -t wheels < <(compgen -G "${source_root}/dist/*.whl")
+             (( ${#wheels[@]} == 1 ))
+             install_dir="/tmp/pytorch-hcu-install-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+             mkdir -p "${install_dir}"
+             cd "${install_dir}"
+             unset PYTHONPATH
+             python3 -m pip install expecttest==0.3.0 opt-einsum==3.4.0
+             python3 -m pip install --force-reinstall --no-deps "${wheels[0]}"' \
+            2>&1 | tee hcu-test.log
           if [[ "${TEST_CONFIG}" == "smoke" ]]; then
-            docker exec --tty "${container_name}" python3 -c 'import torch; assert torch.cuda.is_available(), "HCU device is not visible through torch.cuda"; assert torch.version.hip, "PyTorch was not built with HIP support"; print(torch.__version__); print(torch.version.hip); print(torch.cuda.get_device_name(0))'
+            docker exec \
+              --env HCU_EXPECTED_DEVICE_COUNT \
+              --env HCU_SOURCE_ROOT=/var/lib/jenkins/workspace \
+              "${container_name}" \
+              bash -lc '
+                set -euo pipefail
+                smoke_dir="/tmp/pytorch-hcu-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+                mkdir -p "${smoke_dir}"
+                cd "${smoke_dir}"
+                unset PYTHONPATH
+                python3 /var/lib/jenkins/workspace/.github/scripts/hcu_smoke_test.py
+              ' 2>&1 | tee -a hcu-test.log
           else
-            docker exec --tty "${container_name}" bash -lc '.ci/pytorch/test.sh'
+            docker exec "${container_name}" bash -lc '.ci/pytorch/test.sh' \
+              2>&1 | tee -a hcu-test.log
           fi
 
       - name: Collect HCU test container log
@@ -153,7 +178,9 @@ jobs:
           name: hcu-test-log-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.config }}-${{ matrix.shard }}
           retention-days: 14
           if-no-files-found: ignore
-          path: hcu-test-container.log
+          path: |
+            hcu-test.log
+            hcu-test-container.log
 
       - name: Remove containers scoped to this test run
         if: ${{ always() }}

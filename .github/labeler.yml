@@ -167,10 +167,10 @@
 - third_party/fbgemm
 
 "ciflow/hcu":
-- .github/workflows/hcu.yml
+- .github/workflows/hcu*.yml
 - .github/workflows/_hcu-*.yml
 - .github/actions/setup-hcu/**
-- .github/scripts/hcu_ci_manifest.py
+- .github/scripts/hcu_*.py
 - .github/scripts/test_hcu_ci_*.py
 
 "ciflow/rocm-mi300":

@@ -75,6 +75,11 @@ jobs:
             exit 1
           fi
 
+          if ! [[ "${HCU_CI_IMAGE}" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "HCU_CI_IMAGE must be pinned to an immutable sha256 digest" >&2
+            exit 1
+          fi
+
           if [[ "${EVENT_NAME}" == "pull_request" && "${REQUIRE_SAME_REPOSITORY_PR}" == "true" ]]; then
             if [[ "${HEAD_REPOSITORY}" != "${CURRENT_REPOSITORY}" ]]; then
               echo "HCU self-hosted jobs only accept pull requests from this repository" >&2

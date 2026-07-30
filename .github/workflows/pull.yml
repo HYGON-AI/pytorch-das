@@ -527,6 +527,8 @@ jobs:
       ci-image: ${{ vars.HCU_CI_IMAGE }}
       artifact-name: hcu-pr-build-${{ github.run_id }}-${{ github.run_attempt }}
       build-environment: linux-jammy-rocm-hcu-py3.10
+      rocm-arch: gfx938
+      max-jobs: 32
 
   # ╠══════════════════════════════════════════════════════════════════════╣
   # ║ linux-jammy-xpu-n-py3.10 (build)                                     ║

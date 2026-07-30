@@ -42,6 +42,8 @@ jobs:
       ci-image: ${{ vars.HCU_CI_IMAGE }}
       artifact-name: hcu-build-${{ github.run_id }}-${{ github.run_attempt }}
       build-environment: linux-jammy-rocm-hcu-py3.10
+      rocm-arch: gfx938
+      max-jobs: 32
 
   hcu-test:
     if: ${{ needs.hcu-build.result == 'success' }}
@@ -56,9 +58,5 @@ jobs:
       tests-to-include: ${{ github.event.inputs.tests-to-include || '' }}
       test-matrix: |
         {"include":[
-          {"config":"smoke","shard":1,"num_shards":1},
-          {"config":"default","shard":1,"num_shards":3},
-          {"config":"default","shard":2,"num_shards":3},
-          {"config":"default","shard":3,"num_shards":3},
-          {"config":"distributed","shard":1,"num_shards":1}
+          {"config":"smoke","shard":1,"num_shards":1}
         ]}

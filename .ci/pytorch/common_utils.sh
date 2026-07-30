@@ -349,6 +349,14 @@ function install_cutlass_api() {
 
 function print_sccache_stats() {
   echo 'PyTorch Build Statistics'
+  if ! command -v sccache >/dev/null 2>&1; then
+    if [[ "${BUILD_ENVIRONMENT:-}" == *hcu* ]]; then
+      echo 'sccache is not installed; skipping HCU cache statistics'
+      return 0
+    fi
+    echo 'sccache is not installed' >&2
+    return 1
+  fi
   sccache --show-stats
 
   if [[ -n "${OUR_GITHUB_JOB_ID}" ]]; then

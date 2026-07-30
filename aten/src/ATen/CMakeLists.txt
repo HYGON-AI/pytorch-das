@@ -210,7 +210,6 @@ file(GLOB native_flash_attn_api_cpp "native/transformers/cuda/flash_attn/flash_a
 file(GLOB flash_attention_hip_hip "native/transformers/hip/flash_attn/*.hip")
 # add_subdirectory(native/transformers/hip/flash_attn/cutlass)
 file(GLOB flash_attention_hip_cutlass_hip "native/transformers/hip/flash_attn/cutlass/*.hip")
-list(APPEND native_transformers_hip_hip ${flash_attention_hip_cutlass_hip})
 # if USE_FLASH_ATTENTION is set, ensure CK instances get generated
 if(USE_FLASH_ATTENTION)
   if("$ENV{USE_CK_FLASH_ATTENTION}" STREQUAL "1")
@@ -352,6 +351,7 @@ if(USE_FLASH_ATTENTION)
   list(APPEND FLASH_ATTENTION_CUDA_SOURCES ${flash_attention_cuda_cu} ${flash_attention_cuda_kernels_cu})
   list(APPEND ATen_ATTENTION_KERNEL_SRCS ${flash_attention_cuda_kernels_cu})
 
+  list(APPEND native_transformers_hip_hip ${flash_attention_hip_cutlass_hip})
   list(APPEND native_transformers_hip_hip ${flash_attention_hip_hip})
   list(APPEND native_transformers_hip_hip ${flash_attention_hip_aot_hip})
   list(APPEND native_transformers_src_hip_hip ${flash_attention_src_hip_hip})

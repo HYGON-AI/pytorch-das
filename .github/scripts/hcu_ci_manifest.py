@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Create and verify HCU CI build artifact manifests."""
+# ruff: noqa: UP006, UP035, UP045
 
 import argparse
 import hashlib

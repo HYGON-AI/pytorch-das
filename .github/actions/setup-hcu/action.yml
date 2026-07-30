@@ -34,11 +34,14 @@ runs:
         fi
 
         command -v docker
-        test -d /opt/dtk
         command -v rocminfo
         test -x /opt/hyhal/bin/hy-smi
 
-        echo "DTK directory: /opt/dtk"
+        echo "Runner name: ${RUNNER_NAME:-unknown}"
+        echo "Runner OS/architecture: ${RUNNER_OS:-unknown}/${RUNNER_ARCH:-unknown}"
+        echo "Host: $(hostname)"
+        docker version
+        df -h "${RUNNER_TEMP}"
         /opt/hyhal/bin/hy-smi
         rocminfo
 

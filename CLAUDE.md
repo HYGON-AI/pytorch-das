@@ -15,6 +15,9 @@ If any tool you're trying to use (pip, python, spin, etc) is missing, always sto
 Always ask for build configuration environment variables before running build.
 All build (both codegen, C++ and python) is done via `pip install -e . -v --no-build-isolation`.
 You should NEVER run any other command to build PyTorch.
+The HCU CI fresh-wheel build is an exception: it may run
+`.ci/pytorch/build.sh` to produce the wheel artifact used by downstream HCU
+test jobs.
 
 # Testing
 

@@ -94,6 +94,32 @@ class HcuCiManifestTest(unittest.TestCase):
                 build_environment="linux-jammy-rocm-hcu-py3.10",
             )
 
+    def test_extra_wheel_is_rejected(self) -> None:
+        self.build_and_write_manifest()
+        (self.dist_dir / "torch-extra.whl").write_bytes(b"unexpected-wheel")
+
+        with self.assertRaisesRegex(ManifestError, "wheel set"):
+            validate_manifest(
+                self.manifest_path,
+                self.dist_dir,
+                repository="HYGON-AI/pytorch-das",
+                source_sha=self.SOURCE_SHA,
+                build_environment="linux-jammy-rocm-hcu-py3.10",
+            )
+
+    def test_image_digest_mismatch_is_rejected(self) -> None:
+        self.build_and_write_manifest()
+
+        with self.assertRaisesRegex(ManifestError, "image_digest"):
+            validate_manifest(
+                self.manifest_path,
+                self.dist_dir,
+                repository="HYGON-AI/pytorch-das",
+                source_sha=self.SOURCE_SHA,
+                build_environment="linux-jammy-rocm-hcu-py3.10",
+                image_digest="sha256:" + "d" * 64,
+            )
+
     def test_missing_required_field_is_rejected(self) -> None:
         self.build_and_write_manifest()
         manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
