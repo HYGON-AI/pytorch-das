@@ -316,6 +316,29 @@ jobs:
           printf "%s\n" "${JOB_STATUS}" > "${log_dir}/build-job-status.txt"
           chmod 0640 "${log_dir}"/*
 
+      - name: Restore runner ownership after HCU build
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${HCU_BUILD_CONTAINER:-}" ]]; then
+            exit 0
+          fi
+          if ! docker inspect "${HCU_BUILD_CONTAINER}" > /dev/null 2>&1; then
+            exit 0
+          fi
+          if [[ "$(docker inspect --format '{{.State.Running}}' "${HCU_BUILD_CONTAINER}")" != "true" ]]; then
+            docker start "${HCU_BUILD_CONTAINER}"
+          fi
+
+          workspace_owner="$(stat -c '%u:%g' "${GITHUB_WORKSPACE}")"
+          if [[ ! "${workspace_owner}" =~ ^[0-9]+:[0-9]+$ ]]; then
+            echo "Unable to determine the runner workspace owner" >&2
+            exit 1
+          fi
+          docker exec "${HCU_BUILD_CONTAINER}" \
+            chown -R "${workspace_owner}" /var/lib/jenkins/workspace
+
       - name: Remove containers scoped to this build run
         if: ${{ always() }}
         shell: bash

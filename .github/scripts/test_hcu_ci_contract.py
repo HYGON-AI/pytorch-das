@@ -272,6 +272,20 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("hcu-test.log.gz", test_workflow)
         self.assertIn('log_dir="${artifact_path}/tests/', test_workflow)
 
+    def test_hcu_build_restores_runner_workspace_ownership(self) -> None:
+        build_workflow = read(WORKFLOWS / "_hcu-build.yml")
+
+        self.assertIn("Restore runner ownership after HCU build", build_workflow)
+        self.assertIn("stat -c '%u:%g'", build_workflow)
+        self.assertIn(
+            'chown -R "${workspace_owner}" /var/lib/jenkins/workspace',
+            build_workflow,
+        )
+        self.assertLess(
+            build_workflow.index("Restore runner ownership after HCU build"),
+            build_workflow.index("Remove containers scoped to this build run"),
+        )
+
     def test_preflight_rejects_forked_pull_requests(self) -> None:
         workflow = read(WORKFLOWS / "_hcu-preflight.yml")
 
