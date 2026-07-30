@@ -1,9 +1,5 @@
 # syntax=docker/dockerfile:1
-
-# ============================================================
 # PyTorch 2.12 + DTK 26.04 编译环境
-# ============================================================
-
 ARG PYTHON_VERSION=3.10
 FROM harbor.sourcefind.cn:5443/dcu/admin/base/dev:rockylinux8.6-mpi5.0-gcc11.3-cmake3.29-py${PYTHON_VERSION}-mkl2024.2.0.664
 # 构建参数
@@ -57,11 +53,11 @@ RUN mkdir -p /root/.pip && \
     cat /root/.pip/pip.conf
 # 拷贝 DTK
 COPY dtk/ ${ROCM_PATH}/
-# 拷贝 PyTorch 2.12 源码
+# 拷贝 PyTorch 源码
 COPY pytorch/ ${TOOLKIT_DIR}/
 # 拷贝环境准备脚本
 COPY prepare.sh /usr/local/bin/prepare-pytorch.sh
-# 准备 PyTorch 2.12 编译环境
+# 准备 PyTorch  编译环境
 RUN chmod 755 /usr/local/bin/prepare-pytorch.sh && \
     /usr/local/bin/prepare-pytorch.sh && \
     rm -f /usr/local/bin/prepare-pytorch.sh

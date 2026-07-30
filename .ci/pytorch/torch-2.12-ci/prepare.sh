@@ -151,13 +151,9 @@ download_and_unzip() {
     local archive_name
 
     archive_name="/tmp/$(basename "${url}")"
-
     mkdir -p "${target_dir}"
-
     download_file "${url}" "${archive_name}"
-
     echo "解压 ${archive_name} 到 ${target_dir}"
-
     unzip -q \
         -o \
         "${archive_name}" \
@@ -165,10 +161,7 @@ download_and_unzip() {
 
     rm -f "${archive_name}"
 }
-
-# ----------------------------
 # 准备 MAGMA
-# ----------------------------
 
 log "准备 DTK 26.04 MAGMA"
 
@@ -196,13 +189,8 @@ fi
 [[ -d "${ROCM_PATH}/magma/lib" ]] ||
     fail "MAGMA目录不存在：${ROCM_PATH}/magma/lib"
 
-
-# ----------------------------
 # 将 MKL 动态库放入 MAGMA
-# ----------------------------
-
 log "拷贝 MKL 动态库到 MAGMA"
-
 mkl_libraries=(
     "libmkl_core.so"
     "libmkl_gf_lp64.so"
@@ -221,11 +209,7 @@ for library in "${mkl_libraries[@]}"; do
         "${source_file}" \
         "${ROCM_PATH}/magma/lib/"
 done
-
-# ----------------------------
 # 下载 Flash Attention 文件
-# ----------------------------
-
 log "准备 Flash Attention 文件"
 
 FLASH_ATTN_URL="${RESOURCE_SERVER}/thirdparty/flash_attn/cutlass_fa_so/rocky/python310/20260107_nmz_tmp/flash_attn_2_cuda.so"
@@ -238,13 +222,7 @@ download_file \
 [[ -f "${FLASH_ATTN_FILE}" ]] ||
     fail "Flash Attention 文件下载失败：${FLASH_ATTN_FILE}"
 
-
-# ----------------------------
-# 准备 PyTorch 2.12 third_party
-# ----------------------------
-
-log "准备 PyTorch 2.12 third_party"
-
+# 准备 PyTorch third_party
 INSTALL_DIR_URL="${RESOURCE_SERVER}/thirdparty/pytorch/pytorch2.4.1/install_dir.zip"
 THIRD_PARTY_URL="${RESOURCE_SERVER}/thirdparty/pytorch/pytorch2.12/third_party_mayp_0602.zip"
 FBJNI_URL="${RESOURCE_SERVER}/thirdparty/pytorch/pytorch2.12/fbjni.zip"
@@ -286,24 +264,18 @@ done
 chmod 755 \
     "${TOOLKIT_DIR}/third_party/gloo/tools/amd_build/build_amd.py"
 
-
 # ----------------------------
 # 显示 Git 信息
 # ----------------------------
-
 log "检查 Git 和源码状态"
-
 cd "${TOOLKIT_DIR}"
-
 echo "源码目录："
 ls -la | head -n 20
-
 echo "Git目录："
 ls -la .git 2>/dev/null || true
 
 echo "Submodule状态："
 git submodule status 2>/dev/null || true
-
 
 # ----------------------------
 # 修正 DTK 版本文件
@@ -375,7 +347,6 @@ cp -vf \
     "${ROCM_PATH}/magma/lib/libmagma.so" \
     "${TORCH_LIB_DIR}/"
 
-
 # ----------------------------
 # 执行 AMD 源码生成脚本
 # ----------------------------
@@ -386,13 +357,10 @@ cd "${TOOLKIT_DIR}"
 
 python3 \
     tools/amd_build/build_amd.py
-
 # ----------------------------
 # 检查
 # ----------------------------
-
 log "PyTorch 2.12 编译环境准备完成"
-
 echo "Python版本："
 python3 --version
 
