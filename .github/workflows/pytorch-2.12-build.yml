@@ -115,25 +115,28 @@ jobs:
             echo "===== Generated wheels ====="
             ls -lh /dist/*.whl
           '
-      # 从容器复制 wheel 到 runner 工作目录
+      # 从容器复制 wheel 到 runner 本地固定目录
       - name: Copy wheel from container
+        if: success()
         shell: bash
         run: |
           set -euxo pipefail
-          rm -rf artifacts
-          mkdir -p artifacts
+          SAVE_DIR="/home/github/actions-runner-torch/dist/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}"
+          rm -rf "${SAVE_DIR}"
+          mkdir -p "${SAVE_DIR}"
           docker cp \
             "${CONTAINER_NAME}:/dist/." \
-            artifacts/
-          ls -lh artifacts/
+            "${SAVE_DIR}/"
+          echo "===== wheel saved ====="
+          ls -lh "${SAVE_DIR}"
       # 上传 wheel
-      - name: Upload PyTorch wheel
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytorch-2.12-wheel-${{ github.run_number }}
-          path: artifacts/*.whl
-          if-no-files-found: error
-          retention-days: 14
+      # - name: Upload PyTorch wheel
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: pytorch-2.12-wheel-${{ github.run_number }}
+      #     path: artifacts/*.whl
+      #     if-no-files-found: error
+      #     retention-days: 14
       # 上传日志
       - name: Upload build logs
         if: always()
