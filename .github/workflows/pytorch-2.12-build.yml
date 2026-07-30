@@ -89,7 +89,9 @@ jobs:
           docker exec \
             -e ROCM_PATH="/opt/dtk" \
             -e TOOLKIT_DIR="/pytorch" \
+            -e PKG_TYPE="nightly" \
             -e AMDGPU_TARGETS="${AMDGPU_TARGETS}" \
+            -e GIT_COMMIT_SHORT="${GITHUB_SHA:0:6}" \
             "${CONTAINER_NAME}" \
             bash -lc "/usr/local/bin/build-pytorch.sh" \
             2>&1 | tee build_logs/pytorch-build.log
@@ -113,7 +115,7 @@ jobs:
             echo "===== Generated wheels ====="
             ls -lh /dist/*.whl
           '
-      # 8. 从容器复制 wheel 到 runner 工作目录
+      # 从容器复制 wheel 到 runner 工作目录
       - name: Copy wheel from container
         shell: bash
         run: |
@@ -124,7 +126,7 @@ jobs:
             "${CONTAINER_NAME}:/dist/." \
             artifacts/
           ls -lh artifacts/
-      # 9. 上传 wheel
+      # 上传 wheel
       - name: Upload PyTorch wheel
         uses: actions/upload-artifact@v4
         with:
@@ -132,7 +134,7 @@ jobs:
           path: artifacts/*.whl
           if-no-files-found: error
           retention-days: 14
-      # 10. 上传日志
+      # 上传日志
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -141,11 +143,12 @@ jobs:
           path: build_logs/*.log
           if-no-files-found: warn
           retention-days: 14
-        #11.清理容器和临时镜像
-      - name: Cleanup
-        if: always()
+        #清理容器和临时镜像
+      - name: Cleanup on failure
+        if: ${{ failure() || cancelled() }}
         shell: bash
         run: |
+          echo "流水线失败，删除容器和镜像"
           docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
-          docker rmi "${IMAGE_NAME}" 2>/dev/null || true
+          docker image rm -f "${IMAGE_NAME}" 2>/dev/null || true
           rm -rf "${BUILD_CONTEXT}" || true
