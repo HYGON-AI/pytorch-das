@@ -66,6 +66,19 @@ class HcuCiContractTest(unittest.TestCase):
             workflow,
         )
         self.assertIn("cancel-in-progress: true", workflow)
+        self.assertIn("HCU_CI_IMAGE: ${{ vars.HCU_CI_IMAGE }}", workflow)
+        self.assertIn(
+            "/home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-cache/static",
+            workflow,
+        )
+        self.assertIn("HCU_CI_IMAGE must use an immutable sha256 digest", workflow)
+        self.assertIn('docker pull "${HCU_CI_IMAGE}"', workflow)
+        self.assertIn('container_name="pytorch-hcu-static-', workflow)
+        self.assertIn('--user "$(id -u):$(id -g)"', workflow)
+        self.assertIn("PYTHONUSERBASE=/runner-temp/python", workflow)
+        self.assertIn("UV_TOOL_DIR=/static-cache/tools", workflow)
+        self.assertIn("XDG_DATA_HOME=/static-cache/xdg-data", workflow)
+        self.assertIn("python3 -m pip install --user", workflow)
         self.assertIn("python3 .github/scripts/test_hcu_ci_contract.py", workflow)
         self.assertIn("python3 .github/scripts/test_hcu_ci_manifest.py", workflow)
         self.assertIn("spin quicklint", workflow)
@@ -74,6 +87,9 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("spin==0.17", workflow)
         self.assertIn("typing-extensions==4.12.2", workflow)
         self.assertIn("uv==0.12.0", workflow)
+        self.assertIn("org.pytorch.hcu.run", workflow)
+        self.assertIn("docker rm -f", workflow)
+        self.assertNotIn("actions/setup-python@", workflow)
         self.assertNotIn("HCU_BUILD_RUNNER", workflow)
         self.assertNotIn("HCU_TEST_RUNNER", workflow)
 
