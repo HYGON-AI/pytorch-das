@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <type_traits>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -28,6 +29,10 @@
 
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 13000
 #include <cuda_fp8.h>
+#endif
+
+#ifdef USE_ROCM
+#include <hip/hip_fp8.h>
 #endif
 
 namespace at::native {
@@ -86,6 +91,22 @@ struct ConvertToFloat8E4M3fnOp {
       x = __nv_cvt_bfloat16raw_to_fp8(static_cast<__nv_bfloat16>(value), __NV_SATFINITE, __NV_E4M3);
     } else {
       x = __nv_cvt_float_to_fp8(static_cast<float>(value), __NV_SATFINITE, __NV_E4M3);
+    }
+    return Float8_e4m3fn(x, Float8_e4m3fn::from_bits());
+#elif defined(USE_ROCM) && defined(__gfx938__)
+    __hip_fp8_storage_t x;
+    if constexpr (std::is_same_v<SrcT, float>) {
+      x = __hip_cvt_float_to_fp8(value, __HIP_SATFINITE, __HIP_E4M3);
+    } else if constexpr (std::is_same_v<SrcT, Half>) {
+      __half_raw raw;
+      raw.x = value.x;
+      x = __hip_cvt_halfraw_to_fp8(raw, __HIP_SATFINITE, __HIP_E4M3);
+    } else if constexpr (std::is_same_v<SrcT, BFloat16>) {
+      x = __hip_cvt_bfloat16raw_to_fp8(
+          __hip_bfloat16_raw{value.x}, __HIP_SATFINITE, __HIP_E4M3);
+    } else {
+      x = __hip_cvt_float_to_fp8(
+          static_cast<float>(value), __HIP_SATFINITE, __HIP_E4M3);
     }
     return Float8_e4m3fn(x, Float8_e4m3fn::from_bits());
 #else

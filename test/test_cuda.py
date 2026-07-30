@@ -193,6 +193,21 @@ class TestCuda(TestCase):
     def tearDown(self):
         super().tearDown()
 
+    @unittest.skipIf(not TEST_WITH_ROCM, "ROCm-only test")
+    @parametrize("src_dtype", [torch.float32, torch.float16, torch.bfloat16])
+    def test_float_to_float8_e4m3fn(self, src_dtype):
+        values = torch.tensor(
+            [
+                -float("inf"), -1000, -480, -466, -464, -448, -1, -0.0,
+                0.0, 1, 448, 464, 466, 480, 1000, float("inf"), float("nan"),
+            ],
+            dtype=src_dtype,
+        )
+
+        expected = values.to(torch.float8_e4m3fn).view(torch.uint8)
+        actual = values.cuda().to(torch.float8_e4m3fn).cpu().view(torch.uint8)
+        self.assertEqual(actual, expected)
+
     @property
     def expandable_segments(self):
         return EXPANDABLE_SEGMENTS
