@@ -106,7 +106,7 @@ python3 -m pip install \
     einops \
     hypothesis==5.35.1
 
-python3 -m pip install \
+python3 -m pip install --no-cache-dir \
     ninja==1.11.1 \
     cmake==3.29.2 \
     xdoctest==1.1.3 \
@@ -125,7 +125,7 @@ python3 -m pip install \
     tlparse==0.3.5 \
     botocore \
     numba \
-    amdsmi==1.0.0 \
+    amdsmi==1.0.0+630c16a6.dirty \
     cloudpickle
 
 # ----------------------------
