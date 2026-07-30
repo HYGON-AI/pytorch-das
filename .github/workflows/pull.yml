@@ -526,6 +526,7 @@ jobs:
       runner: ${{ vars.HCU_BUILD_RUNNER }}
       ci-image: ${{ vars.HCU_CI_IMAGE }}
       artifact-name: hcu-pr-build-${{ github.run_id }}-${{ github.run_attempt }}
+      artifact-root: /home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-artifacts
       build-environment: linux-jammy-rocm-hcu-py3.10
       rocm-arch: gfx938
       max-jobs: 32

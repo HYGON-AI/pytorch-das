@@ -14,9 +14,14 @@ on:
       expected-device-count:
         required: true
         type: string
-      artifact-name:
+      artifact-path:
         required: true
         type: string
+        description: Absolute runner-local path produced by the HCU build job.
+      build-runner-name:
+        required: true
+        type: string
+        description: Exact self-hosted runner that produced the local artifact.
       build-environment:
         required: true
         type: string
@@ -34,7 +39,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
   test:
@@ -70,21 +74,40 @@ jobs:
           fi
           echo "image-digest=${image_digest}" >> "${GITHUB_OUTPUT}"
 
-      - name: Download HCU build artifact
-        uses: actions/download-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ${{ inputs.artifact-name }}
-          path: hcu-artifact
+      - name: Load HCU build artifact from runner storage
+        shell: bash
+        env:
+          ARTIFACT_PATH: ${{ inputs.artifact-path }}
+          BUILD_RUNNER_NAME: ${{ inputs.build-runner-name }}
+        run: |
+          set -euo pipefail
+          expected_root=/home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-artifacts
+          artifact_path="$(realpath -m -- "${ARTIFACT_PATH}")"
+          if [[ "${artifact_path}" != "${expected_root}/"* ]]; then
+            echo "HCU artifact path is outside ${expected_root}: ${artifact_path}" >&2
+            exit 1
+          fi
+          if [[ "${RUNNER_NAME}" != "${BUILD_RUNNER_NAME}" ]]; then
+            echo "Runner-local artifact was built on ${BUILD_RUNNER_NAME}, but test was scheduled on ${RUNNER_NAME}" >&2
+            exit 1
+          fi
+          test -f "${artifact_path}/READY"
+          test ! -e "${artifact_path}/INCOMPLETE"
+          (
+            cd "${artifact_path}"
+            sha256sum --check artifacts.zip.sha256
+          )
 
       - name: Extract and verify HCU build artifact
         shell: bash
         env:
+          ARTIFACT_PATH: ${{ inputs.artifact-path }}
           BUILD_ENVIRONMENT: ${{ inputs.build-environment }}
           IMAGE_DIGEST: ${{ steps.image.outputs.image-digest }}
           SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          unzip -o hcu-artifact/artifacts.zip
+          unzip -o "${ARTIFACT_PATH}/artifacts.zip"
           python3 .github/scripts/hcu_ci_manifest.py validate \
             --manifest hcu-build-manifest.json \
             --dist-dir dist \
@@ -171,16 +194,36 @@ jobs:
             docker logs "${HCU_TEST_CONTAINER}" > hcu-test-container.log 2>&1 || true
           fi
 
-      - name: Upload HCU test log
+      - name: Persist HCU test logs on runner
         if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: hcu-test-log-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.config }}-${{ matrix.shard }}
-          retention-days: 14
-          if-no-files-found: ignore
-          path: |
-            hcu-test.log
-            hcu-test-container.log
+        shell: bash
+        env:
+          ARTIFACT_PATH: ${{ inputs.artifact-path }}
+          JOB_STATUS: ${{ job.status }}
+          TEST_CONFIG: ${{ matrix.config }}
+          SHARD_NUMBER: ${{ matrix.shard }}
+          NUM_TEST_SHARDS: ${{ matrix.num_shards }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ARTIFACT_PATH}" || ! -d "${ARTIFACT_PATH}" ]]; then
+            exit 0
+          fi
+          expected_root=/home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-artifacts
+          artifact_path="$(realpath -m -- "${ARTIFACT_PATH}")"
+          if [[ "${artifact_path}" != "${expected_root}/"* ]]; then
+            echo "Refusing to persist logs outside ${expected_root}" >&2
+            exit 1
+          fi
+          log_dir="${artifact_path}/tests/${TEST_CONFIG}-${SHARD_NUMBER}-of-${NUM_TEST_SHARDS}"
+          install -d -m 0750 "${log_dir}"
+          if [[ -f hcu-test.log ]]; then
+            gzip -c hcu-test.log > "${log_dir}/hcu-test.log.gz"
+          fi
+          if [[ -f hcu-test-container.log ]]; then
+            gzip -c hcu-test-container.log > "${log_dir}/hcu-test-container.log.gz"
+          fi
+          printf "%s\n" "${JOB_STATUS}" > "${log_dir}/test-job-status.txt"
+          chmod 0640 "${log_dir}"/*
 
       - name: Remove containers scoped to this test run
         if: ${{ always() }}

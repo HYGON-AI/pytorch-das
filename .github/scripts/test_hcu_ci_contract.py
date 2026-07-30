@@ -116,6 +116,8 @@ class HcuCiContractTest(unittest.TestCase):
     def test_hcu_build_uses_fresh_artifact_and_hcu_test_validates_it(self) -> None:
         build_workflow = read(WORKFLOWS / "_hcu-build.yml")
         test_workflow = read(WORKFLOWS / "_hcu-test.yml")
+        backend_workflow = read(WORKFLOWS / "hcu.yml")
+        pull_workflow = read(WORKFLOWS / "pull.yml")
 
         self.assertIn('HCU_REUSE_OLD_WHL: "0"', build_workflow)
         self.assertIn('CI: "1"', build_workflow)
@@ -145,13 +147,36 @@ class HcuCiContractTest(unittest.TestCase):
         )
         self.assertIn("hcu-build-manifest.json", build_workflow)
         self.assertIn("--volume /opt/hyhal:/opt/hyhal:ro", build_workflow)
-        self.assertIn("uses: ./.github/actions/upload-build-artifacts", build_workflow)
-        self.assertIn("use-gha: true", build_workflow)
+        self.assertIn(
+            "/home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-artifacts",
+            build_workflow,
+        )
+        self.assertIn("realpath -m", build_workflow)
+        self.assertIn("artifacts.zip.sha256", build_workflow)
+        self.assertIn('touch "${artifact_path}/INCOMPLETE"', build_workflow)
+        self.assertIn('touch "${ARTIFACT_PATH}/READY"', build_workflow)
+        self.assertIn('rm -- "${ARTIFACT_PATH}/INCOMPLETE"', build_workflow)
         self.assertIn("SOURCE_SHA: ${{ github.sha }}", build_workflow)
+        self.assertIn("artifact-path: ${{ needs.hcu-build.outputs.artifact-path }}", backend_workflow)
+        self.assertIn("build-runner-name: ${{ needs.hcu-build.outputs.runner-name }}", backend_workflow)
+        self.assertIn(
+            "artifact-root: /home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-artifacts",
+            backend_workflow,
+        )
+        self.assertIn(
+            "artifact-root: /home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-artifacts",
+            pull_workflow,
+        )
         self.assertIn("hcu_ci_manifest.py validate", test_workflow)
-        self.assertIn("uses: actions/download-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02", test_workflow)
+        self.assertIn("sha256sum --check artifacts.zip.sha256", test_workflow)
+        self.assertIn('"${RUNNER_NAME}" != "${BUILD_RUNNER_NAME}"', test_workflow)
+        self.assertIn('test -f "${artifact_path}/READY"', test_workflow)
         self.assertIn("SOURCE_SHA: ${{ github.sha }}", test_workflow)
         self.assertIn("hcu_smoke_test.py", test_workflow)
+        self.assertNotIn("actions/upload-artifact@", build_workflow)
+        self.assertNotIn("actions/download-artifact@", test_workflow)
+        self.assertNotIn("actions/upload-artifact@", test_workflow)
+        self.assertNotIn("uses: ./.github/actions/upload-build-artifacts", build_workflow)
         self.assertNotIn('<<"PY"', test_workflow)
 
     def test_hcu_image_is_pinned_to_an_immutable_digest(self) -> None:
@@ -203,14 +228,16 @@ class HcuCiContractTest(unittest.TestCase):
             smoke_test,
         )
 
-    def test_docker_exec_output_is_uploaded(self) -> None:
+    def test_docker_exec_output_is_persisted_on_runner(self) -> None:
         build_workflow = read(WORKFLOWS / "_hcu-build.yml")
         test_workflow = read(WORKFLOWS / "_hcu-test.yml")
 
         self.assertIn("tee hcu-build.log", build_workflow)
-        self.assertIn("hcu-build.log", build_workflow)
+        self.assertIn("hcu-build.log.gz", build_workflow)
+        self.assertIn('log_dir="${ARTIFACT_PATH}/logs"', build_workflow)
         self.assertIn("tee hcu-test.log", test_workflow)
-        self.assertIn("hcu-test.log", test_workflow)
+        self.assertIn("hcu-test.log.gz", test_workflow)
+        self.assertIn('log_dir="${artifact_path}/tests/', test_workflow)
 
     def test_preflight_rejects_forked_pull_requests(self) -> None:
         workflow = read(WORKFLOWS / "_hcu-preflight.yml")
