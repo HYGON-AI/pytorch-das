@@ -154,14 +154,14 @@ python3 -m pip install \
     --no-deps \
     --force-reinstall \
     /dist/raw/*.whl
-# 确保 auditwheel 和 patchelf 可用
-if ! command -v auditwheel >/dev/null 2>&1; then
-    python3 -m pip install auditwheel
-fi
-
-if ! command -v patchelf >/dev/null 2>&1; then
-    yum install -y patchelf
-fi
+# 确保 auditwheel 和 patchelf 版本满足要求
+python3 -m pip install -U auditwheel patchelf
+# 优先使用 pip 安装的版本
+export PATH="/usr/local/bin:${PATH}"
+echo "auditwheel版本:"
+auditwheel --version
+echo "patchelf版本:"
+patchelf --version
 # Rocky Linux 8 通常得到 2.28，即 manylinux_2_28_x86_64
 GLIBC_VERSION="$(
     ldd --version |
