@@ -86,6 +86,7 @@ jobs:
           mkdir -p "${run_dir}"
           install -d -m 0750 \
             "${cache_root}/bin" \
+            "${cache_root}/lintbin" \
             "${cache_root}/pip-cache" \
             "${cache_root}/tools" \
             "${cache_root}/uv-cache" \
@@ -106,6 +107,7 @@ jobs:
             --env UV_TOOL_DIR=/static-cache/tools \
             --env XDG_DATA_HOME=/static-cache/xdg-data \
             --volume "${GITHUB_WORKSPACE}:/var/lib/jenkins/workspace" \
+            --volume "${cache_root}/lintbin:/var/lib/jenkins/workspace/.lintbin" \
             --volume "${run_dir}:/runner-temp" \
             --volume "${cache_root}:/static-cache" \
             --workdir /var/lib/jenkins/workspace \

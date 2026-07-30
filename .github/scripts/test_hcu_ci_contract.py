@@ -78,6 +78,10 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("PYTHONUSERBASE=/runner-temp/python", workflow)
         self.assertIn("UV_TOOL_DIR=/static-cache/tools", workflow)
         self.assertIn("XDG_DATA_HOME=/static-cache/xdg-data", workflow)
+        self.assertIn(
+            '${cache_root}/lintbin:/var/lib/jenkins/workspace/.lintbin',
+            workflow,
+        )
         self.assertIn("python3 -m pip install --user", workflow)
         self.assertIn("python3 .github/scripts/test_hcu_ci_contract.py", workflow)
         self.assertIn("python3 .github/scripts/test_hcu_ci_manifest.py", workflow)
