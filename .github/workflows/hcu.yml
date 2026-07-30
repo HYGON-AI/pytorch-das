@@ -27,6 +27,7 @@ jobs:
     if: ${{ github.repository == 'HYGON-AI/pytorch-das' && vars.HCU_CI_ENABLED == 'true' }}
     uses: ./.github/workflows/_hcu-preflight.yml
     with:
+      control-runner: ${{ vars.HCU_CONTROL_RUNNER }}
       hcu-enabled: true
       hcu-build-runner: ${{ vars.HCU_BUILD_RUNNER }}
       hcu-test-runner: ${{ vars.HCU_TEST_RUNNER }}

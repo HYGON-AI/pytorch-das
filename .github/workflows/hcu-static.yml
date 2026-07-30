@@ -42,8 +42,15 @@ concurrency:
 
 jobs:
   hcu-static:
-    if: ${{ github.repository == 'HYGON-AI/pytorch-das' }}
-    runs-on: ubuntu-latest
+    if: >-
+      ${{
+        github.repository == 'HYGON-AI/pytorch-das' &&
+        (
+          github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository
+        )
+      }}
+    runs-on: [self-hosted, linux, x64, "${{ vars.HCU_CONTROL_RUNNER }}"]
     timeout-minutes: 20
     steps:
       - name: Checkout PyTorch

@@ -3,6 +3,10 @@ name: hcu-preflight
 on:
   workflow_call:
     inputs:
+      control-runner:
+        required: true
+        type: string
+        description: Configured self-hosted runner label used for HCU control jobs.
       hcu-enabled:
         required: true
         type: boolean
@@ -38,7 +42,7 @@ permissions:
 
 jobs:
   preflight:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, "${{ inputs.control-runner }}"]
     outputs:
       allowed: ${{ steps.validate.outputs.allowed }}
     steps:
@@ -46,6 +50,7 @@ jobs:
         id: validate
         shell: bash
         env:
+          HCU_CONTROL_RUNNER: ${{ inputs.control-runner }}
           HCU_ENABLED: ${{ inputs.hcu-enabled }}
           HCU_BUILD_RUNNER: ${{ inputs.hcu-build-runner }}
           HCU_TEST_RUNNER: ${{ inputs.hcu-test-runner }}
@@ -63,7 +68,7 @@ jobs:
             exit 1
           fi
 
-          for name in HCU_BUILD_RUNNER HCU_TEST_RUNNER HCU_CI_IMAGE HCU_EXPECTED_DEVICE_COUNT; do
+          for name in HCU_CONTROL_RUNNER HCU_BUILD_RUNNER HCU_TEST_RUNNER HCU_CI_IMAGE HCU_EXPECTED_DEVICE_COUNT; do
             if [[ -z "${!name}" ]]; then
               echo "Required HCU CI repository variable is empty: ${name}" >&2
               exit 1

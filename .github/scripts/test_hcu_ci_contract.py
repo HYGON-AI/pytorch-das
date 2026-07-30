@@ -50,13 +50,21 @@ class HcuCiContractTest(unittest.TestCase):
         ):
             self.assertIsInstance(yaml.safe_load(read(path)), dict, path.name)
 
-    def test_hygon_static_workflow_is_low_cost_and_fork_native(self) -> None:
+    def test_hygon_static_workflow_uses_the_configured_control_runner(self) -> None:
         workflow = read(HCU_STATIC)
 
         self.assertIn("pull_request:", workflow)
         self.assertIn("push:", workflow)
         self.assertIn("workflow_dispatch:", workflow)
-        self.assertIn("runs-on: ubuntu-latest", workflow)
+        self.assertIn(
+            'runs-on: [self-hosted, linux, x64, "${{ vars.HCU_CONTROL_RUNNER }}"]',
+            workflow,
+        )
+        self.assertNotIn("runs-on: ubuntu-latest", workflow)
+        self.assertIn(
+            "github.event.pull_request.head.repo.full_name == github.repository",
+            workflow,
+        )
         self.assertIn("cancel-in-progress: true", workflow)
         self.assertIn("python3 .github/scripts/test_hcu_ci_contract.py", workflow)
         self.assertIn("python3 .github/scripts/test_hcu_ci_manifest.py", workflow)
@@ -96,6 +104,11 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("hcu-preflight:", pull_workflow)
         self.assertIn("linux-jammy-rocm-hcu-py3_10-build:", pull_workflow)
         self.assertIn("vars.HCU_CI_ENABLED == 'true'", pull_workflow)
+        self.assertIn("control-runner: ${{ vars.HCU_CONTROL_RUNNER }}", pull_workflow)
+        self.assertIn(
+            "github.event.pull_request.head.repo.full_name == github.repository",
+            pull_workflow,
+        )
         self.assertIn("uses: ./.github/workflows/_hcu-preflight.yml", pull_workflow)
         self.assertIn("needs: hcu-preflight", pull_workflow)
         self.assertIn("uses: ./.github/workflows/_hcu-build.yml", pull_workflow)
@@ -242,6 +255,11 @@ class HcuCiContractTest(unittest.TestCase):
     def test_preflight_rejects_forked_pull_requests(self) -> None:
         workflow = read(WORKFLOWS / "_hcu-preflight.yml")
 
+        self.assertIn(
+            'runs-on: [self-hosted, linux, x64, "${{ inputs.control-runner }}"]',
+            workflow,
+        )
+        self.assertIn("HCU_CONTROL_RUNNER", workflow)
         self.assertIn("github.event.pull_request.head.repo.full_name", workflow)
         self.assertIn("github.repository", workflow)
         self.assertIn("HCU_BUILD_RUNNER", workflow)

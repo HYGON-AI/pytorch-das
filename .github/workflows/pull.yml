@@ -507,10 +507,16 @@ jobs:
   # HYGON-only HCU adapter. This stays opt-in until repository variables and
   # isolated self-hosted runner groups have been configured.
   hcu-preflight:
-    if: ${{ github.repository == 'HYGON-AI/pytorch-das' && vars.HCU_CI_ENABLED == 'true' }}
+    if: >-
+      ${{
+        github.repository == 'HYGON-AI/pytorch-das' &&
+        vars.HCU_CI_ENABLED == 'true' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
     name: hcu-preflight
     uses: ./.github/workflows/_hcu-preflight.yml
     with:
+      control-runner: ${{ vars.HCU_CONTROL_RUNNER }}
       hcu-enabled: true
       hcu-build-runner: ${{ vars.HCU_BUILD_RUNNER }}
       hcu-test-runner: ${{ vars.HCU_TEST_RUNNER }}
