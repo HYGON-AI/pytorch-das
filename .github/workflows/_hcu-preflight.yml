@@ -19,6 +19,10 @@ on:
         required: true
         type: string
         description: Value of vars.HCU_TEST_RUNNER.
+      hcu-build-image:
+        required: true
+        type: string
+        description: Value of vars.HCU_BUILD_IMAGE.
       hcu-ci-image:
         required: true
         type: string
@@ -54,6 +58,7 @@ jobs:
           HCU_ENABLED: ${{ inputs.hcu-enabled }}
           HCU_BUILD_RUNNER: ${{ inputs.hcu-build-runner }}
           HCU_TEST_RUNNER: ${{ inputs.hcu-test-runner }}
+          HCU_BUILD_IMAGE: ${{ inputs.hcu-build-image }}
           HCU_CI_IMAGE: ${{ inputs.hcu-ci-image }}
           HCU_EXPECTED_DEVICE_COUNT: ${{ inputs.expected-device-count }}
           REQUIRE_SAME_REPOSITORY_PR: ${{ inputs.require-same-repository-pr }}
@@ -68,7 +73,7 @@ jobs:
             exit 1
           fi
 
-          for name in HCU_CONTROL_RUNNER HCU_BUILD_RUNNER HCU_TEST_RUNNER HCU_CI_IMAGE HCU_EXPECTED_DEVICE_COUNT; do
+          for name in HCU_CONTROL_RUNNER HCU_BUILD_RUNNER HCU_TEST_RUNNER HCU_BUILD_IMAGE HCU_CI_IMAGE HCU_EXPECTED_DEVICE_COUNT; do
             if [[ -z "${!name}" ]]; then
               echo "Required HCU CI repository variable is empty: ${name}" >&2
               exit 1
@@ -82,6 +87,11 @@ jobs:
 
           if ! [[ "${HCU_CI_IMAGE}" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
             echo "HCU_CI_IMAGE must be pinned to an immutable sha256 digest" >&2
+            exit 1
+          fi
+
+          if ! [[ "${HCU_BUILD_IMAGE}" =~ ^(.+@)?sha256:[0-9a-f]{64}$ ]]; then
+            echo "HCU_BUILD_IMAGE must be a registry digest or an immutable runner-local image ID" >&2
             exit 1
           fi
 

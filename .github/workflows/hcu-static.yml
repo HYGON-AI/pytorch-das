@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - .ci/pytorch/common_utils.sh
+      - .ci/pytorch/build.sh
+      - .ci/pytorch/hcu-wheel-package.sh
+      - .ci/pytorch/hcu-wheel-prepare.sh
       - .github/actions/setup-hcu/**
       - .github/labeler.yml
       - .github/scripts/hcu_ci_manifest.py
@@ -19,6 +22,9 @@ on:
   push:
     paths:
       - .ci/pytorch/common_utils.sh
+      - .ci/pytorch/build.sh
+      - .ci/pytorch/hcu-wheel-package.sh
+      - .ci/pytorch/hcu-wheel-prepare.sh
       - .github/actions/setup-hcu/**
       - .github/labeler.yml
       - .github/scripts/hcu_ci_manifest.py
@@ -129,7 +135,10 @@ jobs:
             python3 .github/scripts/test_hcu_ci_manifest.py
             spin quicklint -- \
               --take ACTIONLINT,CMAKE,RUFF,SHELLCHECK \
+              .ci/pytorch/build.sh \
               .ci/pytorch/common_utils.sh \
+              .ci/pytorch/hcu-wheel-prepare.sh \
+              .ci/pytorch/hcu-wheel-package.sh \
               .github/actions/setup-hcu/action.yml \
               .github/scripts/hcu_ci_manifest.py \
               .github/scripts/hcu_smoke_test.py \
@@ -141,7 +150,9 @@ jobs:
               .github/workflows/hcu-static.yml \
               .github/workflows/hcu.yml \
               .github/workflows/pull.yml \
-              aten/src/ATen/CMakeLists.txt
+              aten/src/ATen/CMakeLists.txt \
+              tools/linter/adapters/gha_linter.py \
+              tools/linter/adapters/no_workflows_on_fork.py
           '
 
       - name: Remove the scoped HCU static container

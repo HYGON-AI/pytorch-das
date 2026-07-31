@@ -25,6 +25,10 @@ on:
       build-environment:
         required: true
         type: string
+      build-image-digest:
+        required: true
+        type: string
+        description: Immutable build image digest recorded by the HCU build job.
       test-matrix:
         required: true
         type: string
@@ -103,7 +107,7 @@ jobs:
         env:
           ARTIFACT_PATH: ${{ inputs.artifact-path }}
           BUILD_ENVIRONMENT: ${{ inputs.build-environment }}
-          IMAGE_DIGEST: ${{ steps.image.outputs.image-digest }}
+          BUILD_IMAGE_DIGEST: ${{ inputs.build-image-digest }}
           SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -114,7 +118,7 @@ jobs:
             --repository "${GITHUB_REPOSITORY}" \
             --source-sha "${SOURCE_SHA}" \
             --build-environment "${BUILD_ENVIRONMENT}" \
-            --image-digest "${IMAGE_DIGEST}"
+            --image-digest "${BUILD_IMAGE_DIGEST}"
 
       - name: Run HCU test matrix entry
         id: test

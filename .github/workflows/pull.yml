@@ -520,6 +520,7 @@ jobs:
       hcu-enabled: true
       hcu-build-runner: ${{ vars.HCU_BUILD_RUNNER }}
       hcu-test-runner: ${{ vars.HCU_TEST_RUNNER }}
+      hcu-build-image: ${{ vars.HCU_BUILD_IMAGE }}
       hcu-ci-image: ${{ vars.HCU_CI_IMAGE }}
       expected-device-count: ${{ vars.HCU_EXPECTED_DEVICE_COUNT }}
 
@@ -530,10 +531,10 @@ jobs:
     uses: ./.github/workflows/_hcu-build.yml
     with:
       runner: ${{ vars.HCU_BUILD_RUNNER }}
-      ci-image: ${{ vars.HCU_CI_IMAGE }}
+      build-image: ${{ vars.HCU_BUILD_IMAGE }}
       artifact-name: hcu-pr-build-${{ github.run_id }}-${{ github.run_attempt }}
       artifact-root: /home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-artifacts
-      build-environment: linux-jammy-rocm-hcu-py3.10
+      build-environment: linux-rocky8-rocm-dtk2604-hcu-py3.10
       rocm-arch: gfx938
       max-jobs: 32
 

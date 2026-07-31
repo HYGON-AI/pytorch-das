@@ -13,9 +13,13 @@ SETUP_HCU = REPO_ROOT / ".github" / "actions" / "setup-hcu" / "action.yml"
 SMOKE_TEST = REPO_ROOT / ".github" / "scripts" / "hcu_smoke_test.py"
 MANIFEST_HELPER = REPO_ROOT / ".github" / "scripts" / "hcu_ci_manifest.py"
 MANIFEST_TEST = REPO_ROOT / ".github" / "scripts" / "test_hcu_ci_manifest.py"
+HCU_PACKAGE_SCRIPT = REPO_ROOT / ".ci" / "pytorch" / "hcu-wheel-package.sh"
+HCU_PREPARE_SCRIPT = REPO_ROOT / ".ci" / "pytorch" / "hcu-wheel-prepare.sh"
 ATEN_CMAKE = REPO_ROOT / "aten" / "src" / "ATen" / "CMakeLists.txt"
 HCU_STATIC = WORKFLOWS / "hcu-static.yml"
 LABELER = REPO_ROOT / ".github" / "labeler.yml"
+GHA_LINTER = REPO_ROOT / "tools" / "linter" / "adapters" / "gha_linter.py"
+FORK_LINTER = REPO_ROOT / "tools" / "linter" / "adapters" / "no_workflows_on_fork.py"
 
 
 def read(path: Path) -> str:
@@ -34,6 +38,8 @@ class HcuCiContractTest(unittest.TestCase):
             SMOKE_TEST,
             MANIFEST_HELPER,
             MANIFEST_TEST,
+            HCU_PACKAGE_SCRIPT,
+            HCU_PREPARE_SCRIPT,
             LABELER,
         ):
             self.assertTrue(path.is_file(), f"missing required HCU CI file: {path}")
@@ -79,12 +85,17 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("UV_TOOL_DIR=/static-cache/tools", workflow)
         self.assertIn("XDG_DATA_HOME=/static-cache/xdg-data", workflow)
         self.assertIn(
-            '${cache_root}/lintbin:/var/lib/jenkins/workspace/.lintbin',
+            "${cache_root}/lintbin:/var/lib/jenkins/workspace/.lintbin",
             workflow,
         )
         self.assertIn("python3 -m pip install --user", workflow)
         self.assertIn("python3 .github/scripts/test_hcu_ci_contract.py", workflow)
         self.assertIn("python3 .github/scripts/test_hcu_ci_manifest.py", workflow)
+        self.assertIn(".ci/pytorch/hcu-wheel-package.sh", workflow)
+        self.assertIn(".ci/pytorch/hcu-wheel-prepare.sh", workflow)
+        self.assertIn(".ci/pytorch/build.sh", workflow)
+        self.assertIn("tools/linter/adapters/gha_linter.py", workflow)
+        self.assertIn("tools/linter/adapters/no_workflows_on_fork.py", workflow)
         self.assertIn("spin quicklint", workflow)
         self.assertIn("ACTIONLINT,CMAKE,RUFF,SHELLCHECK", workflow)
         self.assertIn("packaging==24.0", workflow)
@@ -105,6 +116,7 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn(".github/workflows/_hcu-*.yml", labeler)
         self.assertIn(".github/scripts/hcu_*.py", labeler)
         self.assertIn(".github/scripts/test_hcu_ci_*.py", labeler)
+        self.assertIn(".ci/pytorch/hcu*.sh", labeler)
 
     def test_external_actions_are_pinned_to_commits(self) -> None:
         for path in (
@@ -113,7 +125,9 @@ class HcuCiContractTest(unittest.TestCase):
             WORKFLOWS / "hcu.yml",
             HCU_STATIC,
         ):
-            for action in re.findall(r"^\s*uses:\s*([^\s#]+)", read(path), re.MULTILINE):
+            for action in re.findall(
+                r"^\s*uses:\s*([^\s#]+)", read(path), re.MULTILINE
+            ):
                 if action.startswith("./"):
                     continue
                 self.assertRegex(action, r"^[^@]+@[0-9a-f]{40}$", path.name)
@@ -125,6 +139,7 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("linux-jammy-rocm-hcu-py3_10-build:", pull_workflow)
         self.assertIn("vars.HCU_CI_ENABLED == 'true'", pull_workflow)
         self.assertIn("control-runner: ${{ vars.HCU_CONTROL_RUNNER }}", pull_workflow)
+        self.assertIn("hcu-build-image: ${{ vars.HCU_BUILD_IMAGE }}", pull_workflow)
         self.assertIn(
             "github.event.pull_request.head.repo.full_name == github.repository",
             pull_workflow,
@@ -153,11 +168,18 @@ class HcuCiContractTest(unittest.TestCase):
         pull_workflow = read(WORKFLOWS / "pull.yml")
 
         self.assertIn('HCU_REUSE_OLD_WHL: "0"', build_workflow)
+        self.assertIn('HCU_AUDITWHEEL_VERSION: "6.7.0"', build_workflow)
+        self.assertIn('HCU_PACKAGE_TYPE: "ci"', build_workflow)
+        self.assertIn('HCU_PATCHELF_VERSION: "0.17.2.4"', build_workflow)
         self.assertIn('CI: "1"', build_workflow)
-        self.assertIn('USE_KINETO: "0"', build_workflow)
-        self.assertIn('USE_FLASH_ATTENTION: "0"', build_workflow)
+        self.assertIn('USE_KINETO: "1"', build_workflow)
+        self.assertIn('USE_FLASH_ATTENTION: "1"', build_workflow)
         self.assertIn('USE_MEM_EFF_ATTENTION: "0"', build_workflow)
+        self.assertIn('BUILD_STATIC_RUNTIME_BENCHMARK: "OFF"', build_workflow)
         self.assertIn('USE_ROCM_CK_GEMM: "0"', build_workflow)
+        self.assertIn('USE_ROCM_CK_SDPA: "0"', build_workflow)
+        self.assertIn('USE_MAGMA: "ON"', build_workflow)
+        self.assertIn('USE_MPI: "1"', build_workflow)
         self.assertIn("PYTORCH_ROCM_ARCH: ${{ inputs.rocm-arch }}", build_workflow)
         self.assertIn("MAX_JOBS: ${{ inputs.max-jobs }}", build_workflow)
         self.assertIn("--env PYTORCH_ROCM_ARCH", build_workflow)
@@ -166,18 +188,26 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("--env USE_KINETO", build_workflow)
         self.assertIn("--env USE_MEM_EFF_ATTENTION", build_workflow)
         self.assertIn("--env USE_ROCM_CK_GEMM", build_workflow)
+        self.assertIn("--env USE_ROCM_CK_SDPA", build_workflow)
         self.assertIn('HCU_SETUPTOOLS_VERSION: "79.0.1"', build_workflow)
         self.assertIn("--env HCU_SETUPTOOLS_VERSION", build_workflow)
         self.assertIn('"setuptools==${HCU_SETUPTOOLS_VERSION}"', build_workflow)
         self.assertIn("test -x /opt/dtk/bin/hipcc", build_workflow)
-        self.assertIn(
-            "ln -s librt.so.1 /usr/lib/x86_64-linux-gnu/librt.so",
-            build_workflow,
-        )
+        self.assertIn("ldconfig -p", build_workflow)
+        self.assertIn("/usr/lib64 /usr/lib/x86_64-linux-gnu", build_workflow)
         self.assertIn(
             "git config --global --add safe.directory /var/lib/jenkins/workspace",
             build_workflow,
         )
+        self.assertIn(".ci/pytorch/hcu-wheel-package.sh", build_workflow)
+        self.assertIn(
+            "HCU_ALLOW_SOURCE_PREPARE=1 .ci/pytorch/hcu-wheel-prepare.sh",
+            build_workflow,
+        )
+        self.assertIn('HCU_PREPARED_SOURCE_ROOT: "/pytorch"', build_workflow)
+        self.assertIn("source_profile", build_workflow)
+        self.assertIn("third_party_seed_sha256", build_workflow)
+        self.assertIn("build-image: ${{ vars.HCU_BUILD_IMAGE }}", backend_workflow)
         self.assertIn("hcu-build-manifest.json", build_workflow)
         self.assertIn("--volume /opt/hyhal:/opt/hyhal:ro", build_workflow)
         self.assertIn(
@@ -190,8 +220,14 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn('touch "${ARTIFACT_PATH}/READY"', build_workflow)
         self.assertIn('rm -- "${ARTIFACT_PATH}/INCOMPLETE"', build_workflow)
         self.assertIn("SOURCE_SHA: ${{ github.sha }}", build_workflow)
-        self.assertIn("artifact-path: ${{ needs.hcu-build.outputs.artifact-path }}", backend_workflow)
-        self.assertIn("build-runner-name: ${{ needs.hcu-build.outputs.runner-name }}", backend_workflow)
+        self.assertIn(
+            "artifact-path: ${{ needs.hcu-build.outputs.artifact-path }}",
+            backend_workflow,
+        )
+        self.assertIn(
+            "build-runner-name: ${{ needs.hcu-build.outputs.runner-name }}",
+            backend_workflow,
+        )
         self.assertIn(
             "artifact-root: /home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-artifacts",
             backend_workflow,
@@ -201,6 +237,10 @@ class HcuCiContractTest(unittest.TestCase):
             pull_workflow,
         )
         self.assertIn("hcu_ci_manifest.py validate", test_workflow)
+        self.assertIn(
+            "build-image-digest: ${{ needs.hcu-build.outputs.image-digest }}",
+            backend_workflow,
+        )
         self.assertIn("sha256sum --check artifacts.zip.sha256", test_workflow)
         self.assertIn('"${RUNNER_NAME}" != "${BUILD_RUNNER_NAME}"', test_workflow)
         self.assertIn('test -f "${artifact_path}/READY"', test_workflow)
@@ -209,19 +249,87 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertNotIn("actions/upload-artifact@", build_workflow)
         self.assertNotIn("actions/download-artifact@", test_workflow)
         self.assertNotIn("actions/upload-artifact@", test_workflow)
-        self.assertNotIn("uses: ./.github/actions/upload-build-artifacts", build_workflow)
+        self.assertNotIn(
+            "uses: ./.github/actions/upload-build-artifacts", build_workflow
+        )
         self.assertNotIn('<<"PY"', test_workflow)
+
+    def test_hcu_package_profile_uses_current_checkout_and_repairs_wheel(self) -> None:
+        package_script = read(HCU_PACKAGE_SCRIPT)
+
+        self.assertIn(
+            'repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.."', package_script
+        )
+        self.assertIn('test "${HCU_REUSE_OLD_WHL:-0}" = "0"', package_script)
+        self.assertIn("HCU_PACKAGE_TYPE:-ci", package_script)
+        self.assertIn(
+            'SOURCE_SHA ${source_sha} does not match checkout HEAD '
+            '${actual_source_sha}',
+            package_script,
+        )
+        self.assertIn("export PYTORCH_BUILD_VERSION=", package_script)
+        self.assertIn('export USE_MAGMA="${USE_MAGMA:-ON}"', package_script)
+        self.assertIn('export USE_MPI="${USE_MPI:-1}"', package_script)
+        self.assertIn(".ci/pytorch/build.sh", package_script)
+        self.assertIn("auditwheel repair", package_script)
+        self.assertIn("HCU_PACKAGING_VERSION:-24.2", package_script)
+        self.assertIn("HCU_WHEEL_VERSION:-0.47.0", package_script)
+        self.assertIn("python3 -m wheel unpack", package_script)
+        self.assertIn("python3 -m wheel pack", package_script)
+        self.assertIn("libmagma.so", package_script)
+        self.assertIn("libmkl_def.so", package_script)
+        self.assertIn("torch.libs/libmkl_def.so.2", package_script)
+        self.assertIn("torch.libs/libmkl_vml_def.so.2", package_script)
+        self.assertIn("dist/raw/*.whl", package_script)
+        self.assertNotIn("python3 setup.py bdist_wheel", package_script)
+        self.assertNotIn("docker build", package_script)
+        self.assertNotIn('rm -rf "${TOOLKIT_DIR}/third_party"', package_script)
+        self.assertIn(
+            'BUILD_STATIC_RUNTIME_BENCHMARK="${BUILD_STATIC_RUNTIME_BENCHMARK:-OFF}"',
+            package_script,
+        )
+
+        upstream_build = read(REPO_ROOT / ".ci" / "pytorch" / "build.sh")
+        self.assertIn(
+            '"${BUILD_ENVIRONMENT}" != *cuda* && "${BUILD_ENVIRONMENT}" != *hcu*',
+            upstream_build,
+        )
+        self.assertIn(
+            '"$BUILD_ENVIRONMENT" == *rocm* && "$BUILD_ENVIRONMENT" != *hcu*',
+            upstream_build,
+        )
+        self.assertIn(
+            "Skipping upstream ROCm sccache-wrapper cleanup for HCU",
+            upstream_build,
+        )
+
+    def test_hcu_source_preparation_is_explicit_and_recoverable(self) -> None:
+        prepare_script = read(HCU_PREPARE_SCRIPT)
+
+        self.assertIn('HCU_PREPARED_SOURCE_ROOT:-/pytorch', prepare_script)
+        self.assertIn('HCU_ALLOW_SOURCE_PREPARE:-0', prepare_script)
+        self.assertIn("torch2.12-image-overlay-v1", prepare_script)
+        self.assertIn(".hcu-source-backup", prepare_script)
+        self.assertIn(
+            "third_party/mslk/include/mslk/utils/hip/tuning_cache.cuh",
+            prepare_script,
+        )
+        self.assertIn("third_party_seed_sha256", prepare_script)
+        self.assertNotIn("wget ", prepare_script)
+        self.assertNotIn("curl ", prepare_script)
+        self.assertNotIn("rm -rf", prepare_script)
 
     def test_hcu_image_is_pinned_to_an_immutable_digest(self) -> None:
         preflight = read(WORKFLOWS / "_hcu-preflight.yml")
 
         self.assertIn("HCU_CI_IMAGE", preflight)
+        self.assertIn("HCU_BUILD_IMAGE", preflight)
         self.assertIn("@sha256:[0-9a-f]{64}", preflight)
 
     def test_disabled_flash_attention_excludes_hip_cutlass_sources(self) -> None:
         aten_cmake = read(ATEN_CMAKE)
         cutlass_glob = aten_cmake.index(
-            'file(GLOB flash_attention_hip_cutlass_hip '
+            "file(GLOB flash_attention_hip_cutlass_hip "
             '"native/transformers/hip/flash_attn/cutlass/*.hip")'
         )
         flash_option = aten_cmake.index("if(USE_FLASH_ATTENTION)", cutlass_glob)
@@ -298,6 +406,7 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("github.repository", workflow)
         self.assertIn("HCU_BUILD_RUNNER", workflow)
         self.assertIn("HCU_TEST_RUNNER", workflow)
+        self.assertIn("HCU_BUILD_IMAGE", workflow)
         self.assertIn("HCU_CI_IMAGE", workflow)
         self.assertIn("HCU_EXPECTED_DEVICE_COUNT", workflow)
 
@@ -340,6 +449,12 @@ class HcuCiContractTest(unittest.TestCase):
             SETUP_HCU,
         ):
             self.assertNotIn("pull_request_target", read(path), path.name)
+
+    def test_upstream_workflow_linters_allow_the_secretless_hygon_adapter(
+        self,
+    ) -> None:
+        self.assertIn("github.repository == 'HYGON-AI/pytorch-das'", read(FORK_LINTER))
+        self.assertIn('uses.startswith("_hcu-")', read(GHA_LINTER))
 
 
 if __name__ == "__main__":

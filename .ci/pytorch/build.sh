@@ -193,8 +193,10 @@ if [[ "${BUILD_ENVIRONMENT}" == *no-ops* ]]; then
   export USE_PER_OPERATOR_HEADERS=0
 fi
 
-if [[ "${BUILD_ENVIRONMENT}" != *cuda* ]]; then
+if [[ "${BUILD_ENVIRONMENT}" != *cuda* && "${BUILD_ENVIRONMENT}" != *hcu* ]]; then
   export BUILD_STATIC_RUNTIME_BENCHMARK=ON
+elif [[ "${BUILD_ENVIRONMENT}" == *hcu* ]]; then
+  export BUILD_STATIC_RUNTIME_BENCHMARK="${BUILD_STATIC_RUNTIME_BENCHMARK:-OFF}"
 fi
 
 if [[ "$BUILD_ENVIRONMENT" == *-full-debug* ]]; then
@@ -295,7 +297,7 @@ if [[ "$BUILD_ENVIRONMENT" != *libtorch* ]]; then
     cp build/.ninja_log dist
   fi
 
-  if [[ "$BUILD_ENVIRONMENT" == *rocm* ]]; then
+  if [[ "$BUILD_ENVIRONMENT" == *rocm* && "$BUILD_ENVIRONMENT" != *hcu* ]]; then
     # remove sccache wrappers post-build; runtime compilation of MIOpen kernels does not yet fully support them
     sudo rm -f /opt/cache/bin/cc
     sudo rm -f /opt/cache/bin/c++
@@ -313,6 +315,10 @@ if [[ "$BUILD_ENVIRONMENT" != *libtorch* ]]; then
       sudo rm -rf original
       popd
     fi
+  elif [[ "$BUILD_ENVIRONMENT" == *hcu* ]]; then
+    # HCU images do not install the upstream ROCm sccache wrappers or sudo.
+    # Their compiler lives under /opt/dtk and must not be rewritten here.
+    echo "Skipping upstream ROCm sccache-wrapper cleanup for HCU"
   fi
 
   CUSTOM_TEST_ARTIFACT_BUILD_DIR=${CUSTOM_TEST_ARTIFACT_BUILD_DIR:-"build/custom_test_artifacts"}

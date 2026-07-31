@@ -7,10 +7,10 @@ on:
         required: true
         type: string
         description: Self-hosted runner label configured in vars.HCU_BUILD_RUNNER.
-      ci-image:
+      build-image:
         required: true
         type: string
-        description: Immutable HCU CI image reference configured in vars.HCU_CI_IMAGE.
+        description: Immutable HCU build image configured in vars.HCU_BUILD_IMAGE.
       artifact-name:
         required: true
         type: string
@@ -22,7 +22,7 @@ on:
         description: Persistent runner-local root used for HCU artifacts and logs.
       build-environment:
         required: false
-        default: linux-jammy-rocm-hcu-py3.10
+        default: linux-rocky8-rocm-dtk2604-hcu-py3.10
         type: string
       rocm-arch:
         required: false
@@ -51,6 +51,9 @@ on:
       runner-name:
         description: Exact self-hosted runner that produced the local artifact.
         value: ${{ jobs.build.outputs.runner-name }}
+      image-digest:
+        description: Immutable image digest or ID used to build the wheel.
+        value: ${{ jobs.build.outputs.image-digest }}
 
 permissions:
   contents: read
@@ -61,19 +64,51 @@ jobs:
     timeout-minutes: ${{ inputs.timeout-minutes }}
     env:
       CI: "1"
+      HCU_AUDITWHEEL_VERSION: "6.7.0"
+      HCU_PACKAGE_TYPE: "ci"
+      HCU_PACKAGING_VERSION: "24.2"
+      HCU_PATCHELF_VERSION: "0.17.2.4"
+      HCU_PREPARED_SOURCE_ROOT: "/pytorch"
       HCU_REUSE_OLD_WHL: "0"
       HCU_SETUPTOOLS_VERSION: "79.0.1"
+      HCU_WHEEL_VERSION: "0.47.0"
       MAX_JOBS: ${{ inputs.max-jobs }}
       PYTORCH_ROCM_ARCH: ${{ inputs.rocm-arch }}
-      USE_KINETO: "0"
-      USE_FLASH_ATTENTION: "0"
+      BUILD_STATIC_RUNTIME_BENCHMARK: "OFF"
+      BUILD_TEST: "OFF"
+      NO_CAFFE2_OPS: "1"
+      USE_AOTRITON_FA: "0"
+      USE_C10D_MPI: "1"
+      USE_CUDA: "0"
+      USE_CUFILE: "0"
+      USE_DISTRIBUTED: "1"
+      USE_FBGEMM: "ON"
+      USE_KINETO: "1"
+      USE_FLASH_ATTENTION: "1"
+      USE_GFLAGS: "1"
+      USE_GLOG: "1"
+      USE_GLOO: "1"
+      USE_GLOO_IBVERBS: "1"
+      USE_IBVERBS: "1"
+      USE_MAGMA: "ON"
       USE_MEM_EFF_ATTENTION: "0"
+      USE_MIOPEN: "1"
+      USE_MKL: "ON"
+      USE_MKLDNN: "0"
+      USE_MPI: "1"
+      USE_NINJA: "ON"
+      USE_NUMPY: "1"
+      USE_OPENMP: "1"
+      USE_RCCL: "1"
+      USE_ROCM: "1"
       USE_ROCM_CK_GEMM: "0"
+      USE_ROCM_CK_SDPA: "0"
     outputs:
       artifact-name: ${{ steps.outputs.outputs.artifact-name }}
       artifact-path: ${{ steps.storage.outputs.artifact-path }}
       build-environment: ${{ steps.outputs.outputs.build-environment }}
       runner-name: ${{ steps.storage.outputs.runner-name }}
+      image-digest: ${{ steps.image.outputs.image-digest }}
     steps:
       - name: Checkout PyTorch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -132,17 +167,25 @@ jobs:
           command -v docker
           test -x /opt/hyhal/bin/hy-smi
 
-      - name: Pull immutable HCU CI image
+      - name: Resolve immutable HCU build image
         id: image
         shell: bash
         env:
-          CI_IMAGE: ${{ inputs.ci-image }}
+          BUILD_IMAGE: ${{ inputs.build-image }}
         run: |
           set -euo pipefail
-          docker pull "${CI_IMAGE}"
-          image_digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "${CI_IMAGE}" || true)"
-          if [[ -z "${image_digest}" || "${image_digest}" == "<no value>" ]]; then
-            image_digest="$(docker image inspect --format '{{.Id}}' "${CI_IMAGE}")"
+          if [[ "${BUILD_IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]]; then
+            docker pull "${BUILD_IMAGE}"
+          elif [[ "${BUILD_IMAGE}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            docker image inspect "${BUILD_IMAGE}" > /dev/null
+          else
+            echo "HCU build image is not immutable: ${BUILD_IMAGE}" >&2
+            exit 1
+          fi
+          image_digest="$(docker image inspect --format '{{.Id}}' "${BUILD_IMAGE}")"
+          if [[ "${BUILD_IMAGE}" == sha256:* && "${image_digest}" != "${BUILD_IMAGE}" ]]; then
+            echo "Runner-local HCU build image ID mismatch" >&2
+            exit 1
           fi
           echo "image-digest=${image_digest}" >> "${GITHUB_OUTPUT}"
 
@@ -151,7 +194,7 @@ jobs:
         shell: bash
         env:
           BUILD_ENVIRONMENT: ${{ inputs.build-environment }}
-          CI_IMAGE: ${{ inputs.ci-image }}
+          BUILD_IMAGE: ${{ inputs.build-image }}
           SOURCE_SHA: ${{ github.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
         run: |
@@ -168,37 +211,75 @@ jobs:
             --label "org.pytorch.hcu.run=${run_label}" \
             --env-file "${env_file}" \
             --env BUILD_ENVIRONMENT \
+            --env BUILD_TEST \
             --env CI \
+            --env HCU_AUDITWHEEL_VERSION \
+            --env HCU_PACKAGE_TYPE \
+            --env HCU_PACKAGING_VERSION \
+            --env HCU_PATCHELF_VERSION \
+            --env HCU_PREPARED_SOURCE_ROOT \
             --env HCU_REUSE_OLD_WHL \
             --env HCU_SETUPTOOLS_VERSION \
+            --env HCU_WHEEL_VERSION \
             --env MAX_JOBS \
+            --env NO_CAFFE2_OPS \
             --env PYTORCH_ROCM_ARCH \
             --env SOURCE_SHA \
             --env BASE_SHA \
+            --env BUILD_STATIC_RUNTIME_BENCHMARK \
+            --env USE_AOTRITON_FA \
+            --env USE_C10D_MPI \
+            --env USE_CUDA \
+            --env USE_CUFILE \
+            --env USE_DISTRIBUTED \
+            --env USE_FBGEMM \
             --env USE_FLASH_ATTENTION \
+            --env USE_GFLAGS \
+            --env USE_GLOG \
+            --env USE_GLOO \
+            --env USE_GLOO_IBVERBS \
+            --env USE_IBVERBS \
             --env USE_KINETO \
+            --env USE_MAGMA \
             --env USE_MEM_EFF_ATTENTION \
+            --env USE_MIOPEN \
+            --env USE_MKL \
+            --env USE_MKLDNN \
+            --env USE_MPI \
+            --env USE_NINJA \
+            --env USE_NUMPY \
+            --env USE_OPENMP \
+            --env USE_RCCL \
+            --env USE_ROCM \
             --env USE_ROCM_CK_GEMM \
+            --env USE_ROCM_CK_SDPA \
             --security-opt seccomp=unconfined \
             --cap-add SYS_PTRACE \
             --volume /opt/hyhal:/opt/hyhal:ro \
             --volume "${GITHUB_WORKSPACE}:/var/lib/jenkins/workspace" \
             --workdir /var/lib/jenkins/workspace \
-            "${CI_IMAGE}" \
+            "${BUILD_IMAGE}" \
             sleep infinity
 
           echo "HCU_BUILD_CONTAINER=${container_name}" >> "${GITHUB_ENV}"
           echo "HCU_BUILD_LABEL=org.pytorch.hcu.run=${run_label}" >> "${GITHUB_ENV}"
           docker exec "${container_name}" bash -lc '
+            set -euo pipefail
             test -x /opt/dtk/bin/hipcc
-            if [[ ! -e /usr/lib/x86_64-linux-gnu/librt.so ]]; then
-              test -e /usr/lib/x86_64-linux-gnu/librt.so.1
-              ln -s librt.so.1 /usr/lib/x86_64-linux-gnu/librt.so
+            if ! ldconfig -p | grep -qE "librt\\.so \\(.*=>"; then
+              for lib_dir in /usr/lib64 /usr/lib/x86_64-linux-gnu; do
+                if [[ -e "${lib_dir}/librt.so.1" ]]; then
+                  ln -s librt.so.1 "${lib_dir}/librt.so"
+                  break
+                fi
+              done
             fi
+            ldconfig -p | grep -qE "librt\\.so \\(.*=>"
             python3 -m pip install --disable-pip-version-check --no-deps \
               "setuptools==${HCU_SETUPTOOLS_VERSION}"
             git config --global --add safe.directory /var/lib/jenkins/workspace
-            .ci/pytorch/build.sh
+            HCU_ALLOW_SOURCE_PREPARE=1 .ci/pytorch/hcu-wheel-prepare.sh
+            .ci/pytorch/hcu-wheel-package.sh
           ' \
             2>&1 | tee hcu-build.log
           docker exec "${container_name}" bash -lc '
@@ -211,8 +292,18 @@ jobs:
             {
               printf "python=%s\\n" "$(python3 --version)"
               printf "cmake=%s\\n" "$(cmake --version | head -n 1)"
-              printf "compiler=%s\\n" "$(c++ --version | head -n 1)"
+              printf "compiler=%s\\n" "$("${CXX:-$(command -v c++)}" --version | head -n 1)"
               printf "dtk=%s\\n" "$("${hipcc_bin}" --version | head -n 1)"
+              printf "auditwheel=%s\\n" "$(auditwheel --version)"
+              printf "glibc=%s\\n" "$(ldd --version | head -n 1)"
+              printf "package_profile=%s\\n" "${HCU_PACKAGE_TYPE}"
+              printf "packaging=%s\\n" "$(python3 -c "import packaging; print(packaging.__version__)")"
+              printf "patchelf=%s\\n" "$(patchelf --version)"
+              printf "wheel=%s\\n" "$(python3 -m wheel version | awk "{print \\$2}")"
+              sed -n \
+                -e "/^source_profile=/p" \
+                -e "/^third_party_seed_sha256=/p" \
+                .hcu-source-preparation.env
             } > .hcu-tool-versions.env
           ' 2>&1 | tee -a hcu-build.log
 
@@ -220,7 +311,7 @@ jobs:
         shell: bash
         env:
           BUILD_ENVIRONMENT: ${{ inputs.build-environment }}
-          CI_IMAGE: ${{ inputs.ci-image }}
+          BUILD_IMAGE: ${{ inputs.build-image }}
           IMAGE_DIGEST: ${{ steps.image.outputs.image-digest }}
           SOURCE_SHA: ${{ github.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
@@ -241,7 +332,7 @@ jobs:
             --source-sha "${SOURCE_SHA}" \
             --base-sha "${BASE_SHA}" \
             --build-environment "${BUILD_ENVIRONMENT}" \
-            --image-reference "${CI_IMAGE}" \
+            --image-reference "${BUILD_IMAGE}" \
             --image-digest "${IMAGE_DIGEST}" \
             "${tool_arguments[@]}"
           zip -1 -r artifacts.zip \

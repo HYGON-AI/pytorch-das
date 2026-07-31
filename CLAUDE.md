@@ -16,8 +16,10 @@ Always ask for build configuration environment variables before running build.
 All build (both codegen, C++ and python) is done via `pip install -e . -v --no-build-isolation`.
 You should NEVER run any other command to build PyTorch.
 The HCU CI fresh-wheel build is an exception: it may run
-`.ci/pytorch/build.sh` to produce the wheel artifact used by downstream HCU
-test jobs.
+`.ci/pytorch/hcu-wheel-prepare.sh` in a disposable checkout, followed by
+`.ci/pytorch/hcu-wheel-package.sh`. These scripts apply the pinned HCU build
+image inputs, configure the HCU packaging profile, run `.ci/pytorch/build.sh`,
+and repair the resulting wheel for downstream HCU test jobs.
 
 # Testing
 
