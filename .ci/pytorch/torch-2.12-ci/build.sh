@@ -254,16 +254,16 @@ AUDITWHEEL_ARGS=()
 for library in "${EXCLUDE_LIBS[@]}"; do
     AUDITWHEEL_ARGS+=(--exclude "${library}")
 done
-
 echo "===== 开始生成 ${PLATFORM} wheel ====="
 auditwheel repair \
     --plat "${PLATFORM}" \
     "${AUDITWHEEL_ARGS[@]}" \
     -w /dist \
     /dist/raw/*.whl
-echo "===== wheel ====="
-ls -lh /dist/raw/
-echo "===== manylinux wheel ====="
+echo "===== linux wheel 到 /dist ====="
+mv -v /dist/raw/*.whl /dist/
+rmdir /dist/raw
+echo "===== 全部 wheel ====="
 find /dist \
     -maxdepth 1 \
     -type f \
