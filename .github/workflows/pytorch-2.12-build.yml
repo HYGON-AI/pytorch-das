@@ -138,14 +138,19 @@ jobs:
       #     if-no-files-found: error
       #     retention-days: 14
       # 上传日志
-      - name: Upload build logs
+      - name: Save build result locally
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytorch-2.12-build-logs-${{ github.run_number }}
-          path: build_logs/*.log
-          if-no-files-found: warn
-          retention-days: 14
+        shell: bash
+        run: |
+          set -e
+          LOG_ROOT="/home/github/actions-runner-torch/log-torch"
+          LOG_DIR="${LOG_ROOT}/${GITHUB_RUN_NUMBER}"
+          mkdir -p "${LOG_DIR}"
+          echo "保存构建日志到: ${LOG_DIR}"
+          cp build_logs/*.log \
+            "${LOG_DIR}/" 2>/dev/null || true
+          echo "===== log files ====="
+          ls -lh "${LOG_DIR}"
         #清理容器和临时镜像
       - name: Cleanup on failure
         if: ${{ failure() || cancelled() }}
