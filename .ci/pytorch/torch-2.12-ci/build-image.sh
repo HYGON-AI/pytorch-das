@@ -40,7 +40,6 @@ TORCH_SOURCE_VERSION="$(tr -d '[:space:]' < "${PYTORCH_ROOT}/version.txt")"
     echo "ERROR: 当前脚本只支持 PyTorch 2.12，实际为 ${TORCH_SOURCE_VERSION}" >&2
     exit 1
 }
-
 echo "===== Build information ====="
 echo "PyTorch root : ${PYTORCH_ROOT}"
 echo "PyTorch      : ${TORCH_SOURCE_VERSION}"
@@ -48,14 +47,12 @@ echo "DTK package  : ${DTK_PKG_URL}"
 echo "Python       : ${PYTHON_VERSION}"
 echo "Image        : ${DOCKER_IMAGE_NAME}"
 echo "Context      : ${BUILD_CONTEXT}"
-
 # 1. 复制 Dockerfile 和脚本
 cp "${CI_DIR}/Dockerfile" "${BUILD_CONTEXT}/Dockerfile"
 cp "${CI_DIR}/prepare.sh" "${BUILD_CONTEXT}/prepare.sh"
 cp "${CI_DIR}/build.sh" "${BUILD_CONTEXT}/build.sh"
 sed -i 's/\r$//' "${BUILD_CONTEXT}/prepare.sh" "${BUILD_CONTEXT}/build.sh"
 chmod 755 "${BUILD_CONTEXT}/prepare.sh" "${BUILD_CONTEXT}/build.sh"
-
 # 2. 复制当前 GitHub 仓库中的 PyTorch 源码
 mkdir -p "${BUILD_CONTEXT}/pytorch"
 tar \
@@ -66,7 +63,6 @@ tar \
     --exclude='./build_logs' \
     -C "${PYTORCH_ROOT}" \
     -cf - . | tar -C "${BUILD_CONTEXT}/pytorch" -xf -
-
 # 3. 下载并解压 DTK 26.04
 DTK_ARCHIVE="${BUILD_CONTEXT}/dtk.tar.gz"
 DTK_EXTRACT_DIR="${BUILD_CONTEXT}/dtk-extract"
@@ -103,7 +99,6 @@ rm -rf "${DTK_EXTRACT_DIR}" "${DTK_ARCHIVE}"
 
 echo "===== DTK in build context ====="
 cat "${BUILD_CONTEXT}/dtk/.info/rocm_version"
-
 # 4. 修改临时 Dockerfile：先删除基础镜像可能已有的 /opt/dtk，避免与 25.04 合并
 python3 - "${BUILD_CONTEXT}/Dockerfile" <<'PY'
 import re
