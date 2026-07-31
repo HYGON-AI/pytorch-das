@@ -19,8 +19,8 @@ jobs:
       DTK_VERSION: "2604"
       PYTHON_VERSION: "3.10"
       DTK_PKG_URL: "http://10.16.1.201:8000/dtk-pkg/dtk26.04/DTK-26.04-rc4-centos8-x86_64.tar.gz"
-      #DTK_PKG_NAME: "DTK-26.04-rc4-centos8-x86_64.tar.gz"
-      #CIUPLOAD_WHL_URL: "http://10.16.1.201:9929/open/deps/+f/c4b/038ed2be04880/CIUpload-0.2.2-py3-none-any.whl#sha256=c4b038ed2be048800df4ddbd59dcb3ad83af647faeecfebd7664e6f40a1f8d42"
+      DTK_PKG_NAME: "DTK-26.04-rc4-centos8-x86_64.tar.gz"
+      CIUPLOAD_INDEX_URL: "http://10.16.1.201:9929/open/deps/+simple/"
       ROCM_PATH: "/opt/dtk"
       TOOLKIT_DIR: "/pytorch"
       AMDGPU_TARGETS: "gfx906;gfx926;gfx928;gfx936;gfx938"
@@ -132,41 +132,43 @@ jobs:
           echo "===== wheel saved ====="
           ls -lh "${SAVE_DIR}"
       # 安装 CIUpload
-      # - name: Install CIUpload
-      #   if: success()
-      #   shell: bash
-      #   run: |
-      #     set -euxo pipefail
-      #     python3 -m pip install \
-      #       --upgrade \
-      #       --trusted-host 10.16.1.201 \
-      #       "${CIUPLOAD_WHL_URL}"
-      #     echo "===== CIUpload command ====="
-      #     command -v CIUpload
-      #     CIUpload --help >/dev/null
-      # 上传 linux 和 manylinux wheel
-      # - name: Upload PyTorch wheels
-      #   if: success()
-      #   shell: bash
-      #   run: |
-      #     set -euxo pipefail
-      #     SAVE_DIR="/home/github/actions-runner-torch/dist/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}"
-      #     mapfile -d '' -t WHEELS < <(
-      #       find "${SAVE_DIR}" \
-      #         -type f \
-      #         -name "*.whl" \
-      #         -print0
-      #     )
-      #     if (( ${#WHEELS[@]} == 0 )); then
-      #       echo "ERROR: 没有找到任何 wheel"
-      #       find "${SAVE_DIR}" -maxdepth 3 -type f -print || true
-      #       exit 1
-      #     fi
-      #     echo "===== 准备上传的 wheel ====="
-      #     printf '%s\n' "${WHEELS[@]}"
-      #     CIUpload NIGHTLY \
-      #       --dtk_pkg_name "${DTK_PKG_NAME}" \
-      #       -f "${WHEELS[@]}"
+      - name: Install CIUpload
+        if: success()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m pip install \
+            --upgrade \
+            --trusted-host 10.16.1.201 \
+            --index-url "${CIUPLOAD_INDEX_URL}" \
+            "CIUpload==0.2.2"
+          echo "===== CIUpload installation ====="
+          command -v CIUpload
+          CIUpload --help
+      # 上传wheel包
+      - name: Upload PyTorch wheels
+        if: success()
+        shell: bash
+        env:
+          PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          SAVE_DIR="/home/github/actions-runner-torch/dist/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}"
+
+          mapfile -d '' -t WHEELS < <(
+            find "${SAVE_DIR}" -type f -name "*.whl" -print0
+          )
+
+          echo "===== Wheels to upload ====="
+          printf '%s\n' "${WHEELS[@]}"
+
+          CIUpload \
+            --devpi_url "http://10.16.1.201:9929" \
+            --devpi_user "nightly" \
+            --devpi_password "${PYPI_PASSWORD}" \
+            --dtk_pkg_name "$(basename "${DTK_PKG_URL}")" \
+            -f "${SAVE_DIR}"/*.whl
       # 上传日志
       - name: Save build result locally
         if: always()
