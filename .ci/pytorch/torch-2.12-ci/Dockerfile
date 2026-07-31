@@ -79,7 +79,6 @@ RUN echo "===== PyTorch 2.12 build environment =====" && \
     cmake --version | head -n 1 && \
     test -f "${TOOLKIT_DIR}/version.txt" && \
     echo "Source version: $(cat "${TOOLKIT_DIR}/version.txt")"
-
 WORKDIR /pytorch
 
 # 容器保持运行，由 GitHub Actions 使用 docker exec 执行编译
