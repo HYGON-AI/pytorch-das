@@ -20,7 +20,7 @@ jobs:
       PYTHON_VERSION: "3.10"
       DTK_PKG_URL: "http://10.16.1.201:8000/dtk-pkg/dtk26.04/DTK-26.04-rc4-centos8-x86_64.tar.gz"
       DTK_PKG_NAME: "DTK-26.04-rc4-centos8-x86_64.tar.gz"
-      CIUPLOAD_INDEX_URL: "http://10.16.1.201:9929/open/deps/+simple/"
+      #CIUPLOAD_INDEX_URL: "http://10.16.1.201:9929/open/deps/+simple/"
       ROCM_PATH: "/opt/dtk"
       TOOLKIT_DIR: "/pytorch"
       AMDGPU_TARGETS: "gfx906;gfx926;gfx928;gfx936;gfx938"
@@ -131,32 +131,32 @@ jobs:
             "${SAVE_DIR}/"
           echo "===== wheel saved ====="
           ls -lh "${SAVE_DIR}"
-      # 在编译容器内安装 CIUpload，并上传全部 wheel
-      - name: Install CIUpload and upload wheels
-        if: success()
-        shell: bash
-        env:
-          PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-        run: |
-          set -euo pipefail
-          docker exec \
-            -e PYPI_PASSWORD \
-            -e DTK_PKG_URL \
-            "${CONTAINER_NAME}" \
-            bash -lc '
-              set -euo pipefail
-              echo "===== CIUpload 信息 ====="
-              command -v CIUpload
-              CIUpload --help >/dev/null
-              echo "===== 准备上传的 wheel ====="
-              ls -lh /dist/*.whl
-              CIUpload \
-                --devpi_url "http://10.16.1.201:9929" \
-                --devpi_user "nightly" \
-                --devpi_password "${PYPI_PASSWORD}" \
-                --dtk_pkg_name "$(basename "${DTK_PKG_URL}")" \
-                -f /dist/*.whl
-            '
+      # 在编译容器内上传wheel
+      # - name: Install CIUpload and upload wheels
+      #   if: success()
+      #   shell: bash
+      #   env:
+      #     PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+      #   run: |
+      #     set -euo pipefail
+      #     docker exec \
+      #       -e PYPI_PASSWORD \
+      #       -e DTK_PKG_URL \
+      #       "${CONTAINER_NAME}" \
+      #       bash -lc '
+      #         set -euo pipefail
+      #         echo "===== CIUpload 信息 ====="
+      #         command -v CIUpload
+      #         CIUpload --help >/dev/null
+      #         echo "===== 准备上传的 wheel ====="
+      #         ls -lh /dist/*.whl
+      #         CIUpload \
+      #           --devpi_url "http://10.16.1.201:9929" \
+      #           --devpi_user "nightly" \
+      #           --devpi_password "${PYPI_PASSWORD}" \
+      #           --dtk_pkg_name "$(basename "${DTK_PKG_URL}")" \
+      #           -f /dist/*.whl
+      #       '
       # 上传日志
       - name: Save build result locally
         if: always()
@@ -172,11 +172,24 @@ jobs:
           echo "===== log files ====="
           ls -lh "${LOG_DIR}"
         #清理容器和临时镜像
-      - name: Cleanup on failure
+      - name: Cleanup failed build
         if: ${{ failure() || cancelled() }}
         shell: bash
         run: |
-          echo "流水线失败，删除容器和镜像"
+          set +e
+          LOG_DIR="/home/github/actions-runner-torch/log-torch/${GITHUB_RUN_NUMBER}"
+          DIST_DIR="/home/github/actions-runner-torch/dist/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}"
+          echo "===== 流程失败，开始清理 ====="
+          echo "删除本次日志目录：${LOG_DIR}"
+          rm -rf -- "${LOG_DIR}"
+          echo "删除本次 wheel 目录：${DIST_DIR}"
+          rm -rf -- "${DIST_DIR}"
+          echo "删除工作区临时日志"
+          rm -rf build_logs artifacts
+          echo "删除容器：${CONTAINER_NAME}"
           docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+          echo "删除镜像：${IMAGE_NAME}"
           docker image rm -f "${IMAGE_NAME}" 2>/dev/null || true
-          rm -rf "${BUILD_CONTEXT}" || true
+          echo "删除临时构建目录：${BUILD_CONTEXT}"
+          rm -rf -- "${BUILD_CONTEXT}"
+          echo "===== 清理完成 ====="
