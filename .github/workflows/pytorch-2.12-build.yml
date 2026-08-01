@@ -140,6 +140,7 @@ jobs:
           python3 -m pip install \
             --upgrade \
             --trusted-host 10.16.1.201 \
+            --no-deps \
             --index-url "${CIUPLOAD_INDEX_URL}" \
             "CIUpload==0.2.2"
           echo "===== CIUpload installation ====="
