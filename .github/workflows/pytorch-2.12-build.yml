@@ -145,16 +145,6 @@ jobs:
             "${CONTAINER_NAME}" \
             bash -lc '
               set -euo pipefail
-              echo "===== 容器 Python 环境 ====="
-              python3 --version
-              python3 -m pip --version
-              echo "===== 安装 CIUpload ====="
-              python3 -m pip install \
-                --upgrade \
-                --no-deps \
-                --trusted-host 10.16.1.201 \
-                --index-url "http://10.16.1.201:9929/open/deps/+simple/" \
-                "CIUpload==0.2.2"
               echo "===== CIUpload 信息 ====="
               command -v CIUpload
               CIUpload --help >/dev/null
