@@ -146,6 +146,11 @@ jobs:
           echo "===== CIUpload installation ====="
           command -v CIUpload
           CIUpload --help
+          export PATH="${HOME}/.local/bin:${PATH}"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          echo "===== CIUpload ====="
+          command -v CIUpload
+          CIUpload --help
       # 上传wheel包
       - name: Upload PyTorch wheels
         if: success()
