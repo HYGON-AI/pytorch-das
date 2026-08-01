@@ -104,6 +104,10 @@ python3 -m pip install --no-cache-dir \
     numba \
     amdsmi==1.0.0+630c16a6.dirty \
     cloudpickle
+python3 -m pip install --no-cache-dir \
+    --trusted-host 10.16.1.201 \
+    --extra-index-url "http://10.16.1.201:9929/nightly/dtk2604/+simple/" \
+    ciupload
 # ----------------------------
 # 下载工具函数
 # ----------------------------
