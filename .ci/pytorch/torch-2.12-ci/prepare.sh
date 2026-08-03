@@ -50,22 +50,47 @@ fi
 # ----------------------------
 # 安装 MKL
 # ----------------------------
+# log "检查 MKL"
+# if [[ -d "${MKL_LIB_DIR}" ]]; then
+#     echo "MKL目录已经存在：${MKL_LIB_DIR}"
+# else
+#     echo "MKL目录不存在，开始安装 Intel MKL 2020"
+#     yum install -y ca-certificates yum-utils
+#     update-ca-trust
+#     yum-config-manager \
+#         --add-repo \
+#         https://yum.repos.intel.com/mkl/setup/intel-mkl.repo
+
+#     yum install -y \
+#         intel-mkl-2020.0-088 \
+#         --nogpgcheck
+# fi
+# [[ -d "${MKL_LIB_DIR}" ]] || fail "MKL安装完成后仍未找到：${MKL_LIB_DIR}"
 log "检查 MKL"
-if [[ -d "${MKL_LIB_DIR}" ]]; then
-    echo "MKL目录已经存在：${MKL_LIB_DIR}"
+if [[ -d "/opt/intel/oneapi/mkl/latest/lib/intel64" ]]; then
+    echo "检测到 MKL 2024"
+    export MKLROOT=/opt/intel/oneapi/mkl/latest
+    export MKL_LIB_DIR=${MKLROOT}/lib/intel64
+
+elif [[ -d "/opt/intel/mkl/lib/intel64" ]]; then
+    echo "检测到旧版 MKL"
+    export MKLROOT=/opt/intel/mkl
+    export MKL_LIB_DIR=${MKLROOT}/lib/intel64
+
 else
-    echo "MKL目录不存在，开始安装 Intel MKL 2020"
+    echo "MKL不存在，安装 MKL 2024"
     yum install -y ca-certificates yum-utils
     update-ca-trust
     yum-config-manager \
         --add-repo \
-        https://yum.repos.intel.com/mkl/setup/intel-mkl.repo
-
-    yum install -y \
-        intel-mkl-2020.0-088 \
-        --nogpgcheck
+        https://yum.repos.intel.com/oneapi/intel-oneapi.repo
+    yum install -y intel-oneapi-mkl-devel
+    export MKLROOT=/opt/intel/oneapi/mkl/latest
+    export MKL_LIB_DIR=${MKLROOT}/lib/intel64
 fi
 [[ -d "${MKL_LIB_DIR}" ]] || fail "MKL安装完成后仍未找到：${MKL_LIB_DIR}"
+
+echo "MKL路径: ${MKL_LIB_DIR}"
 # ----------------------------
 # 安装 Python 依赖
 # ----------------------------
