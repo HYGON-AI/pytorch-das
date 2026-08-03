@@ -132,31 +132,31 @@ jobs:
           echo "===== wheel saved ====="
           ls -lh "${SAVE_DIR}"
       # 在编译容器内上传wheel
-      # - name: Install CIUpload and upload wheels
-      #   if: success()
-      #   shell: bash
-      #   env:
-      #     PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-      #   run: |
-      #     set -euo pipefail
-      #     docker exec \
-      #       -e PYPI_PASSWORD \
-      #       -e DTK_PKG_URL \
-      #       "${CONTAINER_NAME}" \
-      #       bash -lc '
-      #         set -euo pipefail
-      #         echo "===== CIUpload 信息 ====="
-      #         command -v CIUpload
-      #         CIUpload --help >/dev/null
-      #         echo "===== 准备上传的 wheel ====="
-      #         ls -lh /dist/*.whl
-      #         CIUpload \
-      #           --devpi_url "http://10.16.1.201:9929" \
-      #           --devpi_user "nightly" \
-      #           --devpi_password "${PYPI_PASSWORD}" \
-      #           --dtk_pkg_name "$(basename "${DTK_PKG_URL}")" \
-      #           -f /dist/*.whl
-      #       '
+      - name: Install CIUpload and upload wheels
+        if: success()
+        shell: bash
+        env:
+          PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+        run: |
+          set -euo pipefail
+          docker exec \
+            -e PYPI_PASSWORD \
+            -e DTK_PKG_URL \
+            "${CONTAINER_NAME}" \
+            bash -lc '
+              set -euo pipefail
+              echo "===== CIUpload 信息 ====="
+              command -v CIUpload
+              CIUpload --help >/dev/null
+              echo "===== 准备上传的 wheel ====="
+              ls -lh /dist/*.whl
+              CIUpload \
+                --devpi_url "http://10.16.1.201:9929" \
+                --devpi_user "nightly" \
+                --devpi_password "${PYPI_PASSWORD}" \
+                --dtk_pkg_name "$(basename "${DTK_PKG_URL}")" \
+                -f /dist/*.whl
+            '
       # 上传日志
       - name: Save build result locally
         if: always()
