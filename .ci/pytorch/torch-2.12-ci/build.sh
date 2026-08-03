@@ -5,7 +5,7 @@ cd /pytorch
 
 export ROCM_PATH=/opt/dtk
 # 设置 wheel 版本
-# 命名规则与原 GitLab nightly 保持一致
+# 命名规则
 PKG_TYPE="${PKG_TYPE:-nightly}"
 BASE_VERSION="$(tr -d '[:space:]' < /pytorch/version.txt)"
 DTK_VERSION_NUMBER="$(
