@@ -207,6 +207,10 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn('HCU_PREPARED_SOURCE_ROOT: "/pytorch"', build_workflow)
         self.assertIn("source_profile", build_workflow)
         self.assertIn("third_party_seed_sha256", build_workflow)
+        self.assertIn(
+            'python3 -c "import wheel; print(wheel.__version__)"', build_workflow
+        )
+        self.assertNotIn("python3 -m wheel version | awk", build_workflow)
         self.assertIn("build-image: ${{ vars.HCU_BUILD_IMAGE }}", backend_workflow)
         self.assertIn("hcu-build-manifest.json", build_workflow)
         self.assertIn("--volume /opt/hyhal:/opt/hyhal:ro", build_workflow)

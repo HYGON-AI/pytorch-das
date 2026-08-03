@@ -299,7 +299,7 @@ jobs:
               printf "package_profile=%s\\n" "${HCU_PACKAGE_TYPE}"
               printf "packaging=%s\\n" "$(python3 -c "import packaging; print(packaging.__version__)")"
               printf "patchelf=%s\\n" "$(patchelf --version)"
-              printf "wheel=%s\\n" "$(python3 -m wheel version | awk "{print \\$2}")"
+              printf "wheel=%s\\n" "$(python3 -c "import wheel; print(wheel.__version__)")"
               sed -n \
                 -e "/^source_profile=/p" \
                 -e "/^third_party_seed_sha256=/p" \
