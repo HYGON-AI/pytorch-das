@@ -190,7 +190,6 @@ mkl_libraries=(
     "libmkl_core.so"
     "libmkl_gf_lp64.so"
     "libmkl_gnu_thread.so"
-    "libmkl_def.so"
     "libmkl_vml_def.so"
 )
 for library in "${mkl_libraries[@]}"; do
