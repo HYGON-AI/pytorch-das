@@ -294,7 +294,7 @@ jobs:
               printf "cmake=%s\\n" "$(cmake --version | head -n 1)"
               printf "compiler=%s\\n" "$("${CXX:-$(command -v c++)}" --version | head -n 1)"
               printf "dtk=%s\\n" "$("${hipcc_bin}" --version | head -n 1)"
-              printf "auditwheel=%s\\n" "$(auditwheel --version)"
+              printf "auditwheel=%s\\n" "$(python3 -c "from importlib.metadata import version; print(version(\"auditwheel\"))")"
               printf "glibc=%s\\n" "$(ldd --version | head -n 1)"
               printf "package_profile=%s\\n" "${HCU_PACKAGE_TYPE}"
               printf "packaging=%s\\n" "$(python3 -c "import packaging; print(packaging.__version__)")"

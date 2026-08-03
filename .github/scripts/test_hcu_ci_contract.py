@@ -211,6 +211,11 @@ class HcuCiContractTest(unittest.TestCase):
             'python3 -c "import wheel; print(wheel.__version__)"', build_workflow
         )
         self.assertNotIn("python3 -m wheel version | awk", build_workflow)
+        self.assertIn(
+            'from importlib.metadata import version; print(version(\\"auditwheel\\"))',
+            build_workflow,
+        )
+        self.assertNotIn("auditwheel --version", build_workflow)
         self.assertIn("build-image: ${{ vars.HCU_BUILD_IMAGE }}", backend_workflow)
         self.assertIn("hcu-build-manifest.json", build_workflow)
         self.assertIn("--volume /opt/hyhal:/opt/hyhal:ro", build_workflow)
