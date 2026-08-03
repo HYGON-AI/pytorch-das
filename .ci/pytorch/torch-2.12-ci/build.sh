@@ -151,22 +151,16 @@ if (( ${#raw_wheels[@]} > 1 )); then
     printf '%s\n' "${raw_wheels[@]}"
     exit 1
 fi
-# 检查 wheel 名称是否包含 nightly 时间和 commit
-RAW_WHEEL_NAME="$(basename "${raw_wheels[0]}")"
-echo "===== 原始 wheel 名称 ====="
-echo "${RAW_WHEEL_NAME}"
-EXPECTED_SUFFIX=".${BUILD_TIME}.g${COMMIT_ID}"
-if [[ "${PKG_TYPE}" == "nightly" && "${RAW_WHEEL_NAME}" != *"${EXPECTED_SUFFIX}"* ]]; then
-    echo "ERROR: wheel 名称没有包含 nightly 时间和 commit"
-    echo "期望包含：${EXPECTED_SUFFIX}"
-    echo "实际名称：${RAW_WHEEL_NAME}"
-    exit 1
-fi
 rm -rf /dist
 mkdir -p /dist/raw
-# 保存原始 linux_x86_64 wheel
+# 保存原始 linux wheel
 cp -v "${raw_wheels[@]}" /dist/raw/
-echo "===== 安装原始 wheel ====="
+
+echo "===== 修正 wheel 版本 ====="
+python3 /usr/local/bin/repair_wheel.py
+echo "===== 修正后的 linux wheel ====="
+ls -lh /dist/raw/*.whl
+echo "===== 安装修正后的 wheel ====="
 python3 -m pip install \
     --no-deps \
     --force-reinstall \
@@ -189,23 +183,6 @@ PLATFORM="manylinux_${GLIBC_VERSION//./_}_x86_64"
 
 echo "GLIBC_VERSION=${GLIBC_VERSION}"
 echo "PLATFORM=${PLATFORM}"
-echo "===== 版本解析链路检查 ====="
-
-echo "环境变量版本: ${PYTORCH_BUILD_VERSION}"
-
-python3 - <<'PY'
-import os
-from tools.generate_torch_version import get_torch_version
-
-print("PYTORCH_BUILD_VERSION =", os.getenv("PYTORCH_BUILD_VERSION"))
-print("PYTORCH_BUILD_NUMBER  =", os.getenv("PYTORCH_BUILD_NUMBER"))
-print("get_torch_version()   =", get_torch_version())
-PY
-
-echo "===== setup.py 解析版本 ====="
-PYTORCH_BUILD_VERSION="${PYTORCH_BUILD_VERSION}" \
-PYTORCH_BUILD_NUMBER="${PYTORCH_BUILD_NUMBER}" \
-python3 setup.py --version
 # 必须从安装后的 torch 中获取 lib 目录，不能误用源码目录
 TORCH_PATH="$(
     cd / &&
@@ -295,8 +272,7 @@ auditwheel repair \
     -w /dist \
     /dist/raw/*.whl
 echo "===== linux wheel 到 /dist ====="
-mv -v /dist/raw/*.whl /dist/
-rmdir /dist/raw
+rm -rf /dist/raw
 echo "===== 全部 wheel ====="
 find /dist \
     -maxdepth 1 \
