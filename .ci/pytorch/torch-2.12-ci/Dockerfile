@@ -59,7 +59,7 @@ COPY dtk/ ${ROCM_PATH}/
 COPY pytorch/ ${TOOLKIT_DIR}/
 # 拷贝环境准备脚本
 COPY prepare.sh /usr/local/bin/prepare-pytorch.
-COPY .ci/pytorch/torch-2.12-ci/repair_wheel.py /usr/local/bin/repair_wheel.py
+COPY repair_wheel.py /usr/local/bin/repair_wheel.py
 # 准备 PyTorch  编译环境
 RUN chmod 755 /usr/local/bin/prepare-pytorch.sh && \
     /usr/local/bin/prepare-pytorch.sh && \
