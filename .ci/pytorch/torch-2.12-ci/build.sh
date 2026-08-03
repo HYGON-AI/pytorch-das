@@ -189,6 +189,23 @@ PLATFORM="manylinux_${GLIBC_VERSION//./_}_x86_64"
 
 echo "GLIBC_VERSION=${GLIBC_VERSION}"
 echo "PLATFORM=${PLATFORM}"
+echo "===== 版本解析链路检查 ====="
+
+echo "环境变量版本: ${PYTORCH_BUILD_VERSION}"
+
+python3 - <<'PY'
+import os
+from tools.generate_torch_version import get_torch_version
+
+print("PYTORCH_BUILD_VERSION =", os.getenv("PYTORCH_BUILD_VERSION"))
+print("PYTORCH_BUILD_NUMBER  =", os.getenv("PYTORCH_BUILD_NUMBER"))
+print("get_torch_version()   =", get_torch_version())
+PY
+
+echo "===== setup.py 解析版本 ====="
+PYTORCH_BUILD_VERSION="${PYTORCH_BUILD_VERSION}" \
+PYTORCH_BUILD_NUMBER="${PYTORCH_BUILD_NUMBER}" \
+python3 setup.py --version
 # 必须从安装后的 torch 中获取 lib 目录，不能误用源码目录
 TORCH_PATH="$(
     cd / &&
