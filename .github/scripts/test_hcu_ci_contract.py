@@ -270,6 +270,7 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("export PYTORCH_BUILD_VERSION=", package_script)
         self.assertIn('export USE_MAGMA="${USE_MAGMA:-ON}"', package_script)
         self.assertIn('export USE_MPI="${USE_MPI:-1}"', package_script)
+        self.assertIn("PIP_FORCE_REINSTALL=1 .ci/pytorch/build.sh", package_script)
         self.assertIn(".ci/pytorch/build.sh", package_script)
         self.assertIn("auditwheel repair", package_script)
         self.assertIn("HCU_PACKAGING_VERSION:-24.2", package_script)

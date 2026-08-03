@@ -136,7 +136,7 @@ printf "C compiler: %s\n" "$("${CC}" --version | head -n 1)"
 printf "C++ compiler: %s\n" "$("${CXX}" --version | head -n 1)"
 printf "HIP compiler: %s\n" "$("${hip_compiler}" --version | head -n 1)"
 
-.ci/pytorch/build.sh
+PIP_FORCE_REINSTALL=1 .ci/pytorch/build.sh
 
 shopt -s nullglob
 compiler_wheels=(dist/*.whl)
