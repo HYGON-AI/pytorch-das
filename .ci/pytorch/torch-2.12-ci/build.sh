@@ -4,6 +4,18 @@ set -Eeuo pipefail
 cd /pytorch
 
 export ROCM_PATH=/opt/dtk
+# 加载DTK完整环境
+if [[ -f /opt/dtk/env.sh ]]; then
+    set +u
+    source /opt/dtk/env.sh
+    set -u
+fi
+# GCC13重新生效
+if [[ -f /opt/rh/gcc-toolset-13/enable ]]; then
+    set +u
+    source /opt/rh/gcc-toolset-13/enable
+    set -u
+fi
 # 设置 wheel 版本
 # 命名规则
 PKG_TYPE="${PKG_TYPE:-nightly}"
@@ -33,18 +45,6 @@ echo "BASE_VERSION=${BASE_VERSION}"
 echo "DTK_VERSION_NUMBER=${DTK_VERSION_NUMBER}"
 echo "COMMIT_ID=${COMMIT_ID}"
 echo "PYTORCH_BUILD_VERSION=${PYTORCH_BUILD_VERSION}"
-# 加载DTK完整环境
-if [[ -f /opt/dtk/env.sh ]]; then
-    set +u
-    source /opt/dtk/env.sh
-    set -u
-fi
-# GCC13重新生效
-if [[ -f /opt/rh/gcc-toolset-13/enable ]]; then
-    set +u
-    source /opt/rh/gcc-toolset-13/enable
-    set -u
-fi
 # 固定编译器
 export CC=/opt/rh/gcc-toolset-13/root/usr/bin/gcc
 export CXX=/opt/rh/gcc-toolset-13/root/usr/bin/g++
@@ -89,7 +89,12 @@ export CMAKE_ARGS="${CMAKE_ARGS:-} \
 -DCMAKE_HIP_COMPILER_ROCM_ROOT=/opt/dtk \
 -DCMAKE_PREFIX_PATH=/opt/dtk"
 # 清除上一次失败留下的CMake缓存
+echo "===== 清理旧构建产物 ====="
 rm -rf /pytorch/build
+rm -rf /pytorch/dist
+rm -rf /pytorch/*.egg-info
+rm -rf /pytorch/torch.egg-info
+mkdir -p /pytorch/dist
 echo "===== Compiler Check ====="
 echo "CC=${CC}"
 echo "CXX=${CXX}"
@@ -129,8 +134,9 @@ USE_NUMPY=1 \
 USE_GLOG=1 \
 USE_GFLAGS=1 \
 PYTORCH_ROCM_ARCH=${AMDGPU_TARGETS} \
+PYTORCH_BUILD_VERSION="${PYTORCH_BUILD_VERSION}" \
+PYTORCH_BUILD_NUMBER="${PYTORCH_BUILD_NUMBER}" \
 python3 setup.py bdist_wheel
-
 # 生成 manylinux wheel
 echo "===== PyTorch 原始 wheel 编译完成 ====="
 shopt -s nullglob
@@ -143,6 +149,17 @@ fi
 if (( ${#raw_wheels[@]} > 1 )); then
     echo "ERROR: 找到多个原始 wheel："
     printf '%s\n' "${raw_wheels[@]}"
+    exit 1
+fi
+# 检查 wheel 名称是否包含 nightly 时间和 commit
+RAW_WHEEL_NAME="$(basename "${raw_wheels[0]}")"
+echo "===== 原始 wheel 名称 ====="
+echo "${RAW_WHEEL_NAME}"
+EXPECTED_SUFFIX=".${BUILD_TIME}.g${COMMIT_ID}"
+if [[ "${PKG_TYPE}" == "nightly" && "${RAW_WHEEL_NAME}" != *"${EXPECTED_SUFFIX}"* ]]; then
+    echo "ERROR: wheel 名称没有包含 nightly 时间和 commit"
+    echo "期望包含：${EXPECTED_SUFFIX}"
+    echo "实际名称：${RAW_WHEEL_NAME}"
     exit 1
 fi
 rm -rf /dist
