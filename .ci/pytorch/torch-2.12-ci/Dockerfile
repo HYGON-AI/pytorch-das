@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # PyTorch 2.12 + DTK 26.04 编译环境
-ARG PYTHON_VERSION=3.10
-FROM harbor.sourcefind.cn:5443/dcu/admin/base/dev:rockylinux8.6-mpi5.0-gcc11.3-cmake3.29-py${PYTHON_VERSION}-mkl2024.2.0.664
+FROM 42.228.13.241:5000/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.10-mkl2024.2.0.664
+# ARG PYTHON_VERSION=3.10
+#FROM harbor.sourcefind.cn:5443/dcu/admin/base/dev:rockylinux8.6-mpi5.0-gcc11.3-cmake3.29-py${PYTHON_VERSION}-mkl2024.2.0.664
 # 构建参数
 # ----------------------------
 ARG PYTHON_VERSION=3.10
@@ -18,33 +19,41 @@ ENV ROCM_PATH=/opt/dtk \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 # 使用 GCC Toolset 13
-ENV PATH=/opt/rh/gcc-toolset-13/root/usr/bin:${PATH} \
-    LD_LIBRARY_PATH=/opt/rh/gcc-toolset-13/root/usr/lib64:${LD_LIBRARY_PATH} \
-    CC=/opt/rh/gcc-toolset-13/root/usr/bin/gcc \
-    CXX=/opt/rh/gcc-toolset-13/root/usr/bin/g++
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# ENV PATH=/opt/rh/gcc-toolset-13/root/usr/bin:${PATH} \
+#     LD_LIBRARY_PATH=/opt/rh/gcc-toolset-13/root/usr/lib64:${LD_LIBRARY_PATH} \
+#     CC=/opt/rh/gcc-toolset-13/root/usr/bin/gcc \
+#     CXX=/opt/rh/gcc-toolset-13/root/usr/bin/g++
+# SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # 安装 GCC Toolset 13
-RUN wget \
-        --timeout=30 \
-        --tries=3 \
-        -O /tmp/rpms.tar.gz \
-        "${RESOURCE_SERVER}/thirdparty/rpms.tar.gz" && \
-    mkdir -p /tmp/rpms && \
-    tar -xf /tmp/rpms.tar.gz \
-        -C /tmp/rpms && \
-    yum localinstall -y \
-        /tmp/rpms/rpms/gcc-toolset-13-13.0-*.rpm \
-        /tmp/rpms/rpms/gcc-toolset-13-runtime-*.rpm \
-        /tmp/rpms/rpms/gcc-toolset-13-gcc-*.rpm \
-        /tmp/rpms/rpms/gcc-toolset-13-gcc-c++-*.rpm \
-        /tmp/rpms/rpms/gcc-toolset-13-libstdc++-devel-*.rpm \
-        /tmp/rpms/rpms/gcc-toolset-13-binutils-*.rpm \
-        --skip-broken && \
-    yum clean all && \
-    rm -rf \
-        /tmp/rpms \
-        /tmp/rpms.tar.gz \
-        /var/cache/yum
+# RUN wget \
+#         --timeout=30 \
+#         --tries=3 \
+#         -O /tmp/rpms.tar.gz \
+#         "${RESOURCE_SERVER}/thirdparty/rpms.tar.gz" && \
+#     mkdir -p /tmp/rpms && \
+#     tar -xf /tmp/rpms.tar.gz \
+#         -C /tmp/rpms && \
+#     yum localinstall -y \
+#         /tmp/rpms/rpms/gcc-toolset-13-13.0-*.rpm \
+#         /tmp/rpms/rpms/gcc-toolset-13-runtime-*.rpm \
+#         /tmp/rpms/rpms/gcc-toolset-13-gcc-*.rpm \
+#         /tmp/rpms/rpms/gcc-toolset-13-gcc-c++-*.rpm \
+#         /tmp/rpms/rpms/gcc-toolset-13-libstdc++-devel-*.rpm \
+#         /tmp/rpms/rpms/gcc-toolset-13-binutils-*.rpm \
+#         --skip-broken && \
+#     yum clean all && \
+#     rm -rf \
+#         /tmp/rpms \
+#         /tmp/rpms.tar.gz \
+#         /var/cache/yum
+RUN python_lib="$(find /usr/local -maxdepth 5 -name "libpython${PYTHON_VERSION}.so.1.0" -print -quit 2>/dev/null)" && \
+    test -n "${python_lib}" && \
+    dirname "${python_lib}" > /etc/ld.so.conf.d/python.conf && \
+    ldconfig && \
+    gcc --version && \
+    g++ --version && \
+    python3 --version && \
+    cmake --version
 # 配置内部 pip 源
 RUN mkdir -p /root/.pip && \
     printf '%s\n' \
