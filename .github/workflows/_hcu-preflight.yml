@@ -83,9 +83,6 @@ jobs:
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           CURRENT_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_IS_DRAFT: ${{ github.event.pull_request.draft }}
-          PR_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
-          HAS_REQUIRED_LABEL: ${{ contains(github.event.pull_request.labels.*.name, inputs.required-pr-label) }}
           GITHUB_API_URL: ${{ github.api_url }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -126,14 +123,40 @@ jobs:
           fi
 
           if [[ "${EVENT_NAME}" == "pull_request" && "${ENFORCE_PR_TRIGGER}" == "true" ]]; then
-            if [[ "${PR_IS_DRAFT}" == "true" ]]; then
+            pr_response="$(curl --fail --silent --show-error \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              "${GITHUB_API_URL}/repos/${CURRENT_REPOSITORY}/pulls/${PR_NUMBER}")"
+            mapfile -t pr_metadata < <(
+              printf '%s' "${pr_response}" | python3 -c \
+                'import json, os, sys
+          data = json.load(sys.stdin)
+          print(str(data["draft"]).lower())
+          print(data["author_association"])
+          print(data["head"]["repo"]["full_name"])
+          print(str(any(label["name"] == os.environ["REQUIRED_PR_LABEL"] for label in data["labels"])).lower())'
+            )
+            if (( ${#pr_metadata[@]} != 4 )); then
+              echo "GitHub API returned incomplete pull request metadata" >&2
+              exit 1
+            fi
+            api_pr_is_draft="${pr_metadata[0]}"
+            api_pr_author_association="${pr_metadata[1]}"
+            api_head_repository="${pr_metadata[2]}"
+            api_has_required_label="${pr_metadata[3]}"
+
+            if [[ "${api_head_repository}" != "${CURRENT_REPOSITORY}" ]]; then
+              echo "GitHub API reports a non-local PR head repository" >&2
+              exit 1
+            fi
+            if [[ "${api_pr_is_draft}" == "true" ]]; then
               echo "allowed=false" >> "${GITHUB_OUTPUT}"
               echo "trigger-reason=draft" >> "${GITHUB_OUTPUT}"
               echo "Draft pull requests do not run HCU build or Smoke."
               exit 0
             fi
 
-            case "${PR_AUTHOR_ASSOCIATION}" in
+            case "${api_pr_author_association}" in
               OWNER|MEMBER|COLLABORATOR) ;;
               *)
                 echo "allowed=false" >> "${GITHUB_OUTPUT}"
@@ -143,7 +166,7 @@ jobs:
                 ;;
             esac
 
-            if [[ "${HAS_REQUIRED_LABEL}" == "true" ]]; then
+            if [[ "${api_has_required_label}" == "true" ]]; then
               echo "allowed=true" >> "${GITHUB_OUTPUT}"
               echo "trigger-reason=label:${REQUIRED_PR_LABEL}" >> "${GITHUB_OUTPUT}"
               exit 0
