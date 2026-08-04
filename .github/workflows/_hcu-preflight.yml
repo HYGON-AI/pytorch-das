@@ -83,6 +83,7 @@ jobs:
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           CURRENT_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_IS_DRAFT: ${{ github.event.pull_request.draft }}
           PR_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
           HAS_REQUIRED_LABEL: ${{ contains(github.event.pull_request.labels.*.name, inputs.required-pr-label) }}
           GITHUB_API_URL: ${{ github.api_url }}
@@ -125,6 +126,13 @@ jobs:
           fi
 
           if [[ "${EVENT_NAME}" == "pull_request" && "${ENFORCE_PR_TRIGGER}" == "true" ]]; then
+            if [[ "${PR_IS_DRAFT}" == "true" ]]; then
+              echo "allowed=false" >> "${GITHUB_OUTPUT}"
+              echo "trigger-reason=draft" >> "${GITHUB_OUTPUT}"
+              echo "Draft pull requests do not run HCU build or Smoke."
+              exit 0
+            fi
+
             case "${PR_AUTHOR_ASSOCIATION}" in
               OWNER|MEMBER|COLLABORATOR) ;;
               *)
