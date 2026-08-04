@@ -259,23 +259,40 @@ EXCLUDE_LIBS=(
     librocsparse.so.1
     libnuma.so.1
 )
-
 AUDITWHEEL_ARGS=()
-
 for library in "${EXCLUDE_LIBS[@]}"; do
     AUDITWHEEL_ARGS+=(--exclude "${library}")
 done
+
 echo "===== 开始生成 ${PLATFORM} wheel ====="
+shopt -s nullglob
+linux_wheels=(/dist/raw/*.whl)
+shopt -u nullglob
+
+if (( ${#linux_wheels[@]} != 1 )); then
+    echo "ERROR: /dist/raw 中 Linux wheel 数量异常：${#linux_wheels[@]}"
+    find /dist/raw -maxdepth 1 -type f -ls || true
+    exit 1
+fi
+
+linux_wheel="${linux_wheels[0]}"
 auditwheel repair \
     --plat "${PLATFORM}" \
     "${AUDITWHEEL_ARGS[@]}" \
     -w /dist \
-    /dist/raw/*.whl
-echo "===== linux wheel 到 /dist ====="
-rm -rf /dist/raw
+    "${linux_wheel}"
+echo "===== 保留 Linux wheel 到 /dist ====="
+mv -v "${linux_wheel}" /dist/
+rmdir /dist/raw
 echo "===== 全部 wheel ====="
-find /dist \
-    -maxdepth 1 \
-    -type f \
-    -name '*.whl' \
-    -exec ls -lh {} \;
+shopt -s nullglob
+final_wheels=(/dist/*.whl)
+shopt -u nullglob
+if (( ${#final_wheels[@]} != 2 )); then
+    echo "ERROR: 预期生成 2 个 wheel，实际生成 ${#final_wheels[@]} 个"
+    find /dist -maxdepth 1 -type f -ls || true
+    exit 1
+fi
+printf '最终 wheel:\n'
+printf '  %s\n' "${final_wheels[@]}"
+ls -lh "${final_wheels[@]}"
