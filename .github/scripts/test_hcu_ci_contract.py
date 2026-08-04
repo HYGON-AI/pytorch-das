@@ -163,9 +163,6 @@ class HcuCiContractTest(unittest.TestCase):
             "github.event.pull_request.head.repo.full_name == github.repository",
             workflow,
         )
-        self.assertIn(
-            'fromJSON(\'["OWNER","MEMBER","COLLABORATOR"]\')', workflow
-        )
         self.assertIn("enforce-pr-trigger: true", workflow)
         self.assertIn("required-pr-label: ciflow/hcu", workflow)
         self.assertIn("uses: ./.github/workflows/_hcu-preflight.yml", workflow)
@@ -466,7 +463,9 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("enforce-pr-trigger:", workflow)
         self.assertIn("required-pr-label:", workflow)
         self.assertIn("PR_AUTHOR_ASSOCIATION", workflow)
+        self.assertIn("PR_IS_DRAFT", workflow)
         self.assertIn("OWNER|MEMBER|COLLABORATOR", workflow)
+        self.assertIn("trigger-reason=draft", workflow)
         self.assertIn("HAS_REQUIRED_LABEL", workflow)
         self.assertIn("trigger-reason=untrusted-author", workflow)
         self.assertIn("trigger-reason=unrelated-paths", workflow)
