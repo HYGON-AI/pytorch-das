@@ -192,6 +192,7 @@ mkl_libraries=(
     "libmkl_gnu_thread.so"
     "libmkl_def.so.2"
     "libmkl_vml_def.so.2"
+    "lib_intel_lp64.so"
 )
 for library in "${mkl_libraries[@]}"; do
     source_file="${MKL_LIB_DIR}/${library}"
