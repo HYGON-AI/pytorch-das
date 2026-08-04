@@ -147,6 +147,7 @@ jobs:
               .github/workflows/_hcu-build.yml \
               .github/workflows/_hcu-preflight.yml \
               .github/workflows/_hcu-test.yml \
+              .github/workflows/hcu-pr.yml \
               .github/workflows/hcu-static.yml \
               .github/workflows/hcu.yml \
               .github/workflows/pull.yml \

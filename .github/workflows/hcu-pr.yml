@@ -1,0 +1,140 @@
+name: HCU PR
+
+on:
+  pull_request:
+    branches-ignore:
+      - nightly
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      tests-to-include:
+        description: Space-separated tests passed to the existing PyTorch test runner.
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: >-
+    hcu-pr-${{ github.event.pull_request.number || github.ref_name }}-${{
+      (github.event.action == 'labeled' || github.event.action == 'unlabeled') &&
+      github.event.label.name != 'ciflow/hcu' && github.run_id || 'hcu'
+    }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  hcu-preflight:
+    if: >-
+      ${{
+        github.repository == 'HYGON-AI/pytorch-das' &&
+        vars.HCU_CI_ENABLED == 'true' &&
+        (
+          github.event_name == 'workflow_dispatch' ||
+          (
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.draft == false &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            (
+              (github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+              github.event.label.name == 'ciflow/hcu'
+            ) &&
+            contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+          )
+        )
+      }}
+    name: hcu-preflight
+    uses: ./.github/workflows/_hcu-preflight.yml
+    with:
+      control-runner: ${{ vars.HCU_CONTROL_RUNNER }}
+      hcu-enabled: true
+      hcu-build-runner: ${{ vars.HCU_BUILD_RUNNER }}
+      hcu-test-runner: ${{ vars.HCU_TEST_RUNNER }}
+      hcu-build-image: ${{ vars.HCU_BUILD_IMAGE }}
+      hcu-ci-image: ${{ vars.HCU_CI_IMAGE }}
+      expected-device-count: ${{ vars.HCU_EXPECTED_DEVICE_COUNT }}
+      enforce-pr-trigger: true
+      required-pr-label: ciflow/hcu
+
+  hcu-build:
+    if: ${{ needs.hcu-preflight.outputs.allowed == 'true' }}
+    name: hcu-build
+    needs: hcu-preflight
+    uses: ./.github/workflows/_hcu-build.yml
+    with:
+      runner: ${{ vars.HCU_BUILD_RUNNER }}
+      build-image: ${{ vars.HCU_BUILD_IMAGE }}
+      artifact-name: hcu-pr-build-${{ github.run_id }}-${{ github.run_attempt }}
+      artifact-root: /home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-artifacts
+      build-environment: linux-rocky8-rocm-dtk2604-hcu-py3.10
+      rocm-arch: gfx938
+      max-jobs: 32
+
+  hcu-test:
+    if: ${{ needs.hcu-build.result == 'success' }}
+    name: hcu-test
+    needs: hcu-build
+    uses: ./.github/workflows/_hcu-test.yml
+    with:
+      runner: ${{ vars.HCU_TEST_RUNNER }}
+      ci-image: ${{ vars.HCU_CI_IMAGE }}
+      expected-device-count: ${{ vars.HCU_EXPECTED_DEVICE_COUNT }}
+      artifact-path: ${{ needs.hcu-build.outputs.artifact-path }}
+      build-runner-name: ${{ needs.hcu-build.outputs.runner-name }}
+      build-environment: ${{ needs.hcu-build.outputs.build-environment }}
+      build-image-digest: ${{ needs.hcu-build.outputs.image-digest }}
+      tests-to-include: ${{ github.event.inputs.tests-to-include || '' }}
+      test-matrix: |
+        {"include":[
+          {"config":"smoke","shard":1,"num_shards":1}
+        ]}
+
+  hcu-pr-required:
+    if: >-
+      ${{
+        always() &&
+        github.repository == 'HYGON-AI/pytorch-das' &&
+        vars.HCU_CI_ENABLED == 'true' &&
+        (
+          github.event_name == 'workflow_dispatch' ||
+          (
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.draft == false &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            (
+              (github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+              github.event.label.name == 'ciflow/hcu'
+            ) &&
+            contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+          )
+        )
+      }}
+    name: hcu-pr-required
+    needs: [hcu-preflight, hcu-build, hcu-test]
+    runs-on: [self-hosted, linux, x64, "${{ vars.HCU_CONTROL_RUNNER }}"]
+    steps:
+      - name: Report stable HCU PR result
+        shell: bash
+        env:
+          PREFLIGHT_RESULT: ${{ needs.hcu-preflight.result }}
+          HCU_ALLOWED: ${{ needs.hcu-preflight.outputs.allowed }}
+          HCU_BUILD_RESULT: ${{ needs.hcu-build.result }}
+          HCU_TEST_RESULT: ${{ needs.hcu-test.result }}
+        run: |
+          set -euo pipefail
+          if [[ "${PREFLIGHT_RESULT}" != "success" ]]; then
+            echo "HCU PR preflight failed: ${PREFLIGHT_RESULT}" >&2
+            exit 1
+          fi
+          if [[ "${HCU_ALLOWED}" != "true" ]]; then
+            echo "This PR does not require HCU build and Smoke."
+            exit 0
+          fi
+          if [[ "${HCU_BUILD_RESULT}" != "success" || "${HCU_TEST_RESULT}" != "success" ]]; then
+            echo "HCU PR build=${HCU_BUILD_RESULT}, test=${HCU_TEST_RESULT}" >&2
+            exit 1
+          fi
+          echo "HCU PR fresh wheel build and Smoke passed."

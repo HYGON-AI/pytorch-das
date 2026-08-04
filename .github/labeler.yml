@@ -169,11 +169,30 @@
 "ciflow/hcu":
 - .ci/pytorch/hcu*.sh
 - .ci/pytorch/build.sh
+- .ci/pytorch/common_utils.sh
+- .github/labeler.yml
 - .github/workflows/hcu*.yml
 - .github/workflows/_hcu-*.yml
 - .github/actions/setup-hcu/**
 - .github/scripts/hcu_*.py
 - .github/scripts/test_hcu_ci_*.py
+- aten/src/ATen/CMakeLists.txt
+- aten/src/ATen/hip/**
+- aten/src/ATen/native/hip/**
+- c10/hip/**
+- cmake/Dependencies.cmake
+- cmake/public/LoadHIP.cmake
+- test/**/*hcu*
+- test/**/*hip*
+- test/**/*rocm*
+- third_party/composable_kernel
+- third_party/composable_kernel/**
+- third_party/cutlass
+- third_party/cutlass/**
+- third_party/kineto
+- third_party/kineto/**
+- torch/_inductor/codegen/rocm/**
+- torch/utils/hipify/**
 
 "ciflow/rocm-mi300":
 - test/test_matmul_cuda.py

@@ -17,6 +17,7 @@ HCU_PACKAGE_SCRIPT = REPO_ROOT / ".ci" / "pytorch" / "hcu-wheel-package.sh"
 HCU_PREPARE_SCRIPT = REPO_ROOT / ".ci" / "pytorch" / "hcu-wheel-prepare.sh"
 ATEN_CMAKE = REPO_ROOT / "aten" / "src" / "ATen" / "CMakeLists.txt"
 HCU_STATIC = WORKFLOWS / "hcu-static.yml"
+HCU_PR = WORKFLOWS / "hcu-pr.yml"
 LABELER = REPO_ROOT / ".github" / "labeler.yml"
 GHA_LINTER = REPO_ROOT / "tools" / "linter" / "adapters" / "gha_linter.py"
 FORK_LINTER = REPO_ROOT / "tools" / "linter" / "adapters" / "no_workflows_on_fork.py"
@@ -34,6 +35,7 @@ class HcuCiContractTest(unittest.TestCase):
             WORKFLOWS / "_hcu-test.yml",
             WORKFLOWS / "hcu.yml",
             HCU_STATIC,
+            HCU_PR,
             SETUP_HCU,
             SMOKE_TEST,
             MANIFEST_HELPER,
@@ -51,6 +53,7 @@ class HcuCiContractTest(unittest.TestCase):
             WORKFLOWS / "_hcu-test.yml",
             WORKFLOWS / "hcu.yml",
             HCU_STATIC,
+            HCU_PR,
             SETUP_HCU,
             LABELER,
         ):
@@ -96,6 +99,7 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn(".ci/pytorch/build.sh", workflow)
         self.assertIn("tools/linter/adapters/gha_linter.py", workflow)
         self.assertIn("tools/linter/adapters/no_workflows_on_fork.py", workflow)
+        self.assertIn(".github/workflows/hcu-pr.yml", workflow)
         self.assertIn("spin quicklint", workflow)
         self.assertIn("ACTIONLINT,CMAKE,RUFF,SHELLCHECK", workflow)
         self.assertIn("packaging==24.0", workflow)
@@ -117,6 +121,11 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn(".github/scripts/hcu_*.py", labeler)
         self.assertIn(".github/scripts/test_hcu_ci_*.py", labeler)
         self.assertIn(".ci/pytorch/hcu*.sh", labeler)
+        self.assertIn("aten/src/ATen/hip/**", labeler)
+        self.assertIn("aten/src/ATen/native/hip/**", labeler)
+        self.assertIn("c10/hip/**", labeler)
+        self.assertIn("torch/_inductor/codegen/rocm/**", labeler)
+        self.assertIn("torch/utils/hipify/**", labeler)
 
     def test_external_actions_are_pinned_to_commits(self) -> None:
         for path in (
@@ -124,6 +133,7 @@ class HcuCiContractTest(unittest.TestCase):
             WORKFLOWS / "_hcu-test.yml",
             WORKFLOWS / "hcu.yml",
             HCU_STATIC,
+            HCU_PR,
         ):
             for action in re.findall(
                 r"^\s*uses:\s*([^\s#]+)", read(path), re.MULTILINE
@@ -132,21 +142,39 @@ class HcuCiContractTest(unittest.TestCase):
                     continue
                 self.assertRegex(action, r"^[^@]+@[0-9a-f]{40}$", path.name)
 
-    def test_pr_hcu_build_is_explicitly_enabled_and_preflighted(self) -> None:
-        pull_workflow = read(WORKFLOWS / "pull.yml")
+    def test_pr_hcu_build_and_smoke_are_gated_in_a_dedicated_workflow(self) -> None:
+        workflow = read(HCU_PR)
+        upstream_pull_workflow = read(WORKFLOWS / "pull.yml")
 
-        self.assertIn("hcu-preflight:", pull_workflow)
-        self.assertIn("linux-jammy-rocm-hcu-py3_10-build:", pull_workflow)
-        self.assertIn("vars.HCU_CI_ENABLED == 'true'", pull_workflow)
-        self.assertIn("control-runner: ${{ vars.HCU_CONTROL_RUNNER }}", pull_workflow)
-        self.assertIn("hcu-build-image: ${{ vars.HCU_BUILD_IMAGE }}", pull_workflow)
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("labeled", workflow)
+        self.assertIn("unlabeled", workflow)
+        self.assertIn("ready_for_review", workflow)
+        self.assertIn("cancel-in-progress: true", workflow)
+        self.assertIn("hcu-preflight:", workflow)
+        self.assertIn("hcu-build:", workflow)
+        self.assertIn("hcu-test:", workflow)
+        self.assertIn("hcu-pr-required:", workflow)
+        self.assertIn("vars.HCU_CI_ENABLED == 'true'", workflow)
+        self.assertIn("control-runner: ${{ vars.HCU_CONTROL_RUNNER }}", workflow)
+        self.assertIn("hcu-build-image: ${{ vars.HCU_BUILD_IMAGE }}", workflow)
         self.assertIn(
             "github.event.pull_request.head.repo.full_name == github.repository",
-            pull_workflow,
+            workflow,
         )
-        self.assertIn("uses: ./.github/workflows/_hcu-preflight.yml", pull_workflow)
-        self.assertIn("needs: hcu-preflight", pull_workflow)
-        self.assertIn("uses: ./.github/workflows/_hcu-build.yml", pull_workflow)
+        self.assertIn(
+            'fromJSON(\'["OWNER","MEMBER","COLLABORATOR"]\')', workflow
+        )
+        self.assertIn("enforce-pr-trigger: true", workflow)
+        self.assertIn("required-pr-label: ciflow/hcu", workflow)
+        self.assertIn("uses: ./.github/workflows/_hcu-preflight.yml", workflow)
+        self.assertIn("uses: ./.github/workflows/_hcu-build.yml", workflow)
+        self.assertIn("uses: ./.github/workflows/_hcu-test.yml", workflow)
+        self.assertIn("needs: [hcu-preflight, hcu-build, hcu-test]", workflow)
+        self.assertIn('"config":"smoke"', workflow)
+        self.assertEqual(workflow.count('"config":'), 1)
+        self.assertNotIn("hcu-preflight:", upstream_pull_workflow)
 
     def test_hcu_backend_workflow_builds_before_testing(self) -> None:
         workflow = read(WORKFLOWS / "hcu.yml")
@@ -165,7 +193,7 @@ class HcuCiContractTest(unittest.TestCase):
         build_workflow = read(WORKFLOWS / "_hcu-build.yml")
         test_workflow = read(WORKFLOWS / "_hcu-test.yml")
         backend_workflow = read(WORKFLOWS / "hcu.yml")
-        pull_workflow = read(WORKFLOWS / "pull.yml")
+        pr_workflow = read(HCU_PR)
 
         self.assertIn('HCU_REUSE_OLD_WHL: "0"', build_workflow)
         self.assertIn('HCU_AUDITWHEEL_VERSION: "6.7.0"', build_workflow)
@@ -243,7 +271,19 @@ class HcuCiContractTest(unittest.TestCase):
         )
         self.assertIn(
             "artifact-root: /home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-artifacts",
-            pull_workflow,
+            pr_workflow,
+        )
+        self.assertIn(
+            "artifact-path: ${{ needs.hcu-build.outputs.artifact-path }}",
+            pr_workflow,
+        )
+        self.assertIn(
+            "build-runner-name: ${{ needs.hcu-build.outputs.runner-name }}",
+            pr_workflow,
+        )
+        self.assertIn(
+            "build-image-digest: ${{ needs.hcu-build.outputs.image-digest }}",
+            pr_workflow,
         )
         self.assertIn("hcu_ci_manifest.py validate", test_workflow)
         self.assertIn(
@@ -420,6 +460,26 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("HCU_CI_IMAGE", workflow)
         self.assertIn("HCU_EXPECTED_DEVICE_COUNT", workflow)
 
+    def test_preflight_gates_prs_by_trust_label_and_hcu_paths(self) -> None:
+        workflow = read(WORKFLOWS / "_hcu-preflight.yml")
+
+        self.assertIn("enforce-pr-trigger:", workflow)
+        self.assertIn("required-pr-label:", workflow)
+        self.assertIn("PR_AUTHOR_ASSOCIATION", workflow)
+        self.assertIn("OWNER|MEMBER|COLLABORATOR", workflow)
+        self.assertIn("HAS_REQUIRED_LABEL", workflow)
+        self.assertIn("trigger-reason=untrusted-author", workflow)
+        self.assertIn("trigger-reason=unrelated-paths", workflow)
+        self.assertIn("trigger-reason=label:${REQUIRED_PR_LABEL}", workflow)
+        self.assertIn("pulls/${PR_NUMBER}/files?per_page=100", workflow)
+        self.assertIn("aten/src/ATen/hip/*", workflow)
+        self.assertIn("aten/src/ATen/native/hip/*", workflow)
+        self.assertIn("c10/hip/*", workflow)
+        self.assertIn("torch/_inductor/codegen/rocm/*", workflow)
+        self.assertIn("torch/utils/hipify/*", workflow)
+        self.assertIn("third_party/kineto/*", workflow)
+        self.assertIn("allowed=false", workflow)
+
     def test_shared_runner_setup_is_scoped_and_hcu_specific(self) -> None:
         setup = read(SETUP_HCU)
 
@@ -453,6 +513,7 @@ class HcuCiContractTest(unittest.TestCase):
             WORKFLOWS / "pull.yml",
             WORKFLOWS / "hcu.yml",
             HCU_STATIC,
+            HCU_PR,
             WORKFLOWS / "_hcu-preflight.yml",
             WORKFLOWS / "_hcu-build.yml",
             WORKFLOWS / "_hcu-test.yml",

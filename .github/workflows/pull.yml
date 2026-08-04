@@ -504,40 +504,6 @@ jobs:
       python-version: "3.10"
     secrets: inherit
 
-  # HYGON-only HCU adapter. This stays opt-in until repository variables and
-  # isolated self-hosted runner groups have been configured.
-  hcu-preflight:
-    if: >-
-      ${{
-        github.repository == 'HYGON-AI/pytorch-das' &&
-        vars.HCU_CI_ENABLED == 'true' &&
-        github.event.pull_request.head.repo.full_name == github.repository
-      }}
-    name: hcu-preflight
-    uses: ./.github/workflows/_hcu-preflight.yml
-    with:
-      control-runner: ${{ vars.HCU_CONTROL_RUNNER }}
-      hcu-enabled: true
-      hcu-build-runner: ${{ vars.HCU_BUILD_RUNNER }}
-      hcu-test-runner: ${{ vars.HCU_TEST_RUNNER }}
-      hcu-build-image: ${{ vars.HCU_BUILD_IMAGE }}
-      hcu-ci-image: ${{ vars.HCU_CI_IMAGE }}
-      expected-device-count: ${{ vars.HCU_EXPECTED_DEVICE_COUNT }}
-
-  linux-jammy-rocm-hcu-py3_10-build:
-    if: ${{ github.event_name == 'pull_request' && needs.hcu-preflight.outputs.allowed == 'true' }}
-    name: linux-jammy-rocm-hcu-py3.10
-    needs: hcu-preflight
-    uses: ./.github/workflows/_hcu-build.yml
-    with:
-      runner: ${{ vars.HCU_BUILD_RUNNER }}
-      build-image: ${{ vars.HCU_BUILD_IMAGE }}
-      artifact-name: hcu-pr-build-${{ github.run_id }}-${{ github.run_attempt }}
-      artifact-root: /home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-artifacts
-      build-environment: linux-rocky8-rocm-dtk2604-hcu-py3.10
-      rocm-arch: gfx938
-      max-jobs: 32
-
   # ╠══════════════════════════════════════════════════════════════════════╣
   # ║ linux-jammy-xpu-n-py3.10 (build)                                     ║
   # ╠══════════════════════════════════════════════════════════════════════╣

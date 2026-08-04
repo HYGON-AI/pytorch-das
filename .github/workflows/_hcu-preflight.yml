@@ -36,19 +36,34 @@ on:
         default: true
         type: boolean
         description: Reject pull requests whose head repository differs from this repository.
+      enforce-pr-trigger:
+        required: false
+        default: false
+        type: boolean
+        description: Require an HCU label or a changed HCU/HIP/ROCm path for pull requests.
+      required-pr-label:
+        required: false
+        default: ciflow/hcu
+        type: string
+        description: Protected label that explicitly requests the HCU PR workflow.
     outputs:
       allowed:
         description: Whether a self-hosted HCU job may be scheduled.
         value: ${{ jobs.preflight.outputs.allowed }}
+      trigger-reason:
+        description: Label, path, non-PR event, or rejection reason used by preflight.
+        value: ${{ jobs.preflight.outputs.trigger-reason }}
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   preflight:
     runs-on: [self-hosted, linux, x64, "${{ inputs.control-runner }}"]
     outputs:
       allowed: ${{ steps.validate.outputs.allowed }}
+      trigger-reason: ${{ steps.validate.outputs.trigger-reason }}
     steps:
       - name: Validate HCU CI configuration and event trust
         id: validate
@@ -62,9 +77,16 @@ jobs:
           HCU_CI_IMAGE: ${{ inputs.hcu-ci-image }}
           HCU_EXPECTED_DEVICE_COUNT: ${{ inputs.expected-device-count }}
           REQUIRE_SAME_REPOSITORY_PR: ${{ inputs.require-same-repository-pr }}
+          ENFORCE_PR_TRIGGER: ${{ inputs.enforce-pr-trigger }}
+          REQUIRED_PR_LABEL: ${{ inputs.required-pr-label }}
           EVENT_NAME: ${{ github.event_name }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           CURRENT_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          HAS_REQUIRED_LABEL: ${{ contains(github.event.pull_request.labels.*.name, inputs.required-pr-label) }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -102,4 +124,73 @@ jobs:
             fi
           fi
 
+          if [[ "${EVENT_NAME}" == "pull_request" && "${ENFORCE_PR_TRIGGER}" == "true" ]]; then
+            case "${PR_AUTHOR_ASSOCIATION}" in
+              OWNER|MEMBER|COLLABORATOR) ;;
+              *)
+                echo "allowed=false" >> "${GITHUB_OUTPUT}"
+                echo "trigger-reason=untrusted-author" >> "${GITHUB_OUTPUT}"
+                echo "HCU PR CI requires an OWNER, MEMBER, or COLLABORATOR author."
+                exit 0
+                ;;
+            esac
+
+            if [[ "${HAS_REQUIRED_LABEL}" == "true" ]]; then
+              echo "allowed=true" >> "${GITHUB_OUTPUT}"
+              echo "trigger-reason=label:${REQUIRED_PR_LABEL}" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+
+            hcu_path=""
+            for page in $(seq 1 30); do
+              response="$(curl --fail --silent --show-error \
+                --header "Authorization: Bearer ${GH_TOKEN}" \
+                --header "Accept: application/vnd.github+json" \
+                "${GITHUB_API_URL}/repos/${CURRENT_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100&page=${page}")"
+              mapfile -t changed_files < <(
+                printf '%s' "${response}" | python3 -c \
+                  'import json, sys; [print(item["filename"]) for item in json.load(sys.stdin)]'
+              )
+              for changed_file in "${changed_files[@]}"; do
+                case "${changed_file}" in
+                  .ci/pytorch/build.sh|.ci/pytorch/common_utils.sh|.ci/pytorch/hcu*.sh|\
+                  .github/workflows/hcu*.yml|.github/workflows/hcu*.yaml|\
+                  .github/workflows/_hcu-*.yml|.github/workflows/_hcu-*.yaml|\
+                  .github/actions/setup-hcu/*|.github/labeler.yml|.github/scripts/hcu_*.py|\
+                  .github/scripts/test_hcu_ci_*.py|aten/src/ATen/CMakeLists.txt|\
+                  aten/src/ATen/hip/*|aten/src/ATen/native/hip/*|c10/hip/*|\
+                  cmake/Dependencies.cmake|cmake/public/LoadHIP.cmake|\
+                  test/*hcu*|test/*hip*|test/*rocm*|\
+                  third_party/composable_kernel|third_party/composable_kernel/*|\
+                  third_party/cutlass|third_party/cutlass/*|\
+                  third_party/kineto|third_party/kineto/*|\
+                  torch/_inductor/codegen/rocm/*|\
+                  torch/utils/hipify/*)
+                    hcu_path="${changed_file}"
+                    break
+                    ;;
+                esac
+              done
+              if [[ -n "${hcu_path}" || ${#changed_files[@]} -lt 100 ]]; then
+                break
+              fi
+              if [[ "${page}" == "30" ]]; then
+                echo "Unable to evaluate more than 3000 changed PR files" >&2
+                exit 1
+              fi
+            done
+
+            if [[ -z "${hcu_path}" ]]; then
+              echo "allowed=false" >> "${GITHUB_OUTPUT}"
+              echo "trigger-reason=unrelated-paths" >> "${GITHUB_OUTPUT}"
+              echo "No ${REQUIRED_PR_LABEL} label or HCU/HIP/ROCm critical path change."
+              exit 0
+            fi
+            echo "allowed=true" >> "${GITHUB_OUTPUT}"
+            echo "trigger-reason=path" >> "${GITHUB_OUTPUT}"
+            printf 'HCU PR CI was triggered by path: %q\n' "${hcu_path}"
+            exit 0
+          fi
+
           echo "allowed=true" >> "${GITHUB_OUTPUT}"
+          echo "trigger-reason=non-pr-event" >> "${GITHUB_OUTPUT}"
