@@ -156,6 +156,8 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("hcu-build:", workflow)
         self.assertIn("hcu-test:", workflow)
         self.assertIn("hcu-pr-required:", workflow)
+        self.assertIn("pull-requests: read", workflow)
+        self.assertIn("always()", workflow)
         self.assertIn("vars.HCU_CI_ENABLED == 'true'", workflow)
         self.assertIn("control-runner: ${{ vars.HCU_CONTROL_RUNNER }}", workflow)
         self.assertIn("hcu-build-image: ${{ vars.HCU_BUILD_IMAGE }}", workflow)
