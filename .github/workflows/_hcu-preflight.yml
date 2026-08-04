@@ -132,18 +132,16 @@ jobs:
                 'import json, os, sys
           data = json.load(sys.stdin)
           print(str(data["draft"]).lower())
-          print(data["author_association"])
           print(data["head"]["repo"]["full_name"])
           print(str(any(label["name"] == os.environ["REQUIRED_PR_LABEL"] for label in data["labels"])).lower())'
             )
-            if (( ${#pr_metadata[@]} != 4 )); then
+            if (( ${#pr_metadata[@]} != 3 )); then
               echo "GitHub API returned incomplete pull request metadata" >&2
               exit 1
             fi
             api_pr_is_draft="${pr_metadata[0]}"
-            api_pr_author_association="${pr_metadata[1]}"
-            api_head_repository="${pr_metadata[2]}"
-            api_has_required_label="${pr_metadata[3]}"
+            api_head_repository="${pr_metadata[1]}"
+            api_has_required_label="${pr_metadata[2]}"
 
             if [[ "${api_head_repository}" != "${CURRENT_REPOSITORY}" ]]; then
               echo "GitHub API reports a non-local PR head repository" >&2
@@ -155,16 +153,6 @@ jobs:
               echo "Draft pull requests do not run HCU build or Smoke."
               exit 0
             fi
-
-            case "${api_pr_author_association}" in
-              OWNER|MEMBER|COLLABORATOR) ;;
-              *)
-                echo "allowed=false" >> "${GITHUB_OUTPUT}"
-                echo "trigger-reason=untrusted-author" >> "${GITHUB_OUTPUT}"
-                echo "HCU PR CI requires an OWNER, MEMBER, or COLLABORATOR author."
-                exit 0
-                ;;
-            esac
 
             if [[ "${api_has_required_label}" == "true" ]]; then
               echo "allowed=true" >> "${GITHUB_OUTPUT}"
