@@ -63,14 +63,6 @@ jobs:
           fetch-depth: 2
           submodules: false
 
-      - name: Reset and initialize PyTorch submodules
-        shell: bash
-        run: |
-          set -euo pipefail
-          git submodule deinit --force --all
-          git submodule sync --recursive
-          git submodule update --init --force --recursive --jobs 8
-
       - name: Validate HCU runner
         uses: ./.github/actions/setup-hcu
         with:
