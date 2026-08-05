@@ -3,24 +3,14 @@ name: hcu
 on:
   push:
     tags:
-      - ciflow/hcu/*
+      - ciflow/hcu/default-1-of-8-*
   workflow_dispatch:
     inputs:
-      test-suite:
-        description: HCU test suite to run. default-1-of-8 is the first Stage 4 calibration shard.
-        required: true
-        default: smoke
-        type: choice
-        options:
-          - smoke
-          - default-1-of-8
       tests-to-include:
         description: Space-separated tests passed to the existing PyTorch test runner.
         required: false
         default: ""
         type: string
-  schedule:
-    - cron: 0 18 * * *
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id }}-${{ github.event_name == 'schedule' }}
@@ -56,24 +46,8 @@ jobs:
       rocm-arch: gfx938
       max-jobs: 32
 
-  hcu-test-smoke:
-    if: ${{ needs.hcu-build.result == 'success' && !((github.event_name == 'workflow_dispatch' && inputs['test-suite'] == 'default-1-of-8') || (github.event_name == 'push' && startsWith(github.ref_name, 'ciflow/hcu/default-1-of-8-'))) }}
-    needs: hcu-build
-    uses: ./.github/workflows/_hcu-test.yml
-    with:
-      runner: ${{ vars.HCU_TEST_RUNNER }}
-      ci-image: ${{ vars.HCU_CI_IMAGE }}
-      expected-device-count: ${{ vars.HCU_EXPECTED_DEVICE_COUNT }}
-      artifact-path: ${{ needs.hcu-build.outputs.artifact-path }}
-      build-runner-name: ${{ needs.hcu-build.outputs.runner-name }}
-      build-environment: ${{ needs.hcu-build.outputs.build-environment }}
-      build-image-digest: ${{ needs.hcu-build.outputs.image-digest }}
-      timeout-minutes: 720
-      tests-to-include: ${{ inputs['tests-to-include'] || '' }}
-      test-matrix: '{"include":[{"config":"smoke","shard":1,"num_shards":1}]}'
-
-  hcu-test-default:
-    if: ${{ needs.hcu-build.result == 'success' && ((github.event_name == 'workflow_dispatch' && inputs['test-suite'] == 'default-1-of-8') || (github.event_name == 'push' && startsWith(github.ref_name, 'ciflow/hcu/default-1-of-8-'))) }}
+  hcu-test:
+    if: ${{ needs.hcu-build.result == 'success' }}
     needs: hcu-build
     uses: ./.github/workflows/_hcu-test.yml
     with:
