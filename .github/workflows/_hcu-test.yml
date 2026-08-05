@@ -211,11 +211,13 @@ jobs:
             2>&1 | tee hcu-test.log
           docker exec "${container_name}" bash -lc \
             'set -euo pipefail
+             install_dir="/tmp/pytorch-hcu-install-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+             cd "${install_dir}"
              unset PYTHONPATH
              python3 --version
              python3 -m pip --version
              python3 -m pip freeze
-             python3 -c "import torch; print(f\"torch={torch.__version__}\"); print(f\"torch_file={torch.__file__}\"); print(f\"hip={torch.version.hip}\"); print(f\"hcu_count={torch.cuda.device_count()}\")"' \
+             python3 -c "import os; import torch; torch_file=os.path.realpath(torch.__file__); source_root=os.path.realpath(\"/var/lib/jenkins/workspace/torch\"); assert not torch_file.startswith(source_root + os.sep), f\"torch loaded from source checkout: {torch_file}\"; print(f\"torch={torch.__version__}\"); print(f\"torch_file={torch_file}\"); print(f\"hip={torch.version.hip}\"); print(f\"hcu_count={torch.cuda.device_count()}\")"' \
             > hcu-test-environment.txt 2>&1
           if [[ "${TEST_CONFIG}" == "smoke" ]]; then
             docker exec \
