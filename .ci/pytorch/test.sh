@@ -234,6 +234,11 @@ if [[ "$TEST_CONFIG" == *crossref* ]]; then
   export PYTORCH_TEST_WITH_CROSSREF=1
 fi
 
+if [[ "$BUILD_ENVIRONMENT" == *hcu* ]]; then
+  export PATH="/opt/dtk/bin:${PATH}"
+  export LD_LIBRARY_PATH="/opt/hyhal/lib:/opt/dtk/.hyhal/lib:/opt/dtk/lib:/opt/dtk/hip/lib:${LD_LIBRARY_PATH:-}"
+fi
+
 if [[ "$BUILD_ENVIRONMENT" == *rocm* ]]; then
   # regression in ROCm 6.0 on MI50 CI runners due to hipblaslt; remove in 6.1
   export VALGRIND=OFF
