@@ -40,7 +40,7 @@ class HcuCiContractTest(unittest.TestCase):
             WORKFLOWS / "_hcu-preflight.yml",
             WORKFLOWS / "_hcu-build.yml",
             WORKFLOWS / "_hcu-test.yml",
-            WORKFLOWS / "hcu.yml",
+            WORKFLOWS / "hcu-stage4.yml",
             HCU_STATIC,
             HCU_PR,
             SETUP_HCU,
@@ -60,7 +60,7 @@ class HcuCiContractTest(unittest.TestCase):
             WORKFLOWS / "_hcu-preflight.yml",
             WORKFLOWS / "_hcu-build.yml",
             WORKFLOWS / "_hcu-test.yml",
-            WORKFLOWS / "hcu.yml",
+            WORKFLOWS / "hcu-stage4.yml",
             HCU_STATIC,
             HCU_PR,
             SETUP_HCU,
@@ -143,7 +143,7 @@ class HcuCiContractTest(unittest.TestCase):
         for path in (
             WORKFLOWS / "_hcu-build.yml",
             WORKFLOWS / "_hcu-test.yml",
-            WORKFLOWS / "hcu.yml",
+            WORKFLOWS / "hcu-stage4.yml",
             HCU_STATIC,
             HCU_PR,
         ):
@@ -186,7 +186,7 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertNotIn("hcu-preflight:", upstream_pull_workflow)
 
     def test_hcu_backend_workflow_builds_before_testing(self) -> None:
-        workflow = read(WORKFLOWS / "hcu.yml")
+        workflow = read(WORKFLOWS / "hcu-stage4.yml")
         test_workflow = read(WORKFLOWS / "_hcu-test.yml")
 
         self.assertIn("workflow_dispatch:", workflow)
@@ -248,7 +248,7 @@ class HcuCiContractTest(unittest.TestCase):
     def test_hcu_build_uses_fresh_artifact_and_hcu_test_validates_it(self) -> None:
         build_workflow = read(WORKFLOWS / "_hcu-build.yml")
         test_workflow = read(WORKFLOWS / "_hcu-test.yml")
-        backend_workflow = read(WORKFLOWS / "hcu.yml")
+        backend_workflow = read(WORKFLOWS / "hcu-stage4.yml")
         pr_workflow = read(HCU_PR)
 
         self.assertIn('HCU_REUSE_OLD_WHL: "0"', build_workflow)
@@ -598,7 +598,7 @@ class HcuCiContractTest(unittest.TestCase):
     def test_hcu_ci_never_uses_pull_request_target(self) -> None:
         for path in (
             WORKFLOWS / "pull.yml",
-            WORKFLOWS / "hcu.yml",
+            WORKFLOWS / "hcu-stage4.yml",
             HCU_STATIC,
             HCU_PR,
             WORKFLOWS / "_hcu-preflight.yml",

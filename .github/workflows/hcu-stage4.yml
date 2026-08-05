@@ -1,4 +1,4 @@
-name: hcu
+name: HCU Stage 4
 
 on:
   push:

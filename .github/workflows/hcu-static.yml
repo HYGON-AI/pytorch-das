@@ -156,7 +156,7 @@ jobs:
               .github/workflows/_hcu-test.yml \
               .github/workflows/hcu-pr.yml \
               .github/workflows/hcu-static.yml \
-              .github/workflows/hcu.yml \
+              .github/workflows/hcu-stage4.yml \
               .github/workflows/pull.yml \
               aten/src/ATen/CMakeLists.txt \
               tools/linter/adapters/gha_linter.py \
