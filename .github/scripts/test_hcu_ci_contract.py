@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 
 import yaml
-
 from hcu_test_baseline import load_and_validate, to_disabled_tests
 
 
@@ -191,19 +190,19 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("schedule:", workflow)
         self.assertIn("ciflow/hcu/*", workflow)
         self.assertIn("hcu-build:", workflow)
-        self.assertIn("hcu-test:", workflow)
-        self.assertIn("needs: hcu-build", workflow)
-        self.assertIn("uses: ./.github/workflows/_hcu-test.yml", workflow)
-        self.assertIn("timeout-minutes: 720", workflow)
+        self.assertIn("hcu-test-smoke:", workflow)
+        self.assertIn("hcu-test-default:", workflow)
+        self.assertEqual(workflow.count("needs: hcu-build"), 2)
+        self.assertEqual(workflow.count("uses: ./.github/workflows/_hcu-test.yml"), 2)
+        self.assertEqual(workflow.count("timeout-minutes: 720"), 2)
         self.assertIn("test-suite:", workflow)
         self.assertIn("default-1-of-8", workflow)
         self.assertIn("ciflow/hcu/default-1-of-8-", workflow)
+        self.assertIn("inputs['test-suite']", workflow)
         self.assertIn("startsWith(github.ref_name", workflow)
         self.assertEqual(workflow.count('"config":'), 2)
         self.assertIn('"config":"smoke"', workflow)
-        self.assertIn(
-            '"config":"default","shard":1,"num_shards":8', workflow
-        )
+        self.assertIn('"config":"default","shard":1,"num_shards":8', workflow)
 
     def test_hcu_default_stage4_shard_has_diagnostic_environment(self) -> None:
         test_workflow = read(WORKFLOWS / "_hcu-test.yml")
@@ -365,8 +364,8 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn('test "${HCU_REUSE_OLD_WHL:-0}" = "0"', package_script)
         self.assertIn("HCU_PACKAGE_TYPE:-ci", package_script)
         self.assertIn(
-            'SOURCE_SHA ${source_sha} does not match checkout HEAD '
-            '${actual_source_sha}',
+            "SOURCE_SHA ${source_sha} does not match checkout HEAD "
+            "${actual_source_sha}",
             package_script,
         )
         self.assertIn("export PYTORCH_BUILD_VERSION=", package_script)
@@ -424,15 +423,15 @@ class HcuCiContractTest(unittest.TestCase):
         run_test = read(RUN_TEST)
         self.assertIn("hcu_test_baseline.py emit-disabled", test_script)
         self.assertIn('BUILD_ENVIRONMENT" == *hcu*', test_script)
-        self.assertIn('export DISABLED_TESTS_FILE=', test_script)
+        self.assertIn("export DISABLED_TESTS_FILE=", test_script)
         self.assertIn('os.getenv("DISABLED_TESTS_FILE")', run_test)
         self.assertIn("--import-disabled-tests={disabled_tests_file}", run_test)
 
     def test_hcu_source_preparation_is_explicit_and_recoverable(self) -> None:
         prepare_script = read(HCU_PREPARE_SCRIPT)
 
-        self.assertIn('HCU_PREPARED_SOURCE_ROOT:-/pytorch', prepare_script)
-        self.assertIn('HCU_ALLOW_SOURCE_PREPARE:-0', prepare_script)
+        self.assertIn("HCU_PREPARED_SOURCE_ROOT:-/pytorch", prepare_script)
+        self.assertIn("HCU_ALLOW_SOURCE_PREPARE:-0", prepare_script)
         self.assertIn("torch2.12-image-overlay-v1", prepare_script)
         self.assertIn(".hcu-source-backup", prepare_script)
         self.assertIn(
