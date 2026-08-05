@@ -50,10 +50,7 @@ RUN python_lib="$(find /usr/local -maxdepth 5 -name "libpython${PYTHON_VERSION}.
     test -n "${python_lib}" && \
     dirname "${python_lib}" > /etc/ld.so.conf.d/python.conf && \
     ldconfig && \
-    gcc --version && \
-    g++ --version && \
-    python3 --version && \
-    cmake --version
+    python3 --version
 # 配置内部 pip 源
 RUN mkdir -p /root/.pip && \
     printf '%s\n' \
@@ -84,7 +81,6 @@ RUN echo "===== PyTorch 2.12 build environment =====" && \
     echo "DTK index version: ${DTK_VERSION}" && \
     echo "TOOLKIT_DIR: ${TOOLKIT_DIR}" && \
     echo "ROCM_PATH: ${ROCM_PATH}" && \
-    python3 --version && \
     gcc --version | head -n 1 && \
     cmake --version | head -n 1 && \
     test -f "${TOOLKIT_DIR}/version.txt" && \
