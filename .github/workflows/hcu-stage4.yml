@@ -161,6 +161,7 @@ jobs:
       build-image-digest: ${{ needs.hcu-build.outputs.image-digest || needs.hcu-reuse-artifact.outputs.image-digest }}
       source-sha: ${{ needs.hcu-reuse-artifact.outputs.source-sha || github.sha }}
       tests-to-include: ${{ github.event.inputs.tests-to-include || '' }}
+      timeout-minutes: 720
       test-matrix: |
         {"include":[
           {"config":"default","shard":1,"num_shards":8}

@@ -203,7 +203,7 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("hcu-test:", workflow)
         self.assertIn("needs: [hcu-build, hcu-reuse-artifact]", workflow)
         self.assertEqual(workflow.count("uses: ./.github/workflows/_hcu-test.yml"), 1)
-        self.assertNotIn("timeout-minutes:", workflow)
+        self.assertIn("timeout-minutes: 720", workflow)
         self.assertIn("default: 360", test_workflow)
         self.assertIn("hcu-stage4-required:", workflow)
         self.assertIn(
