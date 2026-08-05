@@ -58,7 +58,6 @@ jobs:
       build-runner-name: ${{ needs.hcu-build.outputs.runner-name }}
       build-environment: ${{ needs.hcu-build.outputs.build-environment }}
       build-image-digest: ${{ needs.hcu-build.outputs.image-digest }}
-      timeout-minutes: 720
       tests-to-include: ${{ github.event.inputs.tests-to-include || '' }}
       test-matrix: |
         {"include":[

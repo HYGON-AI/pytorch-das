@@ -187,6 +187,7 @@ class HcuCiContractTest(unittest.TestCase):
 
     def test_hcu_backend_workflow_builds_before_testing(self) -> None:
         workflow = read(WORKFLOWS / "hcu.yml")
+        test_workflow = read(WORKFLOWS / "_hcu-test.yml")
 
         self.assertIn("workflow_dispatch:", workflow)
         self.assertNotIn("schedule:", workflow)
@@ -195,7 +196,8 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("hcu-test:", workflow)
         self.assertEqual(workflow.count("needs: hcu-build"), 1)
         self.assertEqual(workflow.count("uses: ./.github/workflows/_hcu-test.yml"), 1)
-        self.assertEqual(workflow.count("timeout-minutes: 720"), 1)
+        self.assertNotIn("timeout-minutes:", workflow)
+        self.assertIn("default: 720", test_workflow)
         self.assertNotIn("test-suite:", workflow)
         self.assertIn("default-1-of-8", workflow)
         self.assertIn("ciflow/hcu/default-1-of-8-", workflow)
