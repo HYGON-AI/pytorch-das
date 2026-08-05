@@ -449,10 +449,15 @@ class HcuCiContractTest(unittest.TestCase):
 
     def test_hcu_image_is_pinned_to_an_immutable_digest(self) -> None:
         preflight = read(WORKFLOWS / "_hcu-preflight.yml")
+        test_workflow = read(WORKFLOWS / "_hcu-test.yml")
 
         self.assertIn("HCU_CI_IMAGE", preflight)
         self.assertIn("HCU_BUILD_IMAGE", preflight)
-        self.assertIn("@sha256:[0-9a-f]{64}", preflight)
+        self.assertIn("^(.+@)?sha256:[0-9a-f]{64}$", preflight)
+        self.assertIn("immutable runner-local image ID", preflight)
+        self.assertIn('CI_IMAGE}" =~ ^sha256:[0-9a-f]{64}$', test_workflow)
+        self.assertIn("docker image inspect", test_workflow)
+        self.assertIn("Runner-local HCU CI image ID mismatch", test_workflow)
 
     def test_disabled_flash_attention_excludes_hip_cutlass_sources(self) -> None:
         aten_cmake = read(ATEN_CMAKE)

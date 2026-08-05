@@ -105,8 +105,8 @@ jobs:
             exit 1
           fi
 
-          if ! [[ "${HCU_CI_IMAGE}" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
-            echo "HCU_CI_IMAGE must be pinned to an immutable sha256 digest" >&2
+          if ! [[ "${HCU_CI_IMAGE}" =~ ^(.+@)?sha256:[0-9a-f]{64}$ ]]; then
+            echo "HCU_CI_IMAGE must be a registry digest or an immutable runner-local image ID" >&2
             exit 1
           fi
 
