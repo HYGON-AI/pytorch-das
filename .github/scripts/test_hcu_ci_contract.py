@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 SETUP_HCU = REPO_ROOT / ".github" / "actions" / "setup-hcu" / "action.yml"
 SMOKE_TEST = REPO_ROOT / ".github" / "scripts" / "hcu_smoke_test.py"
+HCU_TEST_DOCKERFILE = REPO_ROOT / ".ci" / "docker" / "hcu-ci-test" / "Dockerfile"
 MANIFEST_HELPER = REPO_ROOT / ".github" / "scripts" / "hcu_ci_manifest.py"
 MANIFEST_TEST = REPO_ROOT / ".github" / "scripts" / "test_hcu_ci_manifest.py"
 HCU_PACKAGE_SCRIPT = REPO_ROOT / ".ci" / "pytorch" / "hcu-wheel-package.sh"
@@ -116,6 +117,7 @@ class HcuCiContractTest(unittest.TestCase):
         labeler = read(LABELER)
 
         self.assertIn('"ciflow/hcu":', labeler)
+        self.assertIn(".ci/docker/hcu-ci-test/**", labeler)
         self.assertIn(".github/workflows/hcu*.yml", labeler)
         self.assertIn(".github/workflows/_hcu-*.yml", labeler)
         self.assertIn(".github/scripts/hcu_*.py", labeler)
@@ -183,8 +185,43 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("hcu-test:", workflow)
         self.assertIn("needs: hcu-build", workflow)
         self.assertIn("uses: ./.github/workflows/_hcu-test.yml", workflow)
-        self.assertEqual(workflow.count('"config":'), 1)
+        self.assertIn("timeout-minutes: 720", workflow)
+        self.assertIn("test-suite:", workflow)
+        self.assertIn("default-1-of-8", workflow)
+        self.assertIn("ciflow/hcu/default-1-of-8-", workflow)
+        self.assertIn("startsWith(github.ref_name", workflow)
+        self.assertEqual(workflow.count('"config":'), 2)
         self.assertIn('"config":"smoke"', workflow)
+        self.assertIn(
+            '"config":"default","shard":1,"num_shards":8', workflow
+        )
+
+    def test_hcu_default_stage4_shard_has_diagnostic_environment(self) -> None:
+        test_workflow = read(WORKFLOWS / "_hcu-test.yml")
+
+        self.assertIn("CONTINUE_THROUGH_ERROR", test_workflow)
+        self.assertIn("TORCHINDUCTOR_COMPILE_THREADS", test_workflow)
+        self.assertIn(".ci/docker/requirements-ci.txt", test_workflow)
+        self.assertIn("pip uninstall -y pytest-asyncio", test_workflow)
+        self.assertIn("--shm-size=8g", test_workflow)
+        self.assertIn("--ulimit stack=67108864", test_workflow)
+        self.assertIn("hcu-test-environment.txt.gz", test_workflow)
+        self.assertIn("test-reports.tar.gz", test_workflow)
+        self.assertIn("cd /var/lib/jenkins/workspace", test_workflow)
+        self.assertGreaterEqual(test_workflow.count("unset PYTHONPATH"), 3)
+
+    def test_hcu_stage4_test_image_is_reproducible(self) -> None:
+        dockerfile = read(HCU_TEST_DOCKERFILE)
+
+        self.assertIn("ARG HCU_RUNTIME_IMAGE", dockerfile)
+        self.assertIn("FROM ${HCU_RUNTIME_IMAGE}", dockerfile)
+        self.assertIn("requirements-ci.txt", dockerfile)
+        self.assertIn("pip uninstall -y pytest-asyncio", dockerfile)
+        self.assertIn("expecttest==0.3.0", dockerfile)
+        self.assertIn("opt-einsum==3.4.0", dockerfile)
+        self.assertIn('ENV PYTHONPATH=""', dockerfile)
+        self.assertNotIn("apt-get", dockerfile)
+        self.assertNotIn("dnf install", dockerfile)
 
     def test_hcu_build_uses_fresh_artifact_and_hcu_test_validates_it(self) -> None:
         build_workflow = read(WORKFLOWS / "_hcu-build.yml")

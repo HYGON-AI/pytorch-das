@@ -167,6 +167,7 @@
 - third_party/fbgemm
 
 "ciflow/hcu":
+- .ci/docker/hcu-ci-test/**
 - .ci/pytorch/hcu*.sh
 - .ci/pytorch/build.sh
 - .ci/pytorch/common_utils.sh

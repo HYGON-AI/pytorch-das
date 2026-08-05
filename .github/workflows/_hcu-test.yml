@@ -131,6 +131,8 @@ jobs:
           SHARD_NUMBER: ${{ matrix.shard }}
           NUM_TEST_SHARDS: ${{ matrix.num_shards }}
           TESTS_TO_INCLUDE: ${{ inputs.tests-to-include }}
+          CONTINUE_THROUGH_ERROR: ${{ matrix.config == 'default' && '1' || '0' }}
+          TORCHINDUCTOR_COMPILE_THREADS: "1"
         run: |
           set -euo pipefail
           run_label="hcu-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${TEST_CONFIG}-${SHARD_NUMBER}"
@@ -150,6 +152,10 @@ jobs:
             --env SHARD_NUMBER \
             --env NUM_TEST_SHARDS \
             --env TESTS_TO_INCLUDE \
+            --env CONTINUE_THROUGH_ERROR \
+            --env TORCHINDUCTOR_COMPILE_THREADS \
+            --shm-size=8g \
+            --ulimit stack=67108864 \
             --security-opt seccomp=unconfined \
             --cap-add SYS_PTRACE \
             --volume "${GITHUB_WORKSPACE}:/var/lib/jenkins/workspace" \
@@ -168,9 +174,21 @@ jobs:
              mkdir -p "${install_dir}"
              cd "${install_dir}"
              unset PYTHONPATH
+             if [[ "${TEST_CONFIG}" != "smoke" ]]; then
+               python3 -m pip uninstall -y pytest-asyncio
+               python3 -m pip install -r "${source_root}/.ci/docker/requirements-ci.txt"
+             fi
              python3 -m pip install expecttest==0.3.0 opt-einsum==3.4.0
              python3 -m pip install --force-reinstall --no-deps "${wheels[0]}"' \
             2>&1 | tee hcu-test.log
+          docker exec "${container_name}" bash -lc \
+            'set -euo pipefail
+             unset PYTHONPATH
+             python3 --version
+             python3 -m pip --version
+             python3 -m pip freeze
+             python3 -c "import torch; print(f\"torch={torch.__version__}\"); print(f\"torch_file={torch.__file__}\"); print(f\"hip={torch.version.hip}\"); print(f\"hcu_count={torch.cuda.device_count()}\")"' \
+            > hcu-test-environment.txt 2>&1
           if [[ "${TEST_CONFIG}" == "smoke" ]]; then
             docker exec \
               --env HCU_EXPECTED_DEVICE_COUNT \
@@ -185,7 +203,11 @@ jobs:
                 python3 /var/lib/jenkins/workspace/.github/scripts/hcu_smoke_test.py
               ' 2>&1 | tee -a hcu-test.log
           else
-            docker exec "${container_name}" bash -lc '.ci/pytorch/test.sh' \
+            docker exec "${container_name}" bash -lc \
+              'set -euo pipefail
+               cd /var/lib/jenkins/workspace
+               unset PYTHONPATH
+               .ci/pytorch/test.sh' \
               2>&1 | tee -a hcu-test.log
           fi
 
@@ -225,6 +247,12 @@ jobs:
           fi
           if [[ -f hcu-test-container.log ]]; then
             gzip -c hcu-test-container.log > "${log_dir}/hcu-test-container.log.gz"
+          fi
+          if [[ -f hcu-test-environment.txt ]]; then
+            gzip -c hcu-test-environment.txt > "${log_dir}/hcu-test-environment.txt.gz"
+          fi
+          if [[ -d test/test-reports ]]; then
+            tar -C test -czf "${log_dir}/test-reports.tar.gz" test-reports
           fi
           printf "%s\n" "${JOB_STATUS}" > "${log_dir}/test-job-status.txt"
           chmod 0640 "${log_dir}"/*
