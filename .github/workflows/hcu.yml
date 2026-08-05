@@ -63,3 +63,37 @@ jobs:
         {"include":[
           {"config":"default","shard":1,"num_shards":8}
         ]}
+
+  hcu-stage4-required:
+    if: >-
+      ${{
+        always() &&
+        github.repository == 'HYGON-AI/pytorch-das' &&
+        vars.HCU_CI_ENABLED == 'true'
+      }}
+    name: hcu-stage4-required
+    needs: [hcu-preflight, hcu-build, hcu-test]
+    runs-on: [self-hosted, linux, x64, "${{ vars.HCU_CONTROL_RUNNER }}"]
+    steps:
+      - name: Report stable HCU Stage 4 result
+        shell: bash
+        env:
+          PREFLIGHT_RESULT: ${{ needs.hcu-preflight.result }}
+          HCU_ALLOWED: ${{ needs.hcu-preflight.outputs.allowed }}
+          HCU_BUILD_RESULT: ${{ needs.hcu-build.result }}
+          HCU_TEST_RESULT: ${{ needs.hcu-test.result }}
+        run: |
+          set -euo pipefail
+          if [[ "${PREFLIGHT_RESULT}" != "success" || "${HCU_ALLOWED}" != "true" ]]; then
+            echo "HCU Stage 4 preflight failed: result=${PREFLIGHT_RESULT}, allowed=${HCU_ALLOWED}" >&2
+            exit 1
+          fi
+          if [[ "${HCU_BUILD_RESULT}" != "success" ]]; then
+            echo "HCU Stage 4 fresh wheel build failed: ${HCU_BUILD_RESULT}" >&2
+            exit 1
+          fi
+          if [[ "${HCU_TEST_RESULT}" != "success" ]]; then
+            echo "HCU Stage 4 default 1/8 failed: ${HCU_TEST_RESULT}" >&2
+            exit 1
+          fi
+          echo "HCU Stage 4 fresh wheel build and default 1/8 passed."
