@@ -201,6 +201,7 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("hcu-stage4-required:", workflow)
         self.assertIn("needs: [hcu-preflight, hcu-build, hcu-test]", workflow)
         self.assertIn('runs-on: [self-hosted, linux, x64, "${{ vars.HCU_CONTROL_RUNNER }}"]', workflow)
+        self.assertIn("pull-requests: read", workflow)
         self.assertNotIn("test-suite:", workflow)
         self.assertIn("default-1-of-8", workflow)
         self.assertIn("ciflow/hcu/default-1-of-8-", workflow)
