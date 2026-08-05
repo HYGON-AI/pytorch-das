@@ -52,8 +52,10 @@ if torch.version.hip is None:
     raise RuntimeError("The installed wheel does not report a HIP runtime")
 PY
 
-cd /pytorch
 if [[ "${TEST_CONFIG}" == "smoke" ]]; then
+    # Do not run Python from /pytorch: the source-tree torch package would
+    # shadow the wheel installed in site-packages.
+    cd /
     touch /tmp/pytorch-nightly-test-started
     python3 - <<'PY'
 import torch
@@ -66,6 +68,7 @@ print("Smoke result:", y.norm().item())
 PY
 else
     # Same test entry point used by release/2.12 _rocm-test.yml.
+    cd /pytorch
     test -x .ci/pytorch/test.sh
     touch /tmp/pytorch-nightly-test-started
     .ci/pytorch/test.sh
