@@ -92,7 +92,10 @@ export USE_ROCM_CK_SDPA="${USE_ROCM_CK_SDPA:-0}"
 export USE_CUFILE="${USE_CUFILE:-0}"
 export USE_AOTRITON_FA="${USE_AOTRITON_FA:-0}"
 export USE_MEM_EFF_ATTENTION="${USE_MEM_EFF_ATTENTION:-0}"
-export USE_FLASH_ATTENTION="${USE_FLASH_ATTENTION:-1}"
+# The current HCU CUTLASS Flash Attention path can terminate the test process
+# inside mha_fwd_cutlass. Keep the stable math SDPA path enabled by default;
+# a validated HCU Flash Attention implementation may opt back in explicitly.
+export USE_FLASH_ATTENTION="${USE_FLASH_ATTENTION:-0}"
 export USE_FBGEMM="${USE_FBGEMM:-ON}"
 export USE_MKLDNN="${USE_MKLDNN:-0}"
 export USE_MKL="${USE_MKL:-ON}"
@@ -148,6 +151,19 @@ if (( ${#compiler_wheels[@]} != 1 )); then
 fi
 
 prepared_lib_dir="${HCU_PREPARED_SOURCE_ROOT:-/pytorch}/torch/lib"
+resolve_prepared_runtime_library() {
+  local library="$1"
+  local candidate
+  for candidate in "${prepared_lib_dir}/${library}" "${prepared_lib_dir}/${library}.2"; do
+    if [[ -f "${candidate}" ]]; then
+      printf "%s\n" "${candidate}"
+      return 0
+    fi
+  done
+  echo "Missing prepared runtime library: ${library} (checked unversioned and .so.2 names)" >&2
+  return 1
+}
+
 runtime_libraries=(
   libmagma.so
   libmkl_core.so
@@ -157,8 +173,9 @@ runtime_libraries=(
   libmkl_intel_lp64.so
   libmkl_vml_def.so
 )
+declare -A runtime_library_sources=()
 for library in "${runtime_libraries[@]}"; do
-  test -f "${prepared_lib_dir}/${library}"
+  runtime_library_sources["${library}"]="$(resolve_prepared_runtime_library "${library}")"
 done
 
 # setup.py clean removes the libraries seeded in torch/lib by source
@@ -177,7 +194,9 @@ if (( ${#unpacked_wheels[@]} != 1 )); then
 fi
 install -d -m 0755 "${unpacked_wheels[0]}/torch/lib"
 for library in "${runtime_libraries[@]}"; do
-  cp -a -- "${prepared_lib_dir}/${library}" "${unpacked_wheels[0]}/torch/lib/"
+  cp -L --preserve=mode,timestamps -- \
+    "${runtime_library_sources[${library}]}" \
+    "${unpacked_wheels[0]}/torch/lib/${library}"
 done
 python3 -m wheel pack --dest-dir dist "${unpacked_wheels[0]}"
 
@@ -209,7 +228,10 @@ if spec is None or not spec.submodule_search_locations:
 print(spec.submodule_search_locations[0])
 '
 )"
-export LD_LIBRARY_PATH="/opt/intel/oneapi/mkl/2024.2/lib:${torch_path}/lib:${LD_LIBRARY_PATH:-}"
+# Keep the enriched wheel's MKL runtime ahead of the image-level oneMKL. The
+# dispatcher libraries added below must come from the same runtime set as the
+# direct MKL dependencies selected by auditwheel.
+export LD_LIBRARY_PATH="${torch_path}/lib:/opt/intel/oneapi/mkl/2024.2/lib:${LD_LIBRARY_PATH:-}"
 
 glibc_version="$(ldd --version | awk 'NR == 1 {print $NF}')"
 platform="manylinux_${glibc_version//./_}_x86_64"
@@ -283,11 +305,11 @@ if (( ${#finalize_wheels[@]} != 1 )); then
   exit 1
 fi
 install -d -m 0755 "${finalize_wheels[0]}/torch.libs"
-cp -a -- \
-  "${prepared_lib_dir}/libmkl_def.so" \
+cp -L --preserve=mode,timestamps -- \
+  "${runtime_library_sources[libmkl_def.so]}" \
   "${finalize_wheels[0]}/torch.libs/libmkl_def.so.2"
-cp -a -- \
-  "${prepared_lib_dir}/libmkl_vml_def.so" \
+cp -L --preserve=mode,timestamps -- \
+  "${runtime_library_sources[libmkl_vml_def.so]}" \
   "${finalize_wheels[0]}/torch.libs/libmkl_vml_def.so.2"
 python3 -m wheel pack --dest-dir dist "${finalize_wheels[0]}"
 
@@ -299,6 +321,23 @@ if (( ${#repaired_wheels[@]} != 1 )); then
   printf "%s\n" "${repaired_wheels[@]}"
   exit 1
 fi
+
+python3 -m pip install --disable-pip-version-check \
+  --force-reinstall \
+  --no-deps \
+  "${repaired_wheels[0]}"
+(
+  cd /
+  unset PYTHONPATH
+  python3 - <<'PY'
+import torch
+
+signal = torch.randn(8, 8)
+reconstructed = torch.fft.ifft2(torch.fft.fft2(signal)).real
+torch.testing.assert_close(reconstructed, signal)
+print("Final HCU wheel CPU FFT validation passed")
+PY
+)
 
 auditwheel show "${repaired_wheels[0]}"
 ls -lh dist/raw/*.whl "${repaired_wheels[0]}"

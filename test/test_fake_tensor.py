@@ -9,6 +9,7 @@ import gc
 import inspect
 import io
 import itertools
+import os
 import pickle
 import subprocess
 import sys
@@ -92,6 +93,12 @@ device_type = acc.type if (acc := torch.accelerator.current_accelerator()) else 
 def expectedFailurePropagateRealTensors(fn):
     fn._expected_failure_propagate_real_tensors = True
     return fn
+
+
+def expectedFailurePropagateRealTensorsUnlessHCU(fn):
+    if "hcu" in os.getenv("BUILD_ENVIRONMENT", "").lower():
+        return fn
+    return expectedFailurePropagateRealTensors(fn)
 
 
 class FakeTensorTest(TestCase):
@@ -1984,7 +1991,7 @@ class FakeTensorOperatorInvariants(TestCase):
         self.assertEqual(mode.count, 0)
 
     # PropagateRealTensors installs weakrefs
-    @expectedFailurePropagateRealTensors
+    @expectedFailurePropagateRealTensorsUnlessHCU
     @unittest.skipIf(not RUN_CUDA, "requires cuda")
     def test_module_to(self):
         def _check_device(sd, device_type):

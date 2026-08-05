@@ -85,12 +85,23 @@ class TestTritonHeuristics(TestCase):
         """
         Make sure block size does not exceed the maximum defined in inductor config.
         """
-        cfg = triton_config({"x": 2048, "y": 2}, 64, 64)
-        for label in "XYZ":
-            key = f"{label}BLOCK"
-            if key not in cfg.kwargs:
-                continue
-            self.assertTrue(cfg.kwargs[key] <= TRITON_MAX_BLOCK[label])
+        configs = (
+            triton_config({"x": 2048, "y": 2}, 64, 64),
+            triton_config(
+                {
+                    "x": TRITON_MAX_BLOCK["X"] * 2,
+                    "y": TRITON_MAX_BLOCK["Y"] * 2,
+                },
+                TRITON_MAX_BLOCK["X"] * 2,
+                TRITON_MAX_BLOCK["Y"] * 2,
+            ),
+        )
+        for cfg in configs:
+            for label in "XYZ":
+                key = f"{label}BLOCK"
+                if key not in cfg.kwargs:
+                    continue
+                self.assertTrue(cfg.kwargs[key] <= TRITON_MAX_BLOCK[label])
 
     def _test_artificial_zgrid(self):
         def forward(primals_1, primals_2, primals_5):

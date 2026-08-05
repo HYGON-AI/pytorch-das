@@ -9,6 +9,19 @@ backup_root="${repo_root}/.hcu-source-backup"
 stamp_file="${repo_root}/.hcu-source-preparation.env"
 rocm_path="${ROCM_PATH:-/opt/dtk}"
 
+resolve_prepared_library() {
+  local unversioned_path="$1"
+  local candidate
+  for candidate in "${unversioned_path}" "${unversioned_path}.2"; do
+    if [[ -f "${candidate}" ]]; then
+      printf "%s\n" "${candidate}"
+      return 0
+    fi
+  done
+  echo "Missing /torch2.12 prepared build input: ${unversioned_path} or ${unversioned_path}.2" >&2
+  return 1
+}
+
 if [[ "${HCU_ALLOW_SOURCE_PREPARE:-0}" != "1" ]]; then
   echo "Set HCU_ALLOW_SOURCE_PREPARE=1 to prepare a disposable HCU CI checkout" >&2
   exit 1
@@ -29,6 +42,9 @@ dtk_version="$(tr -d '[:space:]' < "${rocm_path}/.info/rocm_version")"
 [[ "${prepared_version}" == 2.12.* ]]
 [[ "${dtk_version}" == 26.04* ]]
 
+mkl_def_source="$(resolve_prepared_library "${prepared_root}/torch/lib/libmkl_def.so")"
+mkl_vml_def_source="$(resolve_prepared_library "${prepared_root}/torch/lib/libmkl_vml_def.so")"
+
 required_paths=(
   "${prepared_root}/third_party/miniz-3.0.2"
   "${prepared_root}/third_party/gloo/tools/amd_build/build_amd.py"
@@ -37,11 +53,9 @@ required_paths=(
   "${prepared_root}/install_dir"
   "${prepared_root}/torch/lib/libmagma.so"
   "${prepared_root}/torch/lib/libmkl_core.so"
-  "${prepared_root}/torch/lib/libmkl_def.so"
   "${prepared_root}/torch/lib/libmkl_gf_lp64.so"
   "${prepared_root}/torch/lib/libmkl_gnu_thread.so"
   "${prepared_root}/torch/lib/libmkl_intel_lp64.so"
-  "${prepared_root}/torch/lib/libmkl_vml_def.so"
 )
 for path in "${required_paths[@]}"; do
   if [[ ! -e "${path}" ]]; then
@@ -63,6 +77,12 @@ cp -a -- "${prepared_root}/install_dir" "${repo_root}/install_dir"
 install -d -m 0755 "${repo_root}/torch/lib"
 cp -a -- "${prepared_root}"/torch/lib/libmagma.so "${repo_root}/torch/lib/"
 cp -a -- "${prepared_root}"/torch/lib/libmkl_*.so "${repo_root}/torch/lib/"
+
+# Some torch2.12 images contain only the SONAME files. Seed the checkout with
+# real files under the unversioned names expected by the build and packaging
+# scripts instead of creating links whose targets are absent from the checkout.
+cp -L --preserve=mode,timestamps -- "${mkl_def_source}" "${repo_root}/torch/lib/libmkl_def.so"
+cp -L --preserve=mode,timestamps -- "${mkl_vml_def_source}" "${repo_root}/torch/lib/libmkl_vml_def.so"
 
 sed -i "s#/opt/rocm#${rocm_path}#g" "${repo_root}/cmake/Dependencies.cmake"
 chmod 0755 "${repo_root}/third_party/gloo/tools/amd_build/build_amd.py"

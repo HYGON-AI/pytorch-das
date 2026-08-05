@@ -133,6 +133,7 @@ jobs:
           TESTS_TO_INCLUDE: ${{ inputs.tests-to-include }}
           CONTINUE_THROUGH_ERROR: ${{ matrix.config == 'default' && '1' || '0' }}
           TORCHINDUCTOR_COMPILE_THREADS: "1"
+          TRITON_DEFAULT_BACKEND: hcu
         run: |
           set -euo pipefail
           run_label="hcu-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${TEST_CONFIG}-${SHARD_NUMBER}"
@@ -154,6 +155,7 @@ jobs:
             --env TESTS_TO_INCLUDE \
             --env CONTINUE_THROUGH_ERROR \
             --env TORCHINDUCTOR_COMPILE_THREADS \
+            --env TRITON_DEFAULT_BACKEND \
             --shm-size=8g \
             --ulimit stack=67108864 \
             --security-opt seccomp=unconfined \

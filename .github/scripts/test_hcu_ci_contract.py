@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+import datetime as dt
 import re
 import unittest
 from pathlib import Path
 
 import yaml
+
+from hcu_test_baseline import load_and_validate, to_disabled_tests
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -16,6 +19,10 @@ MANIFEST_HELPER = REPO_ROOT / ".github" / "scripts" / "hcu_ci_manifest.py"
 MANIFEST_TEST = REPO_ROOT / ".github" / "scripts" / "test_hcu_ci_manifest.py"
 HCU_PACKAGE_SCRIPT = REPO_ROOT / ".ci" / "pytorch" / "hcu-wheel-package.sh"
 HCU_PREPARE_SCRIPT = REPO_ROOT / ".ci" / "pytorch" / "hcu-wheel-prepare.sh"
+HCU_TEST_SCRIPT = REPO_ROOT / ".ci" / "pytorch" / "test.sh"
+HCU_TEST_BASELINE = REPO_ROOT / ".ci" / "pytorch" / "hcu-test-baseline.json"
+HCU_TEST_BASELINE_HELPER = REPO_ROOT / ".github" / "scripts" / "hcu_test_baseline.py"
+RUN_TEST = REPO_ROOT / "test" / "run_test.py"
 ATEN_CMAKE = REPO_ROOT / "aten" / "src" / "ATen" / "CMakeLists.txt"
 HCU_STATIC = WORKFLOWS / "hcu-static.yml"
 HCU_PR = WORKFLOWS / "hcu-pr.yml"
@@ -43,6 +50,8 @@ class HcuCiContractTest(unittest.TestCase):
             MANIFEST_TEST,
             HCU_PACKAGE_SCRIPT,
             HCU_PREPARE_SCRIPT,
+            HCU_TEST_BASELINE,
+            HCU_TEST_BASELINE_HELPER,
             LABELER,
         ):
             self.assertTrue(path.is_file(), f"missing required HCU CI file: {path}")
@@ -201,6 +210,8 @@ class HcuCiContractTest(unittest.TestCase):
 
         self.assertIn("CONTINUE_THROUGH_ERROR", test_workflow)
         self.assertIn("TORCHINDUCTOR_COMPILE_THREADS", test_workflow)
+        self.assertIn("TRITON_DEFAULT_BACKEND: hcu", test_workflow)
+        self.assertIn("--env TRITON_DEFAULT_BACKEND", test_workflow)
         self.assertIn(".ci/docker/requirements-ci.txt", test_workflow)
         self.assertIn("pip uninstall -y pytest-asyncio", test_workflow)
         self.assertIn("--shm-size=8g", test_workflow)
@@ -214,7 +225,15 @@ class HcuCiContractTest(unittest.TestCase):
         dockerfile = read(HCU_TEST_DOCKERFILE)
 
         self.assertIn("ARG HCU_RUNTIME_IMAGE", dockerfile)
+        self.assertIn("ARG HCU_TOOLCHAIN_IMAGE", dockerfile)
         self.assertIn("FROM ${HCU_RUNTIME_IMAGE}", dockerfile)
+        self.assertIn("FROM ${HCU_TOOLCHAIN_IMAGE} AS hcu-toolchain", dockerfile)
+        self.assertIn("COPY --from=hcu-toolchain /opt/dtk/aillvm", dockerfile)
+        self.assertIn(
+            "3.7.1+das.opt1.dtk2604.torch2120.2608042040.g07864e",
+            dockerfile,
+        )
+        self.assertIn("--force-reinstall --no-deps", dockerfile)
         self.assertIn("requirements-ci.txt", dockerfile)
         self.assertIn("pip uninstall -y pytest-asyncio", dockerfile)
         self.assertIn("expecttest==0.3.0", dockerfile)
@@ -235,7 +254,7 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn('HCU_PATCHELF_VERSION: "0.17.2.4"', build_workflow)
         self.assertIn('CI: "1"', build_workflow)
         self.assertIn('USE_KINETO: "1"', build_workflow)
-        self.assertIn('USE_FLASH_ATTENTION: "1"', build_workflow)
+        self.assertIn('USE_FLASH_ATTENTION: "0"', build_workflow)
         self.assertIn('USE_MEM_EFF_ATTENTION: "0"', build_workflow)
         self.assertIn('BUILD_STATIC_RUNTIME_BENCHMARK: "OFF"', build_workflow)
         self.assertIn('USE_ROCM_CK_GEMM: "0"', build_workflow)
@@ -364,6 +383,8 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn("libmkl_def.so", package_script)
         self.assertIn("torch.libs/libmkl_def.so.2", package_script)
         self.assertIn("torch.libs/libmkl_vml_def.so.2", package_script)
+        self.assertIn("resolve_prepared_runtime_library", package_script)
+        self.assertIn('"${prepared_lib_dir}/${library}.2"', package_script)
         self.assertIn("dist/raw/*.whl", package_script)
         self.assertNotIn("python3 setup.py bdist_wheel", package_script)
         self.assertNotIn("docker build", package_script)
@@ -372,6 +393,7 @@ class HcuCiContractTest(unittest.TestCase):
             'BUILD_STATIC_RUNTIME_BENCHMARK="${BUILD_STATIC_RUNTIME_BENCHMARK:-OFF}"',
             package_script,
         )
+        self.assertIn('USE_FLASH_ATTENTION="${USE_FLASH_ATTENTION:-0}"', package_script)
 
         upstream_build = read(REPO_ROOT / ".ci" / "pytorch" / "build.sh")
         self.assertIn(
@@ -387,6 +409,25 @@ class HcuCiContractTest(unittest.TestCase):
             upstream_build,
         )
 
+    def test_hcu_stage4_baseline_is_exact_owned_and_time_bounded(self) -> None:
+        entries = load_and_validate(
+            HCU_TEST_BASELINE,
+            REPO_ROOT,
+            as_of=dt.date(2026, 8, 5),
+        )
+        self.assertGreater(len(entries), 0)
+        disabled = to_disabled_tests(entries)
+        self.assertEqual(len(disabled), len(entries))
+        self.assertTrue(all(value[1] == ["rocm"] for value in disabled.values()))
+
+        test_script = read(HCU_TEST_SCRIPT)
+        run_test = read(RUN_TEST)
+        self.assertIn("hcu_test_baseline.py emit-disabled", test_script)
+        self.assertIn('BUILD_ENVIRONMENT" == *hcu*', test_script)
+        self.assertIn('export DISABLED_TESTS_FILE=', test_script)
+        self.assertIn('os.getenv("DISABLED_TESTS_FILE")', run_test)
+        self.assertIn("--import-disabled-tests={disabled_tests_file}", run_test)
+
     def test_hcu_source_preparation_is_explicit_and_recoverable(self) -> None:
         prepare_script = read(HCU_PREPARE_SCRIPT)
 
@@ -399,6 +440,9 @@ class HcuCiContractTest(unittest.TestCase):
             prepare_script,
         )
         self.assertIn("third_party_seed_sha256", prepare_script)
+        self.assertIn("resolve_prepared_library", prepare_script)
+        self.assertIn('"${unversioned_path}.2"', prepare_script)
+        self.assertIn("cp -L --preserve=mode,timestamps", prepare_script)
         self.assertNotIn("wget ", prepare_script)
         self.assertNotIn("curl ", prepare_script)
         self.assertNotIn("rm -rf", prepare_script)

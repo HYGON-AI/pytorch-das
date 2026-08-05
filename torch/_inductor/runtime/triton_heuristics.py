@@ -2693,11 +2693,11 @@ def triton_config(
         target //= 8
 
     # shrink sizes to size hints
-    x = min(x, size_hints["x"])
+    x = min(x, size_hints["x"], TRITON_MAX_BLOCK["X"])
     if y:
-        y = min(y, size_hints["y"])
+        y = min(y, size_hints["y"], TRITON_MAX_BLOCK["Y"])
     if z:
-        z = min(z, size_hints["z"])
+        z = min(z, size_hints["z"], TRITON_MAX_BLOCK["Z"])
 
     # if we are below original block size, scale up where we can;
     # or if the calculated grid size is larger than the limit, we bump up the corresponding dimension
@@ -3265,7 +3265,7 @@ def pointwise(
                 triton_config_with_settings(size_hints, 1, bs),
 
                 triton_config_with_settings(size_hints, 16, 64), # new
-                
+
                 *hinted_configs,
             ]
             # Additional configs appended for ROCm builds

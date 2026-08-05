@@ -1,0 +1,50 @@
+[
+  {
+    "test": "test/nn/test_convolution.py::TestConvolutionNNDeviceTypeCUDA::test_conv_transposed_large_cuda",
+    "owner": "HCU PyTorch backend maintainers",
+    "expires": "2026-09-05",
+    "category": "numerical",
+    "reason": "HCU float16 transposed convolution differs by 0.00390625; upstream tolerance is 0.002.",
+    "tracking": "https://github.com/HYGON-AI/pytorch-das/pull/5"
+  },
+  {
+    "test": "test/nn/test_convolution.py::TestConvolutionNNDeviceTypeCUDA::test_depthwise_conv_64bit_indexing_cuda",
+    "owner": "HCU PyTorch backend maintainers",
+    "expires": "2026-09-05",
+    "category": "numerical",
+    "reason": "51 of 2151680000 HCU float16 results differ by up to 0.005859375; upstream tolerance is 0.005.",
+    "tracking": "https://github.com/HYGON-AI/pytorch-das/pull/5"
+  },
+  {
+    "test": "test/test_torch.py::TestTorchDeviceTypeCUDA::test_cdist_large_cuda",
+    "owner": "HCU PyTorch backend maintainers",
+    "expires": "2026-09-05",
+    "category": "numerical",
+    "reason": "3 of 1000000 cdist values differ by up to 0.006747663; upstream tolerance is 0.005.",
+    "tracking": "https://github.com/HYGON-AI/pytorch-das/pull/5"
+  },
+  {
+    "test": "test/test_transformers.py::TestTransformersCUDA::test_transformerencoder_fastpath_use_torchscript_False_enable_nested_tensor_False_use_autocast_False_d_model_256_cuda",
+    "owner": "HCU PyTorch backend maintainers",
+    "expires": "2026-09-05",
+    "category": "numerical",
+    "reason": "HCU Transformer fastpath differs from the slowpath by up to 0.000322998; upstream tolerance is 0.00001.",
+    "tracking": "https://github.com/HYGON-AI/pytorch-das/pull/5"
+  },
+  {
+    "test": "test/test_transformers.py::TestTransformersCUDA::test_transformerencoder_fastpath_use_torchscript_False_enable_nested_tensor_True_use_autocast_False_d_model_12_cuda",
+    "owner": "HCU PyTorch backend maintainers",
+    "expires": "2026-09-05",
+    "category": "numerical",
+    "reason": "HCU nested Transformer fastpath differs from the slowpath by up to 0.000089169; upstream tolerance is 0.00001.",
+    "tracking": "https://github.com/HYGON-AI/pytorch-das/pull/5"
+  },
+  {
+    "test": "test/test_transformers.py::TestTransformersCUDA::test_transformerencoder_fastpath_use_torchscript_False_enable_nested_tensor_True_use_autocast_False_d_model_256_cuda",
+    "owner": "HCU PyTorch backend maintainers",
+    "expires": "2026-09-05",
+    "category": "numerical",
+    "reason": "HCU nested Transformer fastpath differs from the slowpath by up to 0.000222564; upstream tolerance is 0.00001.",
+    "tracking": "https://github.com/HYGON-AI/pytorch-das/pull/5"
+  }
+]

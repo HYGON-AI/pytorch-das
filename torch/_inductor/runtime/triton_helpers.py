@@ -51,20 +51,38 @@ def _is_backend_active(name, backend):
     return False
 
 
+def _set_active_driver(driver, backend):
+    # After https://github.com/triton-lang/triton/commit/b844d519bc5e86edf00fe6b3c6c2d1badcd509a4,
+    # `driver.active` can be of `LazyProxy` type and the sign of this - `_obj` attribute.
+    if (
+        isinstance(driver.active, backend.driver)
+        or hasattr(driver.active, "_obj")
+        and isinstance(driver.active._obj, backend.driver)
+    ):
+        # Don't re-initialize backend if it is already active
+        return
+    driver.set_active(backend.driver())
+
+
 def set_driver_to_gpu():
     driver = triton.runtime.driver
+
+    # Prefer Triton's native driver detection when it identifies exactly one GPU
+    # backend. This matters for downstream HIP runtimes that register a dedicated
+    # driver: the generic torch.version.hip fallback below would otherwise select
+    # the first registered HIP backend instead.
+    natively_active_backends = [
+        backend
+        for name, backend in triton.backends.backends.items()
+        if name != "cpu" and backend.driver.is_active()
+    ]
+    if len(natively_active_backends) == 1:
+        _set_active_driver(driver, natively_active_backends[0])
+        return
+
     for name, backend in triton.backends.backends.items():
         if _is_backend_active(name, backend) and name != "cpu":
-            # After https://github.com/triton-lang/triton/commit/b844d519bc5e86edf00fe6b3c6c2d1badcd509a4,
-            # `driver.active` can be of `LazyProxy` type and the sign of this - `_obj` attribute.
-            if (
-                isinstance(driver.active, backend.driver)
-                or hasattr(driver.active, "_obj")
-                and isinstance(driver.active._obj, backend.driver)
-            ):
-                # Don't re-initialize backend if it is already active
-                return
-            driver.set_active(backend.driver())
+            _set_active_driver(driver, backend)
             return
     raise RuntimeError("Could not find an active GPU backend")
 

@@ -153,6 +153,16 @@ env
 
 echo "Testing pytorch"
 
+if [[ "$BUILD_ENVIRONMENT" == *hcu* ]]; then
+  hcu_baseline=".ci/pytorch/hcu-test-baseline.json"
+  hcu_disabled_tests="${TMPDIR:-/tmp}/pytorch-hcu-disabled-tests.json"
+  python3 .github/scripts/hcu_test_baseline.py emit-disabled \
+    --baseline "${hcu_baseline}" \
+    --repo-root "$(pwd)" \
+    --output "${hcu_disabled_tests}"
+  export DISABLED_TESTS_FILE="${hcu_disabled_tests}"
+fi
+
 # Set OMP_NUM_THREADS to nproc/4 on k8s ARC runners if not already set.
 #
 # We use nproc (cgroup-aware) rather than os.cpu_count() because on k8s (ARC)
