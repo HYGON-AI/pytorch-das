@@ -13,8 +13,8 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id }}-${{ github.event_name == 'schedule' }}
-  cancel-in-progress: true
+  group: hcu-stage4-${{ github.ref_name }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
