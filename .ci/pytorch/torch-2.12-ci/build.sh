@@ -296,3 +296,42 @@ fi
 printf '最终 wheel:\n'
 printf '  %s\n' "${final_wheels[@]}"
 ls -lh "${final_wheels[@]}"
+
+echo "===== Build custom test artifacts ====="
+CUSTOM_TEST_ARTIFACT_BUILD_DIR="${TOOLKIT_DIR}/build/custom_test_artifacts"
+CUSTOM_TEST_MODULE_PATH="${TOOLKIT_DIR}/cmake/public"
+SITE_PACKAGES="$({
+    cd /
+    python3 -c 'import site; print(";".join([x for x in site.getsitepackages()] + [x + "/torch" for x in site.getsitepackages()]))'
+})"
+
+rm -rf "${CUSTOM_TEST_ARTIFACT_BUILD_DIR}"
+mkdir -p "${CUSTOM_TEST_ARTIFACT_BUILD_DIR}"
+
+build_custom_test() {
+    local source_dir="$1"
+    local build_dir="$2"
+
+    cmake \
+        -S "${source_dir}" \
+        -B "${build_dir}" \
+        -DCMAKE_PREFIX_PATH="${SITE_PACKAGES}" \
+        -DPython_EXECUTABLE="$(command -v python3)" \
+        -DCMAKE_MODULE_PATH="${CUSTOM_TEST_MODULE_PATH}" \
+        -DUSE_ROCM=ON
+    cmake --build "${build_dir}" --parallel "${MAX_JOBS:-4}"
+}
+
+build_custom_test \
+    "${TOOLKIT_DIR}/test/custom_operator" \
+    "${CUSTOM_TEST_ARTIFACT_BUILD_DIR}/custom-op-build"
+build_custom_test \
+    "${TOOLKIT_DIR}/test/jit_hooks" \
+    "${CUSTOM_TEST_ARTIFACT_BUILD_DIR}/jit-hook-build"
+build_custom_test \
+    "${TOOLKIT_DIR}/test/custom_backend" \
+    "${CUSTOM_TEST_ARTIFACT_BUILD_DIR}/custom-backend-build"
+
+echo "===== Export test timing data ====="
+cd "${TOOLKIT_DIR}"
+PYTHONPATH=. python3 tools/stats/export_test_times.py

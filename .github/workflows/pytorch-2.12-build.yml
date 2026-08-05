@@ -1,9 +1,22 @@
 name: PyTorch 2.12 Build
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Test coverage to execute after the build.
+        required: true
+        default: smoke
+        type: choice
+        options:
+          - build-only
+          - smoke
+          - nightly
+          - full
   push:
     branches:
       - ljz/pytorch-2.12-ci
+  schedule:
+    - cron: 0 18 * * *
 permissions:
   contents: read
 jobs:
@@ -13,7 +26,7 @@ jobs:
       - Linux
       - X64
       - bw1100
-    timeout-minutes: 360
+    timeout-minutes: 4320
     env:
       TORCH_VERSION: "2.12.0"
       DTK_VERSION: "2604"
@@ -26,6 +39,8 @@ jobs:
       AMDGPU_TARGETS: "gfx906;gfx926;gfx928;gfx936;gfx938"
       IMAGE_NAME: "pytorch-2.12-build:${{ github.run_id }}"
       CONTAINER_NAME: "pytorch-2.12-${{ github.run_id }}"
+      BUILD_ENVIRONMENT: "linux-rocky8.6-rocm-dcu-py3.10"
+      TEST_SUITE: ${{ github.event_name == 'schedule' && 'full' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
     steps:
       # 1. 拉取当前个人分支的 PyTorch 源码
       - name: Checkout PyTorch source
@@ -94,6 +109,7 @@ jobs:
             -e PKG_TYPE="nightly" \
             -e AMDGPU_TARGETS="${AMDGPU_TARGETS}" \
             -e GIT_COMMIT_SHORT="${GITHUB_SHA:0:6}" \
+            -e MAX_JOBS="$(nproc --ignore=2)" \
             "${CONTAINER_NAME}" \
             bash -lc "/usr/local/bin/build-pytorch.sh" \
             2>&1 | tee build_logs/pytorch-build.log
@@ -131,6 +147,76 @@ jobs:
             "${SAVE_DIR}/"
           echo "===== wheel saved ====="
           ls -lh "${SAVE_DIR}"
+        #接收编译产物  
+      - name: Package build artifacts for tests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          docker exec "${CONTAINER_NAME}" bash -lc '
+            set -euo pipefail
+            cd /pytorch
+            shopt -s nullglob
+            repaired_wheels=(/dist/*manylinux*.whl)
+            shopt -u nullglob
+            if (( ${#repaired_wheels[@]} != 1 )); then
+              echo "ERROR: expected one repaired manylinux wheel, found ${#repaired_wheels[@]}" >&2
+              exit 1
+            fi
+            rm -rf dist
+            mkdir -p dist
+            cp -v "${repaired_wheels[0]}" dist/
+            required_paths=(
+              dist
+              build/custom_test_artifacts
+              build/lib
+              build/bin
+              .additional_ci_files
+            )
+            for path in "${required_paths[@]}"; do
+              test -e "${path}"
+            done
+            rm -f /artifacts.zip
+            zip -1 -r /artifacts.zip "${required_paths[@]}"
+          '
+          docker cp "${CONTAINER_NAME}:/artifacts.zip" artifacts/artifacts.zip
+          unzip -l artifacts/artifacts.zip | tail -n 30
+          LOCAL_ARTIFACT_DIR="/home/github/actions-runner-torch/artifacts/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}"
+          mkdir -p "${LOCAL_ARTIFACT_DIR}"
+          cp -v artifacts/artifacts.zip "${LOCAL_ARTIFACT_DIR}/"
+      - name: Validate DCU runner
+        if: env.TEST_SUITE != 'build-only'
+        uses: ./.github/actions/setup-hcu
+        with:
+          expected-device-count: "4"
+          run-label: pytorch-2.12-dcu-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Run DCU tests
+        if: env.TEST_SUITE != 'build-only'
+        shell: bash
+        env:
+          DOCKER_IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          ARTIFACT_ZIP: ${{ github.workspace }}/artifacts/artifacts.zip
+          REPORT_ROOT: ${{ github.workspace }}/test-results
+        run: |
+          set -o pipefail
+          mkdir -p test-results
+          chmod +x .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
+          .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
+      - name: Save test results locally
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOCAL_RESULT_DIR="/home/github/actions-runner-torch/test-results/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}"
+          mkdir -p "${LOCAL_RESULT_DIR}"
+          if [[ -d test-results ]]; then
+            cp -a test-results/. "${LOCAL_RESULT_DIR}/"
+          fi
+          if [[ -d build_logs ]]; then
+            mkdir -p "${LOCAL_RESULT_DIR}/build_logs"
+            cp -a build_logs/. "${LOCAL_RESULT_DIR}/build_logs/"
+          fi
+          echo "===== local test results ====="
+          find "${LOCAL_RESULT_DIR}" -maxdepth 3 -type f -ls | head -n 100
       # 在编译容器内上传wheel
       # - name: Install CIUpload and upload wheels
       #   if: success()
@@ -172,6 +258,20 @@ jobs:
           echo "===== log files ====="
           ls -lh "${LOG_DIR}"
         #清理容器和临时镜像
+      - name: Cleanup containers and image
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          mapfile -t test_containers < <(
+            docker ps -aq --filter "label=org.pytorch.dcu.nightly=${GITHUB_RUN_ID}"
+          )
+          if (( ${#test_containers[@]} > 0 )); then
+            docker rm -f "${test_containers[@]}"
+          fi
+          docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+          docker image rm -f "${IMAGE_NAME}" 2>/dev/null || true
+          rm -rf -- "${BUILD_CONTEXT}"
       - name: Cleanup failed build
         if: ${{ failure() || cancelled() }}
         shell: bash
