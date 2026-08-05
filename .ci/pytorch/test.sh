@@ -237,6 +237,9 @@ fi
 if [[ "$BUILD_ENVIRONMENT" == *hcu* ]]; then
   export PATH="/opt/dtk/bin:${PATH}"
   export LD_LIBRARY_PATH="/opt/hyhal/lib:/opt/dtk/.hyhal/lib:/opt/dtk/lib:/opt/dtk/hip/lib:${LD_LIBRARY_PATH:-}"
+  # HCU exhaustive Inductor autotuning can compile thousands of Triton
+  # candidates and regularly exceeds the upstream five-minute default.
+  export TORCHINDUCTOR_PRECOMPILATION_TIMEOUT_SECONDS="${TORCHINDUCTOR_PRECOMPILATION_TIMEOUT_SECONDS:-1800}"
 fi
 
 if [[ "$BUILD_ENVIRONMENT" == *rocm* ]]; then
