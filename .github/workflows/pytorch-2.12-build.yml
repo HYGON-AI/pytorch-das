@@ -42,6 +42,18 @@ jobs:
       BUILD_ENVIRONMENT: "linux-rocky8.6-rocm-dcu-py3.10"
       TEST_SUITE: ${{ github.event_name == 'schedule' && 'full' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
     steps:
+      - name: Repair workspace ownership before checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${GITHUB_WORKSPACE}" in
+            /home/github/actions-runner-torch/_work/*/*) ;;
+            *)
+              echo "ERROR: unexpected workspace path: ${GITHUB_WORKSPACE}" >&2
+              exit 1
+              ;;
+          esac
+          sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}"
       # 1. 拉取当前个人分支的 PyTorch 源码
       - name: Checkout PyTorch source
         uses: actions/checkout@v4
@@ -272,6 +284,7 @@ jobs:
           docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
           docker image rm -f "${IMAGE_NAME}" 2>/dev/null || true
           rm -rf -- "${BUILD_CONTEXT}"
+          sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}" 2>/dev/null || true
       - name: Cleanup failed build
         if: ${{ failure() || cancelled() }}
         shell: bash
