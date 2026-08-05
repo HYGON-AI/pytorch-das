@@ -59,5 +59,8 @@ jobs:
       build-environment: ${{ needs.hcu-build.outputs.build-environment }}
       build-image-digest: ${{ needs.hcu-build.outputs.image-digest }}
       timeout-minutes: 720
-      tests-to-include: ${{ inputs['tests-to-include'] || '' }}
-      test-matrix: '{"include":[{"config":"default","shard":1,"num_shards":8}]}'
+      tests-to-include: ${{ github.event.inputs.tests-to-include || '' }}
+      test-matrix: |
+        {"include":[
+          {"config":"default","shard":1,"num_shards":8}
+        ]}
