@@ -89,8 +89,10 @@ class HcuCiContractTest(unittest.TestCase):
             "/home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-cache/static",
             workflow,
         )
-        self.assertIn("HCU_CI_IMAGE must use an immutable sha256 digest", workflow)
+        self.assertIn("immutable runner-local image ID", workflow)
+        self.assertIn("Runner-local HCU CI image ID mismatch", workflow)
         self.assertIn('docker pull "${HCU_CI_IMAGE}"', workflow)
+        self.assertIn("docker image inspect", workflow)
         self.assertIn('container_name="pytorch-hcu-static-', workflow)
         self.assertIn('--user "$(id -u):$(id -g)"', workflow)
         self.assertIn("PYTHONUSERBASE=/runner-temp/python", workflow)

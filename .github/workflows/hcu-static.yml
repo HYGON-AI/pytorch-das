@@ -73,12 +73,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! "${HCU_CI_IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]]; then
-            echo "HCU_CI_IMAGE must use an immutable sha256 digest" >&2
+          if [[ "${HCU_CI_IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]]; then
+            docker pull "${HCU_CI_IMAGE}"
+          elif [[ "${HCU_CI_IMAGE}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            image_id="$(docker image inspect --format '{{.Id}}' "${HCU_CI_IMAGE}")"
+            if [[ "${image_id}" != "${HCU_CI_IMAGE}" ]]; then
+              echo "Runner-local HCU CI image ID mismatch" >&2
+              exit 1
+            fi
+          else
+            echo "HCU_CI_IMAGE must be a registry digest or an immutable runner-local image ID" >&2
             exit 1
           fi
           command -v docker
-          docker pull "${HCU_CI_IMAGE}"
 
           run_label="hcu-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-static"
           container_name="pytorch-hcu-static-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
