@@ -16,6 +16,8 @@ SMOKE_TEST = REPO_ROOT / ".github" / "scripts" / "hcu_smoke_test.py"
 HCU_TEST_DOCKERFILE = REPO_ROOT / ".ci" / "docker" / "hcu-ci-test" / "Dockerfile"
 MANIFEST_HELPER = REPO_ROOT / ".github" / "scripts" / "hcu_ci_manifest.py"
 MANIFEST_TEST = REPO_ROOT / ".github" / "scripts" / "test_hcu_ci_manifest.py"
+ARTIFACT_REUSE_HELPER = REPO_ROOT / ".github" / "scripts" / "hcu_artifact_reuse.py"
+ARTIFACT_REUSE_TEST = REPO_ROOT / ".github" / "scripts" / "test_hcu_artifact_reuse.py"
 HCU_PACKAGE_SCRIPT = REPO_ROOT / ".ci" / "pytorch" / "hcu-wheel-package.sh"
 HCU_PREPARE_SCRIPT = REPO_ROOT / ".ci" / "pytorch" / "hcu-wheel-prepare.sh"
 HCU_TEST_SCRIPT = REPO_ROOT / ".ci" / "pytorch" / "test.sh"
@@ -47,6 +49,8 @@ class HcuCiContractTest(unittest.TestCase):
             SMOKE_TEST,
             MANIFEST_HELPER,
             MANIFEST_TEST,
+            ARTIFACT_REUSE_HELPER,
+            ARTIFACT_REUSE_TEST,
             HCU_PACKAGE_SCRIPT,
             HCU_PREPARE_SCRIPT,
             HCU_TEST_BASELINE,
@@ -103,8 +107,10 @@ class HcuCiContractTest(unittest.TestCase):
             workflow,
         )
         self.assertIn("python3 -m pip install --user", workflow)
+        self.assertIn("python3 .github/scripts/test_hcu_artifact_reuse.py", workflow)
         self.assertIn("python3 .github/scripts/test_hcu_ci_contract.py", workflow)
         self.assertIn("python3 .github/scripts/test_hcu_ci_manifest.py", workflow)
+        self.assertIn(".github/scripts/hcu_artifact_reuse.py", workflow)
         self.assertIn(".ci/pytorch/hcu-wheel-package.sh", workflow)
         self.assertIn(".ci/pytorch/hcu-wheel-prepare.sh", workflow)
         self.assertIn(".ci/pytorch/build.sh", workflow)
@@ -193,15 +199,26 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertNotIn("schedule:", workflow)
         self.assertIn("ciflow/hcu/default-1-of-8-*", workflow)
         self.assertIn("hcu-build:", workflow)
+        self.assertIn("hcu-reuse-artifact:", workflow)
         self.assertIn("hcu-test:", workflow)
-        self.assertEqual(workflow.count("needs: hcu-build"), 1)
+        self.assertIn("needs: [hcu-build, hcu-reuse-artifact]", workflow)
         self.assertEqual(workflow.count("uses: ./.github/workflows/_hcu-test.yml"), 1)
         self.assertNotIn("timeout-minutes:", workflow)
         self.assertIn("default: 360", test_workflow)
         self.assertIn("hcu-stage4-required:", workflow)
-        self.assertIn("needs: [hcu-preflight, hcu-build, hcu-test]", workflow)
-        self.assertIn('runs-on: [self-hosted, linux, x64, "${{ vars.HCU_CONTROL_RUNNER }}"]', workflow)
+        self.assertIn(
+            "needs: [hcu-preflight, hcu-build, hcu-reuse-artifact, hcu-test]",
+            workflow,
+        )
+        self.assertIn(
+            'runs-on: [self-hosted, linux, x64, "${{ vars.HCU_CONTROL_RUNNER }}"]',
+            workflow,
+        )
         self.assertIn("pull-requests: read", workflow)
+        self.assertIn("reuse-artifact-path:", workflow)
+        self.assertIn("reuse-source-sha:", workflow)
+        self.assertIn(".github/scripts/hcu_artifact_reuse.py", workflow)
+        self.assertIn("Exactly one wheel source must succeed", workflow)
         self.assertNotIn("test-suite:", workflow)
         self.assertIn("default-1-of-8", workflow)
         self.assertIn("ciflow/hcu/default-1-of-8-", workflow)
@@ -251,6 +268,15 @@ class HcuCiContractTest(unittest.TestCase):
         test_workflow = read(WORKFLOWS / "_hcu-test.yml")
         backend_workflow = read(WORKFLOWS / "hcu-stage4.yml")
         pr_workflow = read(HCU_PR)
+
+        for workflow in (build_workflow, test_workflow):
+            self.assertIn("submodules: false", workflow)
+            self.assertNotIn("submodules: recursive", workflow)
+            self.assertIn("git submodule deinit --force --all", workflow)
+            self.assertIn("git submodule sync --recursive", workflow)
+            self.assertIn(
+                "git submodule update --init --force --recursive --jobs 8", workflow
+            )
 
         self.assertIn('HCU_REUSE_OLD_WHL: "0"', build_workflow)
         self.assertIn('HCU_AUDITWHEEL_VERSION: "6.7.0"', build_workflow)
@@ -315,11 +341,11 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertIn('rm -- "${ARTIFACT_PATH}/INCOMPLETE"', build_workflow)
         self.assertIn("SOURCE_SHA: ${{ github.sha }}", build_workflow)
         self.assertIn(
-            "artifact-path: ${{ needs.hcu-build.outputs.artifact-path }}",
+            "artifact-path: ${{ needs.hcu-build.outputs.artifact-path ||",
             backend_workflow,
         )
         self.assertIn(
-            "build-runner-name: ${{ needs.hcu-build.outputs.runner-name }}",
+            "build-runner-name: ${{ needs.hcu-build.outputs.runner-name ||",
             backend_workflow,
         )
         self.assertIn(
@@ -344,13 +370,15 @@ class HcuCiContractTest(unittest.TestCase):
         )
         self.assertIn("hcu_ci_manifest.py validate", test_workflow)
         self.assertIn(
-            "build-image-digest: ${{ needs.hcu-build.outputs.image-digest }}",
+            "build-image-digest: ${{ needs.hcu-build.outputs.image-digest ||",
             backend_workflow,
         )
         self.assertIn("sha256sum --check artifacts.zip.sha256", test_workflow)
         self.assertIn('"${RUNNER_NAME}" != "${BUILD_RUNNER_NAME}"', test_workflow)
         self.assertIn('test -f "${artifact_path}/READY"', test_workflow)
-        self.assertIn("SOURCE_SHA: ${{ github.sha }}", test_workflow)
+        self.assertIn(
+            "SOURCE_SHA: ${{ inputs.source-sha || github.sha }}", test_workflow
+        )
         self.assertIn("hcu_smoke_test.py", test_workflow)
         self.assertNotIn("actions/upload-artifact@", build_workflow)
         self.assertNotIn("actions/download-artifact@", test_workflow)

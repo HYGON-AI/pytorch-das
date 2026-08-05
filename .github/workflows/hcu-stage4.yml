@@ -11,6 +11,16 @@ on:
         required: false
         default: ""
         type: string
+      reuse-artifact-path:
+        description: Absolute runner-local path of a previously verified HCU build artifact.
+        required: false
+        default: ""
+        type: string
+      reuse-source-sha:
+        description: Exact source SHA recorded in the reused wheel manifest.
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: hcu-stage4-${{ github.ref_name }}-${{ github.run_id }}
@@ -35,7 +45,17 @@ jobs:
       expected-device-count: ${{ vars.HCU_EXPECTED_DEVICE_COUNT }}
 
   hcu-build:
-    if: ${{ needs.hcu-preflight.outputs.allowed == 'true' }}
+    if: >-
+      ${{
+        needs.hcu-preflight.outputs.allowed == 'true' &&
+        (
+          github.event_name != 'workflow_dispatch' ||
+          (
+            inputs.reuse-artifact-path == '' &&
+            inputs.reuse-source-sha == ''
+          )
+        )
+      }}
     needs: hcu-preflight
     uses: ./.github/workflows/_hcu-build.yml
     with:
@@ -47,18 +67,82 @@ jobs:
       rocm-arch: gfx938
       max-jobs: 32
 
+  hcu-reuse-artifact:
+    if: >-
+      ${{
+        needs.hcu-preflight.outputs.allowed == 'true' &&
+        github.event_name == 'workflow_dispatch' &&
+        (
+          inputs.reuse-artifact-path != '' ||
+          inputs.reuse-source-sha != ''
+        )
+      }}
+    needs: hcu-preflight
+    runs-on: ${{ vars.HCU_TEST_RUNNER }}
+    outputs:
+      artifact-path: ${{ steps.reuse.outputs.artifact-path }}
+      runner-name: ${{ steps.reuse.outputs.runner-name }}
+      build-environment: ${{ steps.reuse.outputs.build-environment }}
+      image-digest: ${{ steps.reuse.outputs.image-digest }}
+      source-sha: ${{ steps.reuse.outputs.source-sha }}
+    steps:
+      - name: Checkout current tests
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - name: Fetch wheel source commit
+        shell: bash
+        env:
+          REUSE_ARTIFACT_PATH: ${{ inputs.reuse-artifact-path }}
+          REUSE_SOURCE_SHA: ${{ inputs.reuse-source-sha }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${REUSE_ARTIFACT_PATH}" || ! "${REUSE_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Both reuse-artifact-path and a 40-character reuse-source-sha are required." >&2
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "${REUSE_SOURCE_SHA}"
+
+      - name: Validate runner-local wheel reuse
+        id: reuse
+        shell: bash
+        env:
+          REUSE_ARTIFACT_PATH: ${{ inputs.reuse-artifact-path }}
+          REUSE_SOURCE_SHA: ${{ inputs.reuse-source-sha }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/hcu_artifact_reuse.py \
+            --artifact-root /home/github/lyt/HYGON-AI_repositories/pytorch-das-ci-artifacts \
+            --artifact-path "${REUSE_ARTIFACT_PATH}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --reuse-source-sha "${REUSE_SOURCE_SHA}" \
+            --current-sha "${GITHUB_SHA}" \
+            --runner-name "${RUNNER_NAME}" \
+            --repo-root "${GITHUB_WORKSPACE}" \
+            --github-output "${GITHUB_OUTPUT}"
+
   hcu-test:
-    if: ${{ needs.hcu-build.result == 'success' }}
-    needs: hcu-build
+    if: >-
+      ${{
+        always() &&
+        (
+          needs.hcu-build.result == 'success' ||
+          needs.hcu-reuse-artifact.result == 'success'
+        )
+      }}
+    needs: [hcu-build, hcu-reuse-artifact]
     uses: ./.github/workflows/_hcu-test.yml
     with:
       runner: ${{ vars.HCU_TEST_RUNNER }}
       ci-image: ${{ vars.HCU_CI_IMAGE }}
       expected-device-count: ${{ vars.HCU_EXPECTED_DEVICE_COUNT }}
-      artifact-path: ${{ needs.hcu-build.outputs.artifact-path }}
-      build-runner-name: ${{ needs.hcu-build.outputs.runner-name }}
-      build-environment: ${{ needs.hcu-build.outputs.build-environment }}
-      build-image-digest: ${{ needs.hcu-build.outputs.image-digest }}
+      artifact-path: ${{ needs.hcu-build.outputs.artifact-path || needs.hcu-reuse-artifact.outputs.artifact-path }}
+      build-runner-name: ${{ needs.hcu-build.outputs.runner-name || needs.hcu-reuse-artifact.outputs.runner-name }}
+      build-environment: ${{ needs.hcu-build.outputs.build-environment || needs.hcu-reuse-artifact.outputs.build-environment }}
+      build-image-digest: ${{ needs.hcu-build.outputs.image-digest || needs.hcu-reuse-artifact.outputs.image-digest }}
+      source-sha: ${{ needs.hcu-reuse-artifact.outputs.source-sha || github.sha }}
       tests-to-include: ${{ github.event.inputs.tests-to-include || '' }}
       test-matrix: |
         {"include":[
@@ -73,7 +157,7 @@ jobs:
         vars.HCU_CI_ENABLED == 'true'
       }}
     name: hcu-stage4-required
-    needs: [hcu-preflight, hcu-build, hcu-test]
+    needs: [hcu-preflight, hcu-build, hcu-reuse-artifact, hcu-test]
     runs-on: [self-hosted, linux, x64, "${{ vars.HCU_CONTROL_RUNNER }}"]
     steps:
       - name: Report stable HCU Stage 4 result
@@ -82,6 +166,7 @@ jobs:
           PREFLIGHT_RESULT: ${{ needs.hcu-preflight.result }}
           HCU_ALLOWED: ${{ needs.hcu-preflight.outputs.allowed }}
           HCU_BUILD_RESULT: ${{ needs.hcu-build.result }}
+          HCU_REUSE_RESULT: ${{ needs.hcu-reuse-artifact.result }}
           HCU_TEST_RESULT: ${{ needs.hcu-test.result }}
         run: |
           set -euo pipefail
@@ -89,12 +174,19 @@ jobs:
             echo "HCU Stage 4 preflight failed: result=${PREFLIGHT_RESULT}, allowed=${HCU_ALLOWED}" >&2
             exit 1
           fi
-          if [[ "${HCU_BUILD_RESULT}" != "success" ]]; then
-            echo "HCU Stage 4 fresh wheel build failed: ${HCU_BUILD_RESULT}" >&2
+          producer_count=0
+          [[ "${HCU_BUILD_RESULT}" == "success" ]] && producer_count=$((producer_count + 1))
+          [[ "${HCU_REUSE_RESULT}" == "success" ]] && producer_count=$((producer_count + 1))
+          if (( producer_count != 1 )); then
+            echo "Exactly one wheel source must succeed: build=${HCU_BUILD_RESULT}, reuse=${HCU_REUSE_RESULT}" >&2
             exit 1
           fi
           if [[ "${HCU_TEST_RESULT}" != "success" ]]; then
             echo "HCU Stage 4 default 1/8 failed: ${HCU_TEST_RESULT}" >&2
             exit 1
           fi
-          echo "HCU Stage 4 fresh wheel build and default 1/8 passed."
+          if [[ "${HCU_BUILD_RESULT}" == "success" ]]; then
+            echo "HCU Stage 4 fresh wheel build and default 1/8 passed."
+          else
+            echo "HCU Stage 4 verified wheel reuse and default 1/8 passed."
+          fi
