@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
 import torch
 from torch._inductor.lightop import (patch_functions,
                                      fuse_ln_add_dropout_bias_fusion,

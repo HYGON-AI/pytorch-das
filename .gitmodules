@@ -40,8 +40,8 @@
     url = https://github.com/Maratyszcza/psimd.git
 [submodule "third_party/cpuinfo"]
     ignore = dirty
-	path = third_party/cpuinfo
-	url = https://github.com/pytorch/cpuinfo.git
+    path = third_party/cpuinfo
+    url = https://github.com/pytorch/cpuinfo.git
 [submodule "third_party/python-peachpy"]
     ignore = dirty
     path = third_party/python-peachpy
@@ -72,8 +72,8 @@
     url = https://github.com/facebookincubator/fbjni.git
 [submodule "third_party/XNNPACK"]
     ignore = dirty
-	path = third_party/XNNPACK
-	url = https://github.com/google/XNNPACK.git
+    path = third_party/XNNPACK
+    url = https://github.com/google/XNNPACK.git
 [submodule "third_party/fmt"]
     ignore = dirty
     path = third_party/fmt
@@ -106,8 +106,6 @@
 [submodule "third_party/cutlass"]
 	path = third_party/cutlass
 	url = https://github.com/NVIDIA/cutlass.git
-	branch = hipcc_master
-	commit = ec281e373c371c3b08305db872191d37c9ef94c7
 [submodule "third_party/mimalloc"]
 	path = third_party/mimalloc
 	url = https://github.com/microsoft/mimalloc.git

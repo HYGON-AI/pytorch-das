@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
 #include <ATen/native/lightop/cuda/rmsnorm.h>
 
 namespace at{
@@ -517,5 +520,3 @@ std::tuple<Tensor,Tensor>fuse_rn_dropout_backward_cuda(
 }
 }
 }
-
-

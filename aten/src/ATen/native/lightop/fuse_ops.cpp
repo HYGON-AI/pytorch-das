@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
 #include <ATen/native/lightop/fuse_ops.h>
 #include <ATen/ops/native_fuse_layer_norm.h>
 #include <ATen/ops/fuse_layer_norm_native.h>

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
 #include "reduce.h"
 #include "elementwise_op.h"
 using namespace std;
@@ -956,4 +959,3 @@ void act_groupnorm_backward_impl(const Tensor& grad, const Tensor& X,const Tenso
 
 }//namespace native
 }//namesapace at
-

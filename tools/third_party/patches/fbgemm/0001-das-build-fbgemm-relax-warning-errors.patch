@@ -1,0 +1,34 @@
+From 1c042d46dc3ce7bbcc6790fece9b3f0adc0f8ed9 Mon Sep 17 00:00:00 2001
+From: zhangdong1 <zhangdong1@sugon.com>
+Date: Wed, 15 Jul 2026 15:47:09 +0800
+Subject: [PATCH] [das] build(fbgemm): relax warning errors
+
+Why:
+GCC 12 reports maybe-uninitialized diagnostics while compiling the FBGEMM
+AVX512 code and promotes them to build failures through -Werror.
+
+What:
+Mirror the existing third-party ZIP by appending the warning overrides to the
+global C and C++ compiler flags without a compiler or version restriction.
+
+Impact:
+The listed diagnostics remain visible but are not promoted to errors in the
+validated GCC 12 build.
+---
+ CMakeLists.txt | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e645fc810..9749cbb60 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -139,6 +139,8 @@ if(FBGEMM_USE_IPO)
+   check_ipo_supported()
+ endif()
+-
++#gcc12 bug
++set(CMAKE_C_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict")
++set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=maybe-uninitialized -Wno-error=uninitialized -Wno-error=restrict")
+ ################################################################################
+ # Prepare Sources
+ ################################################################################
