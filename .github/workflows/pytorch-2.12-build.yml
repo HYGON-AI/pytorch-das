@@ -5,13 +5,12 @@ on:
       suite:
         description: Test coverage to execute after the build.
         required: true
-        default: smoke
+        default: nightly
         type: choice
         options:
           - build-only
           - smoke
           - nightly
-          - full
   push:
     branches:
       - ljz/pytorch-2.12-ci
@@ -27,6 +26,9 @@ jobs:
       - X64
       - bw1100
     timeout-minutes: 4320
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}/source
     env:
       TORCH_VERSION: "2.12.0"
       DTK_VERSION: "2604"
@@ -38,25 +40,25 @@ jobs:
       TOOLKIT_DIR: "/pytorch"
       AMDGPU_TARGETS: "gfx906;gfx926;gfx928;gfx936;gfx938"
       IMAGE_NAME: "pytorch-2.12-build:${{ github.run_id }}"
+      TEST_IMAGE_NAME: "pytorch-2.12-nightly-test:${{ github.run_id }}"
       CONTAINER_NAME: "pytorch-2.12-${{ github.run_id }}"
       BUILD_ENVIRONMENT: "linux-rocky8.6-rocm-dcu-py3.10"
-      TEST_SUITE: ${{ github.event_name == 'schedule' && 'full' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
+      # Resolve the newest compatible DCU Triton 3.7.1 wheel on every nightly.
+      # pip selects the correct Python/platform wheel from this internal index.
+      TRITON_TEST_INDEX_URL: "http://10.16.1.201:9929/das_nightly/dtk2604-rc4/+simple/"
+      TRITON_TEST_VERSION: "3.7.1"
+      TORCHVISION_TEST_WHEEL_URL: "http://10.16.1.201:9929/customer/dtk2604-rc4/+f/8ae/19466a791590e/torchvision-0.27.0+das.opt1.dtk2604.torch2120.2607011049.g2a8274-cp310-cp310-manylinux_2_28_x86_64.whl"
+      TORCHVISION_TEST_WHEEL_SHA256: "8ae19466a791590e32df45583be428306cbcb59f4bf9f53a46ef29166e4ed636"
+      # release/2.12 rocm-nightly.yml runs six shards of TEST_CONFIG=default.
+      # Branch pushes keep using smoke so ordinary development does not launch
+      # the multi-hour nightly suite; schedule/manual nightly runs use all six.
+      TEST_SUITE: ${{ github.event_name == 'schedule' && 'nightly' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
     steps:
-      - name: Repair workspace ownership before checkout
-        shell: bash
-        run: |
-          set -euo pipefail
-          case "${GITHUB_WORKSPACE}" in
-            /home/github/actions-runner-torch/_work/*/*) ;;
-            *)
-              echo "ERROR: unexpected workspace path: ${GITHUB_WORKSPACE}" >&2
-              exit 1
-              ;;
-          esac
-          sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}"
       # 1. 拉取当前个人分支的 PyTorch 源码
       - name: Checkout PyTorch source
         uses: actions/checkout@v4
+        with:
+          path: source
       - name: Set build context
         shell: bash
         run: |
@@ -85,7 +87,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mkdir -p build_logs artifacts
+          mkdir -p build_logs
           chmod +x .ci/pytorch/torch-2.12-ci/build-image.sh
           chmod +x .ci/pytorch/torch-2.12-ci/prepare.sh
           chmod +x .ci/pytorch/torch-2.12-ci/build.sh
@@ -160,11 +162,18 @@ jobs:
           echo "===== wheel saved ====="
           ls -lh "${SAVE_DIR}"
         #接收编译产物  
-      - name: Package build artifacts for tests
+      - name: Prepare local nightly test image
+        if: env.TEST_SUITE != 'build-only'
         shell: bash
         run: |
           set -euxo pipefail
-          docker exec "${CONTAINER_NAME}" bash -lc '
+          docker exec \
+            -e TEST_SUITE \
+            -e TRITON_TEST_INDEX_URL \
+            -e TRITON_TEST_VERSION \
+            -e TORCHVISION_TEST_WHEEL_URL \
+            -e TORCHVISION_TEST_WHEEL_SHA256 \
+            "${CONTAINER_NAME}" bash -lc '
             set -euo pipefail
             cd /pytorch
             shopt -s nullglob
@@ -174,9 +183,49 @@ jobs:
               echo "ERROR: expected one repaired manylinux wheel, found ${#repaired_wheels[@]}" >&2
               exit 1
             fi
+
             rm -rf dist
-            mkdir -p dist
+            mkdir -p dist/test-deps dist/vision
             cp -v "${repaired_wheels[0]}" dist/
+
+            if [[ "${TEST_SUITE}" == "nightly" ]]; then
+              download_verified_wheel() {
+                local url="$1"
+                local destination="$2"
+                local expected_sha256="$3"
+                local filename="${url##*/}"
+                wget --tries=3 --timeout=120 -O "${destination}/${filename}" "${url}"
+                printf "%s  %s\n" \
+                  "${expected_sha256}" "${destination}/${filename}" | sha256sum -c -
+              }
+
+              python3 -m pip download \
+                --no-cache-dir \
+                --no-deps \
+                --index-url "${TRITON_TEST_INDEX_URL}" \
+                --trusted-host 10.16.1.201 \
+                --dest dist/test-deps \
+                "triton==${TRITON_TEST_VERSION}"
+
+              shopt -s nullglob
+              triton_wheels=(dist/test-deps/triton-*.whl)
+              shopt -u nullglob
+              if (( ${#triton_wheels[@]} != 1 )); then
+                echo "ERROR: expected one Triton wheel, found ${#triton_wheels[@]}" >&2
+                exit 1
+              fi
+              echo "Resolved latest Triton ${TRITON_TEST_VERSION}: ${triton_wheels[0]}"
+              sha256sum "${triton_wheels[0]}"
+
+              download_verified_wheel \
+                "${TORCHVISION_TEST_WHEEL_URL}" dist/vision "${TORCHVISION_TEST_WHEEL_SHA256}"
+
+              # Triton must be importable when an official default shard starts.
+              # torchvision stays in dist/vision for install_torchvision().
+              python3 -m pip install --no-deps --force-reinstall dist/test-deps/*.whl
+              python3 -c "import triton; assert triton.__version__.split(\"+\", 1)[0] == \"${TRITON_TEST_VERSION}\"; print(\"Triton:\", triton.__version__)"
+            fi
+
             required_paths=(
               dist
               build/custom_test_artifacts
@@ -187,17 +236,15 @@ jobs:
             for path in "${required_paths[@]}"; do
               test -e "${path}"
             done
-            rm -f /artifacts.zip
-            zip -1 -r /artifacts.zip "${required_paths[@]}"
+            find dist -maxdepth 2 -type f -name "*.whl" -ls
           '
-          docker cp "${CONTAINER_NAME}:/artifacts.zip" artifacts/artifacts.zip
-          unzip -l artifacts/artifacts.zip | tail -n 30
-          LOCAL_ARTIFACT_DIR="/home/github/actions-runner-torch/artifacts/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}"
-          mkdir -p "${LOCAL_ARTIFACT_DIR}"
-          cp -v artifacts/artifacts.zip "${LOCAL_ARTIFACT_DIR}/"
+          docker image rm -f "${TEST_IMAGE_NAME}" 2>/dev/null || true
+          docker commit "${CONTAINER_NAME}" "${TEST_IMAGE_NAME}"
+          docker image inspect "${TEST_IMAGE_NAME}" \
+            --format 'nightly test image={{.RepoTags}} size={{.Size}}'
       - name: Validate DCU runner
         if: env.TEST_SUITE != 'build-only'
-        uses: ./.github/actions/setup-hcu
+        uses: ./source/.github/actions/setup-hcu
         with:
           expected-device-count: "4"
           run-label: pytorch-2.12-dcu-${{ github.run_id }}-${{ github.run_attempt }}
@@ -205,9 +252,8 @@ jobs:
         if: env.TEST_SUITE != 'build-only'
         shell: bash
         env:
-          DOCKER_IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          ARTIFACT_ZIP: ${{ github.workspace }}/artifacts/artifacts.zip
-          REPORT_ROOT: ${{ github.workspace }}/test-results
+          DOCKER_IMAGE_NAME: ${{ env.TEST_IMAGE_NAME }}
+          REPORT_ROOT: ${{ github.workspace }}/source/test-results
         run: |
           set -o pipefail
           mkdir -p test-results
@@ -282,27 +328,6 @@ jobs:
             docker rm -f "${test_containers[@]}"
           fi
           docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+          docker image rm -f "${TEST_IMAGE_NAME}" 2>/dev/null || true
           docker image rm -f "${IMAGE_NAME}" 2>/dev/null || true
           rm -rf -- "${BUILD_CONTEXT}"
-          sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}" 2>/dev/null || true
-      - name: Cleanup failed build
-        if: ${{ failure() || cancelled() }}
-        shell: bash
-        run: |
-          set +e
-          LOG_DIR="/home/github/actions-runner-torch/log-torch/${GITHUB_RUN_NUMBER}"
-          DIST_DIR="/home/github/actions-runner-torch/dist/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}"
-          echo "===== 流程失败，开始清理 ====="
-          echo "删除本次日志目录：${LOG_DIR}"
-          rm -rf -- "${LOG_DIR}"
-          echo "删除本次 wheel 目录：${DIST_DIR}"
-          rm -rf -- "${DIST_DIR}"
-          echo "删除工作区临时日志"
-          rm -rf build_logs artifacts
-          echo "删除容器：${CONTAINER_NAME}"
-          docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
-          echo "删除镜像：${IMAGE_NAME}"
-          docker image rm -f "${IMAGE_NAME}" 2>/dev/null || true
-          echo "删除临时构建目录：${BUILD_CONTEXT}"
-          rm -rf -- "${BUILD_CONTEXT}"
-          echo "===== 清理完成 ====="
