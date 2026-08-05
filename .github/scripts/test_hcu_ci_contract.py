@@ -197,7 +197,7 @@ class HcuCiContractTest(unittest.TestCase):
         self.assertEqual(workflow.count("needs: hcu-build"), 1)
         self.assertEqual(workflow.count("uses: ./.github/workflows/_hcu-test.yml"), 1)
         self.assertNotIn("timeout-minutes:", workflow)
-        self.assertIn("default: 720", test_workflow)
+        self.assertIn("default: 360", test_workflow)
         self.assertIn("hcu-stage4-required:", workflow)
         self.assertIn("needs: [hcu-preflight, hcu-build, hcu-test]", workflow)
         self.assertIn('runs-on: [self-hosted, linux, x64, "${{ vars.HCU_CONTROL_RUNNER }}"]', workflow)

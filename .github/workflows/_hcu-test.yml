@@ -38,7 +38,7 @@ on:
         type: string
       timeout-minutes:
         required: false
-        default: 720
+        default: 360
         type: number
 
 permissions:
