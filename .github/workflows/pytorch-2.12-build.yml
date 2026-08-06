@@ -378,7 +378,8 @@ jobs:
   required:
     name: nightly-required
     needs: [preflight, build, dcu-test]
-    if: ${{ always() }}
+    # Run after failed/skipped dependencies, but honor an explicit user cancel.
+    if: ${{ !cancelled() }}
     runs-on: [self-hosted, Linux, X64, bw1100]
     timeout-minutes: 30
     env:
