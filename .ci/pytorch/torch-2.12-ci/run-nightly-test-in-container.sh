@@ -57,6 +57,7 @@ if [[ "${TEST_CONFIG}" == "smoke" ]]; then
     # shadow the wheel installed in site-packages.
     cd /
     touch /tmp/pytorch-nightly-test-started
+    set +e
     python3 - <<'PY'
 import torch
 
@@ -66,10 +67,19 @@ torch.cuda.synchronize()
 print("Device:", torch.cuda.get_device_name(0))
 print("Smoke result:", y.norm().item())
 PY
+    test_rc=$?
+    set -e
 else
     # Same test entry point used by release/2.12 _rocm-test.yml.
     cd /pytorch
     test -x .ci/pytorch/test.sh
     touch /tmp/pytorch-nightly-test-started
+    set +e
     .ci/pytorch/test.sh
+    test_rc=$?
+    set -e
 fi
+
+printf '%s\n' "${test_rc}" > /tmp/pytorch-nightly-test-exit-code
+touch /tmp/pytorch-nightly-test-completed
+exit "${test_rc}"

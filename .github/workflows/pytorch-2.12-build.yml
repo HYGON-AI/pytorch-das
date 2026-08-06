@@ -1,4 +1,5 @@
 name: PyTorch 2.12 Build
+
 on:
   workflow_dispatch:
     inputs:
@@ -16,78 +17,161 @@ on:
       - ljz/pytorch-2.12-ci
   schedule:
     - cron: 0 18 * * *
+
+# The build and every test shard share one local Docker daemon. Prevent two
+# active runs from contending for the same DCU host. The bw1100 label must be
+# unique to this physical runner because GitHub does not provide job affinity.
+concurrency:
+  group: pytorch-2.12-bw1100
+  cancel-in-progress: false
+
 permissions:
   contents: read
+
+env:
+  TORCH_VERSION: "2.12.0"
+  DTK_VERSION: "2604"
+  PYTHON_VERSION: "3.10"
+  DTK_PKG_URL: "http://10.16.1.201:8000/dtk-pkg/dtk26.04/DTK-26.04-rc4-centos8-x86_64.tar.gz"
+  DTK_PKG_NAME: "DTK-26.04-rc4-centos8-x86_64.tar.gz"
+  ROCM_PATH: "/opt/dtk"
+  TOOLKIT_DIR: "/pytorch"
+  AMDGPU_TARGETS: "gfx906;gfx926;gfx928;gfx936;gfx938"
+  BUILD_ENVIRONMENT: "linux-rocky8.6-rocm-dcu-py3.10"
+  TRITON_TEST_INDEX_URL: "http://10.16.1.201:9929/das_nightly/dtk2604-rc4/+simple/"
+  TRITON_TEST_VERSION: "3.7.1"
+  TORCHVISION_TEST_WHEEL_URL: "http://10.16.1.201:9929/customer/dtk2604-rc4/+f/8ae/19466a791590e/torchvision-0.27.0+das.opt1.dtk2604.torch2120.2607011049.g2a8274-cp310-cp310-manylinux_2_28_x86_64.whl"
+  TORCHVISION_TEST_WHEEL_SHA256: "8ae19466a791590e32df45583be428306cbcb59f4bf9f53a46ef29166e4ed636"
+
 jobs:
+  preflight:
+    name: preflight
+    runs-on: [self-hosted, Linux, X64, bw1100]
+    timeout-minutes: 15
+    outputs:
+      test_suite: ${{ steps.plan.outputs.test_suite }}
+      test_matrix: ${{ steps.plan.outputs.test_matrix }}
+      expected_shards: ${{ steps.plan.outputs.expected_shards }}
+      test_image_name: ${{ steps.plan.outputs.test_image_name }}
+      result_root: ${{ steps.plan.outputs.result_root }}
+    steps:
+      - name: Resolve test plan
+        id: plan
+        shell: bash
+        env:
+          REQUESTED_SUITE: ${{ github.event_name == 'schedule' && 'nightly' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
+        run: |
+          set -euo pipefail
+          case "${REQUESTED_SUITE}" in
+            build-only)
+              expected_shards=0
+              test_matrix='{"include":[{"config":"none","shard":0,"num_shards":0}]}'
+              ;;
+            smoke)
+              expected_shards=1
+              test_matrix='{"include":[{"config":"smoke","shard":1,"num_shards":1}]}'
+              ;;
+            nightly)
+              expected_shards=6
+              test_matrix='{"include":[{"config":"default","shard":1,"num_shards":6},{"config":"default","shard":2,"num_shards":6},{"config":"default","shard":3,"num_shards":6},{"config":"default","shard":4,"num_shards":6},{"config":"default","shard":5,"num_shards":6},{"config":"default","shard":6,"num_shards":6}]}'
+              ;;
+            *)
+              echo "ERROR: unsupported test suite: ${REQUESTED_SUITE}" >&2
+              exit 1
+              ;;
+          esac
+
+          test_image_name="pytorch-2.12-nightly-test:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          result_root="/home/github/actions-runner-torch/test-results/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}/${GITHUB_RUN_ATTEMPT}"
+
+          echo "test_suite=${REQUESTED_SUITE}" >> "${GITHUB_OUTPUT}"
+          echo "test_matrix=${test_matrix}" >> "${GITHUB_OUTPUT}"
+          echo "expected_shards=${expected_shards}" >> "${GITHUB_OUTPUT}"
+          echo "test_image_name=${test_image_name}" >> "${GITHUB_OUTPUT}"
+          echo "result_root=${result_root}" >> "${GITHUB_OUTPUT}"
+
+          echo "suite=${REQUESTED_SUITE}"
+          echo "expected_shards=${expected_shards}"
+          echo "test_image=${test_image_name}"
+          echo "result_root=${result_root}"
+
+      - name: Check self-hosted build runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "runner=${RUNNER_NAME}"
+          hostname
+          docker --version
+          docker info >/dev/null
+          df -h
+          test -d /opt/dtk
+
+      - name: Check DCU test capacity
+        if: steps.plan.outputs.test_suite != 'build-only'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x /opt/hyhal/bin/hy-smi
+          command -v rocminfo
+
+          /opt/hyhal/bin/hy-smi
+          device_count="$(/opt/hyhal/bin/hy-smi | awk '$1 ~ /^[0-9]+$/ { count += 1 } END { print count + 0 }')"
+          if (( device_count < 4 )); then
+            echo "ERROR: expected at least 4 DCU devices, found ${device_count}" >&2
+            exit 1
+          fi
+          echo "device_count=${device_count}"
+
   build:
-    runs-on: 
-      - self-hosted          
-      - Linux
-      - X64
-      - bw1100
+    name: build
+    needs: preflight
+    runs-on: [self-hosted, Linux, X64, bw1100]
     timeout-minutes: 4320
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
     env:
-      TORCH_VERSION: "2.12.0"
-      DTK_VERSION: "2604"
-      PYTHON_VERSION: "3.10"
-      DTK_PKG_URL: "http://10.16.1.201:8000/dtk-pkg/dtk26.04/DTK-26.04-rc4-centos8-x86_64.tar.gz"
-      DTK_PKG_NAME: "DTK-26.04-rc4-centos8-x86_64.tar.gz"
-      #CIUPLOAD_INDEX_URL: "http://10.16.1.201:9929/open/deps/+simple/"
-      ROCM_PATH: "/opt/dtk"
-      TOOLKIT_DIR: "/pytorch"
-      AMDGPU_TARGETS: "gfx906;gfx926;gfx928;gfx936;gfx938"
-      IMAGE_NAME: "pytorch-2.12-build:${{ github.run_id }}"
-      TEST_IMAGE_NAME: "pytorch-2.12-nightly-test:${{ github.run_id }}"
-      CONTAINER_NAME: "pytorch-2.12-${{ github.run_id }}"
-      BUILD_ENVIRONMENT: "linux-rocky8.6-rocm-dcu-py3.10"
-      # Resolve the newest compatible DCU Triton 3.7.1 wheel on every nightly.
-      # pip selects the correct Python/platform wheel from this internal index.
-      TRITON_TEST_INDEX_URL: "http://10.16.1.201:9929/das_nightly/dtk2604-rc4/+simple/"
-      TRITON_TEST_VERSION: "3.7.1"
-      TORCHVISION_TEST_WHEEL_URL: "http://10.16.1.201:9929/customer/dtk2604-rc4/+f/8ae/19466a791590e/torchvision-0.27.0+das.opt1.dtk2604.torch2120.2607011049.g2a8274-cp310-cp310-manylinux_2_28_x86_64.whl"
-      TORCHVISION_TEST_WHEEL_SHA256: "8ae19466a791590e32df45583be428306cbcb59f4bf9f53a46ef29166e4ed636"
-      # release/2.12 rocm-nightly.yml runs six shards of TEST_CONFIG=default.
-      # Branch pushes keep using smoke so ordinary development does not launch
-      # the multi-hour nightly suite; schedule/manual nightly runs use all six.
-      TEST_SUITE: ${{ github.event_name == 'schedule' && 'nightly' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
+      TEST_SUITE: ${{ needs.preflight.outputs.test_suite }}
+      TEST_IMAGE_NAME: ${{ needs.preflight.outputs.test_image_name }}
+      RESULT_ROOT: ${{ needs.preflight.outputs.result_root }}
+      IMAGE_NAME: pytorch-2.12-build:${{ github.run_id }}-${{ github.run_attempt }}
+      CONTAINER_NAME: pytorch-2.12-${{ github.run_id }}-${{ github.run_attempt }}
+      BUILD_RUN_LABEL: org.pytorch.dcu.build=${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      # 1. 拉取当前个人分支的 PyTorch 源码
       - name: Checkout PyTorch source
         uses: actions/checkout@v4
         with:
           path: source
-      - name: Set build context
+
+      - name: Initialize build and result directories
         shell: bash
         run: |
-         echo "BUILD_CONTEXT=${RUNNER_TEMP}/pytorch-2.12-${GITHUB_RUN_ID}" >> "${GITHUB_ENV}"
-      # 2. 检查 self-hosted runner 环境
-      - name: Check runner environment
+          set -euo pipefail
+          mkdir -p build_logs
+          case "${RESULT_ROOT}" in
+            "/home/github/actions-runner-torch/test-results/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}/${GITHUB_RUN_ATTEMPT}") ;;
+            *)
+              echo "ERROR: unexpected result directory: ${RESULT_ROOT}" >&2
+              exit 1
+              ;;
+          esac
+          rm -rf -- "${RESULT_ROOT}"
+          mkdir -p "${RESULT_ROOT}"
+
+      - name: Check build inputs
         shell: bash
         run: |
-          set -euxo pipefail
-          echo "===== Host ====="
-          hostname
-          echo "===== Current branch ====="
-          echo "${GITHUB_REF_NAME}"
-          echo "===== Docker ====="
-          docker --version
-          echo "===== Disk ====="
-          df -h
-          echo "===== DTK ====="
-          test -d /opt/dtk
-          ls -la /opt/dtk | head -n 20
-          echo "===== CI files ====="
+          set -euo pipefail
           test -f .ci/pytorch/torch-2.12-ci/Dockerfile
           test -f .ci/pytorch/torch-2.12-ci/prepare.sh
           test -f .ci/pytorch/torch-2.12-ci/build.sh
+          test -f .ci/pytorch/torch-2.12-ci/run-nightly-test-in-container.sh
+          test -f .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
+
       - name: Build PyTorch 2.12 compile image
         shell: bash
         run: |
           set -o pipefail
-          mkdir -p build_logs
           chmod +x .ci/pytorch/torch-2.12-ci/build-image.sh
           chmod +x .ci/pytorch/torch-2.12-ci/prepare.sh
           chmod +x .ci/pytorch/torch-2.12-ci/build.sh
@@ -96,23 +180,25 @@ jobs:
             "${IMAGE_NAME}" \
             "${PYTHON_VERSION}" \
             2>&1 | tee build_logs/docker-build.log
-      # 启动编译容器
+
       - name: Start compile container
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
           docker run -d \
             --name "${CONTAINER_NAME}" \
+            --label "${BUILD_RUN_LABEL}" \
+            --label "org.pytorch.dcu.workflow-run=${GITHUB_RUN_ID}" \
+            --label "org.pytorch.dcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}" \
             --network host \
             --ipc host \
             --shm-size=64g \
             -v /opt/hyhal:/opt/hyhal:ro \
             "${IMAGE_NAME}" \
             tail -f /dev/null
-          docker ps \
-            --filter "name=${CONTAINER_NAME}"
-      # 在容器内执行 build.sh
+          docker ps --filter "name=${CONTAINER_NAME}"
+
       - name: Build PyTorch wheel
         shell: bash
         run: |
@@ -127,11 +213,11 @@ jobs:
             "${CONTAINER_NAME}" \
             bash -lc "/usr/local/bin/build-pytorch.sh" \
             2>&1 | tee build_logs/pytorch-build.log
-      # 确认 wheel 并统一放到容器 /dist
+
       - name: Collect wheel in container
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           docker exec "${CONTAINER_NAME}" bash -lc '
             set -e
             mkdir -p /dist
@@ -147,26 +233,23 @@ jobs:
             echo "===== Generated wheels ====="
             ls -lh /dist/*.whl
           '
-      # 从容器复制 wheel 到 runner 本地固定目录
+
       - name: Copy wheel from container
-        if: success()
         shell: bash
         run: |
-          set -euxo pipefail
-          SAVE_DIR="/home/github/actions-runner-torch/dist/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}"
-          rm -rf "${SAVE_DIR}"
-          mkdir -p "${SAVE_DIR}"
-          docker cp \
-            "${CONTAINER_NAME}:/dist/." \
-            "${SAVE_DIR}/"
+          set -euo pipefail
+          save_dir="/home/github/actions-runner-torch/dist/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}/${GITHUB_RUN_ATTEMPT}"
+          rm -rf -- "${save_dir}"
+          mkdir -p "${save_dir}"
+          docker cp "${CONTAINER_NAME}:/dist/." "${save_dir}/"
           echo "===== wheel saved ====="
-          ls -lh "${SAVE_DIR}"
-        #接收编译产物  
+          ls -lh "${save_dir}"
+
       - name: Prepare local nightly test image
         if: env.TEST_SUITE != 'build-only'
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           docker exec \
             -e TEST_SUITE \
             -e TRITON_TEST_INDEX_URL \
@@ -220,8 +303,6 @@ jobs:
               download_verified_wheel \
                 "${TORCHVISION_TEST_WHEEL_URL}" dist/vision "${TORCHVISION_TEST_WHEEL_SHA256}"
 
-              # Triton must be importable when an official default shard starts.
-              # torchvision stays in dist/vision for install_torchvision().
               python3 -m pip install --no-deps --force-reinstall dist/test-deps/*.whl
               python3 -c "import triton; assert triton.__version__.split(\"+\", 1)[0] == \"${TRITON_TEST_VERSION}\"; print(\"Triton:\", triton.__version__)"
             fi
@@ -238,96 +319,163 @@ jobs:
             done
             find dist -maxdepth 2 -type f -name "*.whl" -ls
           '
+
           docker image rm -f "${TEST_IMAGE_NAME}" 2>/dev/null || true
-          docker commit "${CONTAINER_NAME}" "${TEST_IMAGE_NAME}"
+          docker commit \
+            --change "LABEL org.pytorch.dcu.source-sha=${GITHUB_SHA}" \
+            --change "LABEL org.pytorch.dcu.workflow-run=${GITHUB_RUN_ID}" \
+            --change "LABEL org.pytorch.dcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}" \
+            "${CONTAINER_NAME}" "${TEST_IMAGE_NAME}"
           docker image inspect "${TEST_IMAGE_NAME}" \
-            --format 'nightly test image={{.RepoTags}} size={{.Size}}'
-      - name: Validate DCU runner
-        if: env.TEST_SUITE != 'build-only'
-        uses: ./source/.github/actions/setup-hcu
-        with:
-          expected-device-count: "4"
-          run-label: pytorch-2.12-dcu-${{ github.run_id }}-${{ github.run_attempt }}
-      - name: Run DCU tests
-        if: env.TEST_SUITE != 'build-only'
-        shell: bash
-        env:
-          DOCKER_IMAGE_NAME: ${{ env.TEST_IMAGE_NAME }}
-          REPORT_ROOT: ${{ github.workspace }}/source/test-results
-        run: |
-          set -o pipefail
-          mkdir -p test-results
-          chmod +x .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
-          .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
-      - name: Save test results locally
+            --format 'nightly test image={{.RepoTags}} size={{.Size}} labels={{json .Config.Labels}}'
+
+      - name: Save build logs locally
         if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          log_dir="/home/github/actions-runner-torch/log-torch/${GITHUB_RUN_NUMBER}/${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "${log_dir}"
+          if [[ -d source/build_logs ]]; then
+            cp source/build_logs/*.log "${log_dir}/" 2>/dev/null || true
+            if [[ -n "${RESULT_ROOT}" && -d "${RESULT_ROOT}" ]]; then
+              mkdir -p "${RESULT_ROOT}/build_logs"
+              cp source/build_logs/*.log "${RESULT_ROOT}/build_logs/" 2>/dev/null || true
+            fi
+          fi
+          echo "===== build logs ====="
+          find "${log_dir}" -maxdepth 1 -type f -ls
+
+      - name: Cleanup compile container and image
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set +e
+          mapfile -t build_containers < <(
+            docker ps -aq --filter "label=${BUILD_RUN_LABEL}"
+          )
+          if (( ${#build_containers[@]} > 0 )); then
+            docker rm -f "${build_containers[@]}"
+          fi
+          docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
+          docker image rm -f "${IMAGE_NAME}" 2>/dev/null || true
+
+  dcu-test:
+    name: dcu-test
+    needs: [preflight, build]
+    if: ${{ needs.preflight.outputs.test_suite != 'build-only' && needs.build.result == 'success' }}
+    uses: ./.github/workflows/_pytorch-2.12-dcu-test.yml
+    with:
+      test_suite: ${{ needs.preflight.outputs.test_suite }}
+      test_matrix: ${{ needs.preflight.outputs.test_matrix }}
+      test_image_name: ${{ needs.preflight.outputs.test_image_name }}
+      result_root: ${{ needs.preflight.outputs.result_root }}
+      build_environment: linux-rocky8.6-rocm-dcu-py3.10
+      expected_device_count: "4"
+
+  required:
+    name: nightly-required
+    needs: [preflight, build, dcu-test]
+    if: ${{ always() }}
+    runs-on: [self-hosted, Linux, X64, bw1100]
+    timeout-minutes: 30
+    env:
+      TEST_SUITE: ${{ needs.preflight.outputs.test_suite }}
+      EXPECTED_SHARDS: ${{ needs.preflight.outputs.expected_shards }}
+      TEST_IMAGE_NAME: ${{ needs.preflight.outputs.test_image_name }}
+      RESULT_ROOT: ${{ needs.preflight.outputs.result_root }}
+      PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+      BUILD_RESULT: ${{ needs.build.result }}
+      TEST_RESULT: ${{ needs.dcu-test.result }}
+    steps:
+      - name: Checkout PyTorch source
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Summarize required jobs and DCU tests
         shell: bash
         run: |
           set -euo pipefail
-          LOCAL_RESULT_DIR="/home/github/actions-runner-torch/test-results/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}"
-          mkdir -p "${LOCAL_RESULT_DIR}"
-          if [[ -d test-results ]]; then
-            cp -a test-results/. "${LOCAL_RESULT_DIR}/"
+          infrastructure_failed=0
+
+          {
+            echo "## PyTorch 2.12 DCU pipeline"
+            echo
+            echo "| Job | Result |"
+            echo "| --- | --- |"
+            echo "| preflight | ${PREFLIGHT_RESULT} |"
+            echo "| build | ${BUILD_RESULT} |"
+            echo "| dcu-test | ${TEST_RESULT} |"
+            echo
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [[ "${PREFLIGHT_RESULT}" != "success" ]]; then
+            echo "::error title=Preflight failed::result=${PREFLIGHT_RESULT}"
+            infrastructure_failed=1
           fi
-          if [[ -d build_logs ]]; then
-            mkdir -p "${LOCAL_RESULT_DIR}/build_logs"
-            cp -a build_logs/. "${LOCAL_RESULT_DIR}/build_logs/"
+          if [[ "${BUILD_RESULT}" != "success" ]]; then
+            echo "::error title=Build failed::result=${BUILD_RESULT}"
+            infrastructure_failed=1
           fi
-          echo "===== local test results ====="
-          find "${LOCAL_RESULT_DIR}" -maxdepth 3 -type f -ls | head -n 100
-      # 在编译容器内上传wheel
-      # - name: Install CIUpload and upload wheels
-      #   if: success()
-      #   shell: bash
-      #   env:
-      #     PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-      #   run: |
-      #     set -euo pipefail
-      #     docker exec \
-      #       -e PYPI_PASSWORD \
-      #       -e DTK_PKG_URL \
-      #       "${CONTAINER_NAME}" \
-      #       bash -lc '
-      #         set -euo pipefail
-      #         echo "===== CIUpload 信息 ====="
-      #         command -v CIUpload
-      #         CIUpload --help >/dev/null
-      #         echo "===== 准备上传的 wheel ====="
-      #         ls -lh /dist/*.whl
-      #         CIUpload \
-      #           --devpi_url "http://10.16.1.201:9929" \
-      #           --devpi_user "nightly" \
-      #           --devpi_password "${PYPI_PASSWORD}" \
-      #           --dtk_pkg_name "$(basename "${DTK_PKG_URL}")" \
-      #           -f /dist/*.whl
-      #       '
-      # 上传日志
-      - name: Save build result locally
-        if: always()
-        shell: bash
-        run: |
-          set -e
-          LOG_ROOT="/home/github/actions-runner-torch/log-torch"
-          LOG_DIR="${LOG_ROOT}/${GITHUB_RUN_NUMBER}"
-          mkdir -p "${LOG_DIR}"
-          echo "保存构建日志到: ${LOG_DIR}"
-          cp build_logs/*.log \
-            "${LOG_DIR}/" 2>/dev/null || true
-          echo "===== log files ====="
-          ls -lh "${LOG_DIR}"
-        #清理容器和临时镜像
-      - name: Cleanup containers and image
+
+          if [[ "${TEST_SUITE}" == "build-only" ]]; then
+            if [[ "${TEST_RESULT}" != "skipped" && "${TEST_RESULT}" != "success" ]]; then
+              echo "::error title=Unexpected test result::build-only test result=${TEST_RESULT}"
+              infrastructure_failed=1
+            fi
+            echo "Build-only run: no DCU test shards were requested." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            if [[ "${TEST_RESULT}" != "success" ]]; then
+              echo "::error title=DCU test infrastructure failed::result=${TEST_RESULT}"
+              infrastructure_failed=1
+            fi
+
+            if [[ -z "${RESULT_ROOT}" || -z "${EXPECTED_SHARDS}" ]]; then
+              echo "::error title=Missing test plan::result directory or shard count is empty"
+              infrastructure_failed=1
+            else
+              set +e
+              python3 \
+                "${GITHUB_WORKSPACE}/source/.ci/pytorch/torch-2.12-ci/summarize-nightly-tests.py" \
+                --result-root "${RESULT_ROOT}" \
+                --expected-shards "${EXPECTED_SHARDS}" \
+                --step-summary "${GITHUB_STEP_SUMMARY}"
+              summary_rc=$?
+              set -e
+              if (( summary_rc != 0 )); then
+                infrastructure_failed=1
+              fi
+            fi
+          fi
+
+          if (( infrastructure_failed != 0 )); then
+            exit 1
+          fi
+
+      - name: Cleanup workflow-scoped containers and images
         if: always()
         shell: bash
         run: |
           set +e
-          mapfile -t test_containers < <(
-            docker ps -aq --filter "label=org.pytorch.dcu.nightly=${GITHUB_RUN_ID}"
-          )
-          if (( ${#test_containers[@]} > 0 )); then
-            docker rm -f "${test_containers[@]}"
+          if ! command -v docker >/dev/null 2>&1; then
+            exit 0
           fi
-          docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
-          docker image rm -f "${TEST_IMAGE_NAME}" 2>/dev/null || true
-          docker image rm -f "${IMAGE_NAME}" 2>/dev/null || true
-          rm -rf -- "${BUILD_CONTEXT}"
+
+          mapfile -t containers < <(
+            docker ps -aq \
+              --filter "label=org.pytorch.dcu.workflow-run=${GITHUB_RUN_ID}" \
+              --filter "label=org.pytorch.dcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}"
+          )
+          if (( ${#containers[@]} > 0 )); then
+            docker rm -f "${containers[@]}"
+          fi
+
+          if [[ -n "${TEST_IMAGE_NAME}" ]]; then
+            docker image rm -f "${TEST_IMAGE_NAME}" 2>/dev/null || true
+          fi
+          docker image rm -f \
+            "pytorch-2.12-build:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            2>/dev/null || true

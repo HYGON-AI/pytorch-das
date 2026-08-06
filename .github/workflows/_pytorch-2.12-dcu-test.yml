@@ -1,0 +1,117 @@
+name: PyTorch 2.12 DCU test
+
+on:
+  workflow_call:
+    inputs:
+      test_suite:
+        required: true
+        type: string
+      test_matrix:
+        required: true
+        type: string
+      test_image_name:
+        required: true
+        type: string
+      result_root:
+        required: true
+        type: string
+      build_environment:
+        required: true
+        type: string
+      expected_device_count:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.config }}, ${{ matrix.shard }}, ${{ matrix.num_shards }})
+    strategy:
+      fail-fast: false
+      # The local image and all DCUs belong to one physical runner. Keep the
+      # first version serial; the matrix still provides per-shard UI and logs.
+      max-parallel: 1
+      matrix: ${{ fromJSON(inputs.test_matrix) }}
+    runs-on: [self-hosted, Linux, X64, bw1100]
+    timeout-minutes: 4320
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}/source
+    env:
+      TEST_SUITE: ${{ inputs.test_suite }}
+      TEST_CONFIG: ${{ matrix.config }}
+      SHARD_NUMBER: ${{ matrix.shard }}
+      NUM_TEST_SHARDS: ${{ matrix.num_shards }}
+      DOCKER_IMAGE_NAME: ${{ inputs.test_image_name }}
+      REPORT_ROOT: ${{ inputs.result_root }}
+      BUILD_ENVIRONMENT: ${{ inputs.build_environment }}
+    steps:
+      - name: Checkout PyTorch source
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Verify local test image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image inspect "${DOCKER_IMAGE_NAME}" >/dev/null
+
+          image_source_sha="$(docker image inspect "${DOCKER_IMAGE_NAME}" --format '{{index .Config.Labels "org.pytorch.dcu.source-sha"}}')"
+          image_run_id="$(docker image inspect "${DOCKER_IMAGE_NAME}" --format '{{index .Config.Labels "org.pytorch.dcu.workflow-run"}}')"
+          image_run_attempt="$(docker image inspect "${DOCKER_IMAGE_NAME}" --format '{{index .Config.Labels "org.pytorch.dcu.workflow-attempt"}}')"
+
+          if [[ "${image_source_sha}" != "${GITHUB_SHA}" ]]; then
+            echo "ERROR: local test image source SHA mismatch: ${image_source_sha}" >&2
+            exit 1
+          fi
+          if [[ "${image_run_id}" != "${GITHUB_RUN_ID}" || "${image_run_attempt}" != "${GITHUB_RUN_ATTEMPT}" ]]; then
+            echo "ERROR: local test image belongs to another workflow run" >&2
+            exit 1
+          fi
+
+      - name: Validate DCU runner
+        uses: ./source/.github/actions/setup-hcu
+        with:
+          expected-device-count: ${{ inputs.expected_device_count }}
+          run-label: pytorch-2.12-dcu-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.config }}-${{ matrix.shard }}
+
+      - name: Run official DCU test shard
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p "${REPORT_ROOT}"
+          chmod +x .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
+          .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
+
+      - name: Show local shard reports
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          entry_dir="${REPORT_ROOT}/${TEST_CONFIG}-${SHARD_NUMBER}-of-${NUM_TEST_SHARDS}"
+          echo "report_dir=${entry_dir}"
+          if [[ -d "${entry_dir}" ]]; then
+            find "${entry_dir}" -maxdepth 3 -type f -ls | sed -n '1,100p'
+          else
+            echo "::warning title=Missing shard report directory::${entry_dir}"
+          fi
+
+      - name: Cleanup shard-scoped containers
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set +e
+          if [[ -z "${HCU_CONTAINER_LABEL:-}" ]]; then
+            exit 0
+          fi
+          mapfile -t containers < <(
+            docker ps -aq --filter "label=${HCU_CONTAINER_LABEL}"
+          )
+          if (( ${#containers[@]} > 0 )); then
+            docker rm -f "${containers[@]}"
+          fi
