@@ -38,10 +38,9 @@ env:
   TOOLKIT_DIR: "/pytorch"
   AMDGPU_TARGETS: "gfx906;gfx926;gfx928;gfx936;gfx938"
   BUILD_ENVIRONMENT: "linux-rocky8.6-rocm-dcu-py3.10"
-  TRITON_TEST_INDEX_URL: "http://10.16.1.201:9929/das_nightly/dtk2604-rc4/+simple/"
+  TEST_DEPENDENCY_INDEX_URL: "http://10.16.1.201:9929/nightly/dtk2604/+simple/"
   TRITON_TEST_VERSION: "3.7.1"
-  TORCHVISION_TEST_WHEEL_URL: "http://10.16.1.201:9929/customer/dtk2604-rc4/+f/8ae/19466a791590e/torchvision-0.27.0+das.opt1.dtk2604.torch2120.2607011049.g2a8274-cp310-cp310-manylinux_2_28_x86_64.whl"
-  TORCHVISION_TEST_WHEEL_SHA256: "8ae19466a791590e32df45583be428306cbcb59f4bf9f53a46ef29166e4ed636"
+  TORCHVISION_TEST_VERSION: "0.27.0"
 
 jobs:
   preflight:
@@ -252,10 +251,9 @@ jobs:
           set -euo pipefail
           docker exec \
             -e TEST_SUITE \
-            -e TRITON_TEST_INDEX_URL \
+            -e TEST_DEPENDENCY_INDEX_URL \
             -e TRITON_TEST_VERSION \
-            -e TORCHVISION_TEST_WHEEL_URL \
-            -e TORCHVISION_TEST_WHEEL_SHA256 \
+            -e TORCHVISION_TEST_VERSION \
             "${CONTAINER_NAME}" bash -lc '
             set -euo pipefail
             cd /pytorch
@@ -272,36 +270,39 @@ jobs:
             cp -v "${repaired_wheels[0]}" dist/
 
             if [[ "${TEST_SUITE}" == "nightly" ]]; then
-              download_verified_wheel() {
-                local url="$1"
-                local destination="$2"
-                local expected_sha256="$3"
-                local filename="${url##*/}"
-                wget --tries=3 --timeout=120 -O "${destination}/${filename}" "${url}"
-                printf "%s  %s\n" \
-                  "${expected_sha256}" "${destination}/${filename}" | sha256sum -c -
+              download_test_wheel() {
+                local destination="$1"
+                local package="$2"
+                local version="$3"
+                python3 -m pip download \
+                  --no-cache-dir \
+                  --no-deps \
+                  --only-binary=:all: \
+                  --index-url "${TEST_DEPENDENCY_INDEX_URL}" \
+                  --trusted-host 10.16.1.201 \
+                  --dest "${destination}" \
+                  "${package}==${version}"
               }
 
-              python3 -m pip download \
-                --no-cache-dir \
-                --no-deps \
-                --index-url "${TRITON_TEST_INDEX_URL}" \
-                --trusted-host 10.16.1.201 \
-                --dest dist/test-deps \
-                "triton==${TRITON_TEST_VERSION}"
+              download_test_wheel dist/test-deps triton "${TRITON_TEST_VERSION}"
+              download_test_wheel dist/vision torchvision "${TORCHVISION_TEST_VERSION}"
 
               shopt -s nullglob
               triton_wheels=(dist/test-deps/triton-*.whl)
+              torchvision_wheels=(dist/vision/torchvision-*.whl)
               shopt -u nullglob
               if (( ${#triton_wheels[@]} != 1 )); then
                 echo "ERROR: expected one Triton wheel, found ${#triton_wheels[@]}" >&2
                 exit 1
               fi
+              if (( ${#torchvision_wheels[@]} != 1 )); then
+                echo "ERROR: expected one torchvision wheel, found ${#torchvision_wheels[@]}" >&2
+                exit 1
+              fi
               echo "Resolved latest Triton ${TRITON_TEST_VERSION}: ${triton_wheels[0]}"
               sha256sum "${triton_wheels[0]}"
-
-              download_verified_wheel \
-                "${TORCHVISION_TEST_WHEEL_URL}" dist/vision "${TORCHVISION_TEST_WHEEL_SHA256}"
+              echo "Resolved latest torchvision ${TORCHVISION_TEST_VERSION}: ${torchvision_wheels[0]}"
+              sha256sum "${torchvision_wheels[0]}"
 
               python3 -m pip install --no-deps --force-reinstall dist/test-deps/*.whl
               python3 -c "import triton; assert triton.__version__.split(\"+\", 1)[0] == \"${TRITON_TEST_VERSION}\"; print(\"Triton:\", triton.__version__)"
