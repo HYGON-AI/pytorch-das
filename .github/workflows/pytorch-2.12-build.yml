@@ -39,7 +39,8 @@ env:
   AMDGPU_TARGETS: "gfx906;gfx926;gfx928;gfx936;gfx938"
   BUILD_ENVIRONMENT: "linux-rocky8.6-rocm-dcu-py3.10"
   TEST_DEPENDENCY_INDEX_URL: "http://10.16.1.201:9929/nightly/dtk2604/+simple/"
-  TRITON_TEST_VERSION: "3.7.1"
+  TRITON_TEST_VERSION: "3.7.0"
+  TORCHVISION_TEST_INDEX_URL: "http://10.16.1.201:9929/customer/dtk2604-rc4/+simple/"
   TORCHVISION_TEST_VERSION: "0.27.0"
 
 jobs:
@@ -253,6 +254,7 @@ jobs:
             -e TEST_SUITE \
             -e TEST_DEPENDENCY_INDEX_URL \
             -e TRITON_TEST_VERSION \
+            -e TORCHVISION_TEST_INDEX_URL \
             -e TORCHVISION_TEST_VERSION \
             "${CONTAINER_NAME}" bash -lc '
             set -euo pipefail
@@ -272,20 +274,23 @@ jobs:
             if [[ "${TEST_SUITE}" == "nightly" ]]; then
               download_test_wheel() {
                 local destination="$1"
-                local package="$2"
-                local version="$3"
+                local index_url="$2"
+                local package="$3"
+                local version="$4"
                 python3 -m pip download \
                   --no-cache-dir \
                   --no-deps \
                   --only-binary=:all: \
-                  --index-url "${TEST_DEPENDENCY_INDEX_URL}" \
+                  --index-url "${index_url}" \
                   --trusted-host 10.16.1.201 \
                   --dest "${destination}" \
                   "${package}==${version}"
               }
 
-              download_test_wheel dist/test-deps triton "${TRITON_TEST_VERSION}"
-              download_test_wheel dist/vision torchvision "${TORCHVISION_TEST_VERSION}"
+              download_test_wheel \
+                dist/test-deps "${TEST_DEPENDENCY_INDEX_URL}" triton "${TRITON_TEST_VERSION}"
+              download_test_wheel \
+                dist/vision "${TORCHVISION_TEST_INDEX_URL}" torchvision "${TORCHVISION_TEST_VERSION}"
 
               shopt -s nullglob
               triton_wheels=(dist/test-deps/triton-*.whl)
