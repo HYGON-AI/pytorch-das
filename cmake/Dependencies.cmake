@@ -1039,7 +1039,6 @@ if(USE_ROCM)
     endif()
     #TODO: extreme performance?
     # list(APPEND HIP_CXX_FLAGS -ffast-math)
-    list(APPEND HIP_CXX_FLAGS -DDCU_ASM)
     list(APPEND HIP_CXX_FLAGS -DBWDSEPARATE)
     #FIXME:Performance is irrelevant?
     # list(APPEND HIP_HIPCC_FLAGS -Rpass-analysis=kernel-resource-usage)

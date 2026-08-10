@@ -285,7 +285,7 @@ class CudaInterface(DeviceInterface):
 
         if torch.version.hip is not None:
             if "amd" not in triton.backends.backends:
-                raise RuntimeError("triton not built with the 'amd' backend")
+                raise RuntimeError("triton not built with the 'hcu' backend")
         elif "nvidia" not in triton.backends.backends:
             raise RuntimeError("triton not built with the 'nvidia' backend")
 
