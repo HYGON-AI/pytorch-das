@@ -3,7 +3,7 @@
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Set, Tuple
 
 
 def parse_args() -> argparse.Namespace:
@@ -16,7 +16,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def entry_name(status: dict[str, Any]) -> str:
+def entry_name(status: Dict[str, Any]) -> str:
     return (
         f"{status.get('config')}:{status.get('shard')}/"
         f"{status.get('num_shards')}:rc={status.get('exit_code')}"
@@ -27,11 +27,11 @@ def main() -> int:
     args = parse_args()
     status_files = sorted(args.result_root.glob("*/status.json"))
 
-    passed: list[str] = []
-    test_failed: list[str] = []
-    infrastructure_failed: list[str] = []
-    unknown: list[str] = []
-    matrix_entries: set[tuple[Any, Any, Any]] = set()
+    passed: List[str] = []
+    test_failed: List[str] = []
+    infrastructure_failed: List[str] = []
+    unknown: List[str] = []
+    matrix_entries: Set[Tuple[Any, Any, Any]] = set()
 
     for status_file in status_files:
         try:
