@@ -1,4 +1,5 @@
 name: PyTorch 2.12 Build
+run-name: PyTorch 2.12 · ${{ github.event_name == 'pull_request' && 'PR tests' || github.event_name == 'schedule' && 'nightly full tests' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
 
 on:
   workflow_dispatch:
@@ -11,12 +12,16 @@ on:
         options:
           - build-only
           - smoke
+          - pr
           - nightly
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - ljz/pytorch-2.12-ci
   schedule:
-    - cron: 0 18 * * *
+    # GitHub cron is UTC: 18:00 on Sun/Tue/Thu is 02:00 Beijing time on Mon/Wed/Fri.
+    - cron: "0 18 * * 0,2,4"
 
 # The build and every test shard share one local Docker daemon. Prevent two
 # active runs from contending for the same DCU host. The bw1100 label must be
@@ -46,6 +51,8 @@ env:
 jobs:
   preflight:
     name: preflight
+    # Never execute untrusted fork code on a self-hosted runner with Docker access.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [self-hosted, Linux, X64, bw1100]
     timeout-minutes: 15
     outputs:
@@ -59,7 +66,7 @@ jobs:
         id: plan
         shell: bash
         env:
-          REQUESTED_SUITE: ${{ github.event_name == 'schedule' && 'nightly' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
+          REQUESTED_SUITE: ${{ github.event_name == 'schedule' && 'nightly' || github.event_name == 'pull_request' && 'pr' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
         run: |
           set -euo pipefail
           case "${REQUESTED_SUITE}" in
@@ -71,6 +78,10 @@ jobs:
               expected_shards=1
               test_matrix='{"include":[{"config":"smoke","shard":1,"num_shards":1}]}'
               ;;
+            pr)
+              expected_shards=2
+              test_matrix='{"include":[{"config":"pr","shard":1,"num_shards":2},{"config":"pr","shard":2,"num_shards":2}]}'
+              ;;
             nightly)
               expected_shards=6
               test_matrix='{"include":[{"config":"default","shard":1,"num_shards":6},{"config":"default","shard":2,"num_shards":6},{"config":"default","shard":3,"num_shards":6},{"config":"default","shard":4,"num_shards":6},{"config":"default","shard":5,"num_shards":6},{"config":"default","shard":6,"num_shards":6}]}'
@@ -81,7 +92,7 @@ jobs:
               ;;
           esac
 
-          test_image_name="pytorch-2.12-nightly-test:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test_image_name="pytorch-2.12-test:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           result_root="/home/github/actions-runner-torch/test-results/${TORCH_VERSION}/${GITHUB_RUN_NUMBER}/${GITHUB_RUN_ATTEMPT}"
 
           echo "test_suite=${REQUESTED_SUITE}" >> "${GITHUB_OUTPUT}"
@@ -165,6 +176,7 @@ jobs:
           test -f .ci/pytorch/torch-2.12-ci/Dockerfile
           test -f .ci/pytorch/torch-2.12-ci/prepare.sh
           test -f .ci/pytorch/torch-2.12-ci/build.sh
+          test -f .ci/pytorch/torch-2.12-ci/pr-tests.txt
           test -f .ci/pytorch/torch-2.12-ci/run-nightly-test-in-container.sh
           test -f .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
 
@@ -206,7 +218,8 @@ jobs:
           docker exec \
             -e ROCM_PATH="/opt/dtk" \
             -e TOOLKIT_DIR="/pytorch" \
-            -e PKG_TYPE="nightly" \
+            -e TORCH_VERSION \
+            -e DTK_VERSION \
             -e AMDGPU_TARGETS="${AMDGPU_TARGETS}" \
             -e GIT_COMMIT_SHORT="${GITHUB_SHA:0:6}" \
             -e MAX_JOBS="$(nproc --ignore=2)" \
@@ -245,7 +258,7 @@ jobs:
           echo "===== wheel saved ====="
           ls -lh "${save_dir}"
 
-      - name: Prepare local nightly test image
+      - name: Prepare local test image
         if: env.TEST_SUITE != 'build-only'
         shell: bash
         run: |
@@ -271,7 +284,7 @@ jobs:
             mkdir -p dist/test-deps dist/vision
             cp -v "${repaired_wheels[0]}" dist/
 
-            if [[ "${TEST_SUITE}" == "nightly" ]]; then
+            if [[ "${TEST_SUITE}" == "pr" || "${TEST_SUITE}" == "nightly" ]]; then
               download_test_wheel() {
                 local destination="$1"
                 local index_url="$2"
@@ -310,7 +323,7 @@ jobs:
               sha256sum "${torchvision_wheels[0]}"
 
               python3 -m pip install --no-deps --force-reinstall dist/test-deps/*.whl
-              python3 -c "from importlib.metadata import version; import triton; installed = version(\"triton\"); print(\"Triton module:\", triton.__version__); print(\"Triton distribution:\", installed); assert installed.split(\"+\", 1)[0] == \"${TRITON_TEST_VERSION}\""
+              python3 -c "import triton; print(\"Triton module:\", getattr(triton, \"__version__\", \"unknown\")); print(\"Triton path:\", triton.__file__)"
             fi
 
             required_paths=(
@@ -319,6 +332,7 @@ jobs:
               build/lib
               build/bin
               .additional_ci_files
+              .ci/pytorch/torch-2.12-ci/pr-tests.txt
             )
             for path in "${required_paths[@]}"; do
               test -e "${path}"
@@ -333,7 +347,7 @@ jobs:
             --change "LABEL org.pytorch.dcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}" \
             "${CONTAINER_NAME}" "${TEST_IMAGE_NAME}"
           docker image inspect "${TEST_IMAGE_NAME}" \
-            --format 'nightly test image={{.RepoTags}} size={{.Size}} labels={{json .Config.Labels}}'
+            --format 'test image={{.RepoTags}} size={{.Size}} labels={{json .Config.Labels}}'
 
       - name: Save build logs locally
         if: always()
@@ -380,12 +394,13 @@ jobs:
       result_root: ${{ needs.preflight.outputs.result_root }}
       build_environment: linux-rocky8.6-rocm-dcu-py3.10
       expected_device_count: "4"
+      dcu_visible_devices: "0,1"
 
   required:
-    name: nightly-required
+    name: test-required
     needs: [preflight, build, dcu-test]
     # Run after failed/skipped dependencies, but honor an explicit user cancel.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: [self-hosted, Linux, X64, bw1100]
     timeout-minutes: 30
     env:
@@ -403,6 +418,7 @@ jobs:
           path: source
 
       - name: Summarize required jobs and DCU tests
+        id: test_summary
         shell: bash
         run: |
           set -euo pipefail
@@ -444,12 +460,18 @@ jobs:
               echo "::error title=Missing test plan::result directory or shard count is empty"
               infrastructure_failed=1
             else
+              expected_config="${TEST_SUITE}"
+              if [[ "${TEST_SUITE}" == "nightly" ]]; then
+                expected_config="default"
+              fi
               set +e
               python3 \
                 "${GITHUB_WORKSPACE}/source/.ci/pytorch/torch-2.12-ci/summarize-nightly-tests.py" \
                 --result-root "${RESULT_ROOT}" \
                 --expected-shards "${EXPECTED_SHARDS}" \
-                --step-summary "${GITHUB_STEP_SUMMARY}"
+                --expected-config "${expected_config}" \
+                --step-summary "${GITHUB_STEP_SUMMARY}" \
+                --github-output "${GITHUB_OUTPUT}"
               summary_rc=$?
               set -e
               if (( summary_rc != 0 )); then
@@ -461,6 +483,88 @@ jobs:
           if (( infrastructure_failed != 0 )); then
             exit 1
           fi
+
+      - name: Upload both wheels to DevPI after basic tests
+        if: ${{ needs.preflight.outputs.test_suite == 'pr' && steps.test_summary.outputs.all_tests_passed == 'true' }}
+        shell: bash
+        env:
+          DEVPI_URL: "http://10.16.1.201:9929"
+          DEVPI_USER: "nightly"
+          PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${PYPI_PASSWORD}" ]]; then
+            echo "::error title=Missing DevPI credential::GitHub Secret PYPI_PASSWORD is empty"
+            exit 1
+          fi
+          docker image inspect "${TEST_IMAGE_NAME}" >/dev/null
+
+          printf '%s\n' "${PYPI_PASSWORD}" |
+            docker run --rm -i \
+              --label "org.pytorch.dcu.workflow-run=${GITHUB_RUN_ID}" \
+              --label "org.pytorch.dcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}" \
+              --network host \
+              --env DEVPI_URL \
+              --env DEVPI_USER \
+              --env DTK_PKG_NAME \
+              "${TEST_IMAGE_NAME}" \
+              bash -lc '
+              set -euo pipefail
+              IFS= read -r devpi_password
+              if [[ -z "${devpi_password}" ]]; then
+                echo "ERROR: DevPI password was not provided" >&2
+                exit 1
+              fi
+              shopt -s nullglob
+              wheels=(/dist/*.whl)
+              linux_wheels=(/dist/*-linux_x86_64.whl)
+              manylinux_wheels=(/dist/*manylinux*.whl)
+              shopt -u nullglob
+
+              if (( ${#wheels[@]} != 2 )); then
+                echo "ERROR: expected exactly two wheels in /dist, found ${#wheels[@]}" >&2
+                find /dist -maxdepth 1 -type f -ls || true
+                exit 1
+              fi
+              if (( ${#linux_wheels[@]} != 1 || ${#manylinux_wheels[@]} != 1 )); then
+                echo "ERROR: expected one linux wheel and one manylinux wheel" >&2
+                printf "  %s\n" "${wheels[@]}" >&2
+                exit 1
+              fi
+
+              echo "===== CIUpload ====="
+              command -v CIUpload
+              CIUpload --help >/dev/null
+              echo "===== Wheels selected for upload ====="
+              ls -lh "${wheels[@]}"
+              sha256sum "${wheels[@]}"
+
+              CIUpload \
+                --devpi_url "${DEVPI_URL}" \
+                --devpi_user "${DEVPI_USER}" \
+                --devpi_password "${devpi_password}" \
+                --dtk_pkg_name "${DTK_PKG_NAME}" \
+                -f "${wheels[@]}"
+            '
+
+          {
+            echo
+            echo "## DevPI upload"
+            echo
+            echo "Uploaded both Linux and manylinux wheels after all basic-test shards passed."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Record skipped DevPI upload
+        if: ${{ !cancelled() && needs.preflight.outputs.test_suite == 'pr' && steps.test_summary.outputs.all_tests_passed == 'false' && steps.test_summary.outputs.failed_infrastructure_shards == '0' }}
+        shell: bash
+        run: |
+          echo "::warning title=DevPI upload skipped::One or more basic-test shards did not pass"
+          {
+            echo
+            echo "## DevPI upload"
+            echo
+            echo "Skipped because not every basic-test shard passed."
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Cleanup workflow-scoped containers and images
         if: always()

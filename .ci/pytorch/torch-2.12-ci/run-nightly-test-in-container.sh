@@ -69,6 +69,47 @@ print("Smoke result:", y.norm().item())
 PY
     test_rc=$?
     set -e
+elif [[ "${TEST_CONFIG}" == "pr" ]]; then
+    cd /pytorch
+    pr_test_list=".ci/pytorch/torch-2.12-ci/pr-tests.txt"
+    test -s "${pr_test_list}"
+    mapfile -t pr_tests < "${pr_test_list}"
+    if (( ${#pr_tests[@]} == 0 )); then
+        echo "ERROR: PR test list is empty" >&2
+        exit 1
+    fi
+    for test_module in "${pr_tests[@]}"; do
+        if [[ -z "${test_module}" || "${test_module}" == \#* ]]; then
+            echo "ERROR: PR test list must contain only canonical test module names" >&2
+            exit 1
+        fi
+        test -f "test/${test_module}.py"
+    done
+
+    shopt -s nullglob
+    torchvision_wheels=(dist/vision/torchvision-*.whl)
+    shopt -u nullglob
+    if (( ${#torchvision_wheels[@]} != 1 )); then
+        echo "ERROR: expected exactly one torchvision wheel, found ${#torchvision_wheels[@]}" >&2
+        exit 1
+    fi
+    python3 -m pip install --no-deps --force-reinstall \
+        "/pytorch/${torchvision_wheels[0]}"
+
+    echo "===== PR test selection (${#pr_tests[@]} modules), shard ${SHARD_NUMBER}/${NUM_TEST_SHARDS} ====="
+    printf '  %s\n' "${pr_tests[@]}"
+    touch /tmp/pytorch-nightly-test-started
+    set +e
+    python3 test/run_test.py \
+        --include "${pr_tests[@]}" \
+        --exclude-jit-executor \
+        --exclude-distributed-tests \
+        --exclude-quantization-tests \
+        --shard "${SHARD_NUMBER}" "${NUM_TEST_SHARDS}" \
+        --verbose \
+        --keep-going
+    test_rc=$?
+    set -e
 else
     # Same test entry point used by release/2.12 _rocm-test.yml.
     cd /pytorch

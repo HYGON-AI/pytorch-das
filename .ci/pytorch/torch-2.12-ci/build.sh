@@ -16,13 +16,19 @@ if [[ -f /opt/rh/gcc-toolset-13/enable ]]; then
     source /opt/rh/gcc-toolset-13/enable
     set -u
 fi
-# 设置 wheel 版本
-# 命名规则
-PKG_TYPE="${PKG_TYPE:-nightly}"
-BASE_VERSION="$(tr -d '[:space:]' < /pytorch/version.txt)"
-DTK_VERSION_NUMBER="$(
+# CIUpload 0.3.0 根据这些构建信息生成 wheel 本地版本和包名。
+BASE_VERSION="${TORCH_VERSION:-$(tr -d '[:space:]' < /pytorch/version.txt)}"
+DTK_VERSION_NUMBER="${DTK_VERSION:-$(
     tr -d '.[:space:]' < /opt/dtk/.info/rocm_version
-)"
+)}"
+if ! [[ "${BASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "ERROR: invalid TORCH_VERSION=${BASE_VERSION}" >&2
+    exit 1
+fi
+if ! [[ "${DTK_VERSION_NUMBER}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: invalid DTK_VERSION=${DTK_VERSION_NUMBER}" >&2
+    exit 1
+fi
 COMMIT_ID="${GIT_COMMIT_SHORT:-}"
 if [[ -z "${COMMIT_ID}" ]]; then
     if git -C /pytorch rev-parse HEAD >/dev/null 2>&1; then
@@ -31,20 +37,9 @@ if [[ -z "${COMMIT_ID}" ]]; then
         COMMIT_ID="unknown"
     fi
 fi
-if [[ "${PKG_TYPE}" == "nightly" ]]; then
-    BUILD_TIME="$(date +%y%m%d%H%M)"
-
-    PYTORCH_BUILD_VERSION="${BASE_VERSION}+das.opt1.dtk${DTK_VERSION_NUMBER}.${BUILD_TIME}.g${COMMIT_ID}"
-else
-    PYTORCH_BUILD_VERSION="${BASE_VERSION}+das.opt1.dtk${DTK_VERSION_NUMBER}"
-fi
-export PYTORCH_BUILD_VERSION
-export PYTORCH_BUILD_NUMBER=1
-echo "PKG_TYPE=${PKG_TYPE}"
 echo "BASE_VERSION=${BASE_VERSION}"
 echo "DTK_VERSION_NUMBER=${DTK_VERSION_NUMBER}"
 echo "COMMIT_ID=${COMMIT_ID}"
-echo "PYTORCH_BUILD_VERSION=${PYTORCH_BUILD_VERSION}"
 # 固定编译器
 export CC=/opt/rh/gcc-toolset-13/root/usr/bin/gcc
 export CXX=/opt/rh/gcc-toolset-13/root/usr/bin/g++
@@ -134,8 +129,6 @@ USE_NUMPY=1 \
 USE_GLOG=1 \
 USE_GFLAGS=1 \
 PYTORCH_ROCM_ARCH=${AMDGPU_TARGETS} \
-PYTORCH_BUILD_VERSION="${PYTORCH_BUILD_VERSION}" \
-PYTORCH_BUILD_NUMBER="${PYTORCH_BUILD_NUMBER}" \
 python3 setup.py bdist_wheel
 # 生成 manylinux wheel
 echo "===== PyTorch 原始 wheel 编译完成 ====="
@@ -152,19 +145,38 @@ if (( ${#raw_wheels[@]} > 1 )); then
     exit 1
 fi
 rm -rf /dist
-mkdir -p /dist/raw
+mkdir -p /dist/source /dist/raw
 # 保存原始 linux wheel
-cp -v "${raw_wheels[@]}" /dist/raw/
+cp -v "${raw_wheels[@]}" /dist/source/
 
 echo "===== 修正 wheel 版本 ====="
-python3 /usr/local/bin/repair_wheel.py
+CIUPLOAD_VERSION="$(python3 -c 'from importlib.metadata import version; print(version("CIUpload"))')"
+if [[ "${CIUPLOAD_VERSION}" != "0.3.0" ]]; then
+    echo "ERROR: expected CIUpload 0.3.0, found ${CIUPLOAD_VERSION}" >&2
+    exit 1
+fi
+CIUpload REPAIR \
+    --dtk_version "${DTK_VERSION_NUMBER}" \
+    --torch_version "${BASE_VERSION}" \
+    --git_commit "${COMMIT_ID}" \
+    --outputdir /dist/raw \
+    -f /dist/source/*.whl
+rm -rf /dist/source
 echo "===== 修正后的 linux wheel ====="
-ls -lh /dist/raw/*.whl
+shopt -s nullglob
+repaired_linux_wheels=(/dist/raw/*.whl)
+shopt -u nullglob
+if (( ${#repaired_linux_wheels[@]} != 1 )); then
+    echo "ERROR: expected one CIUpload-repaired wheel, found ${#repaired_linux_wheels[@]}" >&2
+    find /dist/raw -maxdepth 1 -type f -ls || true
+    exit 1
+fi
+ls -lh "${repaired_linux_wheels[0]}"
 echo "===== 安装修正后的 wheel ====="
 python3 -m pip install \
     --no-deps \
     --force-reinstall \
-    /dist/raw/*.whl
+    "${repaired_linux_wheels[0]}"
 # 确保 auditwheel 和 patchelf 版本满足要求
 python3 -m pip install -U auditwheel patchelf
 # 优先使用 pip 安装的版本

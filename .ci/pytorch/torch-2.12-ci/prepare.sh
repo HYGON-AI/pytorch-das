@@ -132,7 +132,9 @@ python3 -m pip install --no-cache-dir \
 python3 -m pip install --no-cache-dir \
     --trusted-host 10.16.1.201 \
     --extra-index-url "http://10.16.1.201:9929/nightly/dtk2604/+simple/" \
-    ciupload
+    CIUpload==0.3.0
+
+python3 -c 'from importlib.metadata import version; assert version("CIUpload") == "0.3.0"; print("CIUpload:", version("CIUpload"))'
 # ----------------------------
 # 下载工具函数
 # ----------------------------

@@ -51,7 +51,6 @@ echo "Context      : ${BUILD_CONTEXT}"
 cp "${CI_DIR}/Dockerfile" "${BUILD_CONTEXT}/Dockerfile"
 cp "${CI_DIR}/prepare.sh" "${BUILD_CONTEXT}/prepare.sh"
 cp "${CI_DIR}/build.sh" "${BUILD_CONTEXT}/build.sh"
-cp "${CI_DIR}/repair_wheel.py" "${BUILD_CONTEXT}/repair_wheel.py"
 sed -i 's/\r$//' "${BUILD_CONTEXT}/prepare.sh" "${BUILD_CONTEXT}/build.sh"
 chmod 755 "${BUILD_CONTEXT}/prepare.sh" "${BUILD_CONTEXT}/build.sh"
 # 2. 复制当前 GitHub 仓库中的 PyTorch 源码

@@ -6,6 +6,16 @@ DOCKER_IMAGE_NAME="${DOCKER_IMAGE_NAME:?DOCKER_IMAGE_NAME is required}"
 TEST_SUITE="${TEST_SUITE:-smoke}"
 REPORT_ROOT="${REPORT_ROOT:-${RUNNER_TEMP:-/tmp}/pytorch-2.12-dcu-reports}"
 BUILD_ENVIRONMENT="${BUILD_ENVIRONMENT:-linux-rocky8.6-rocm-dcu-py3.10}"
+DCU_VISIBLE_DEVICES="${DCU_VISIBLE_DEVICES:-0,1}"
+
+if ! [[ "${DCU_VISIBLE_DEVICES}" =~ ^([0-9]+),([0-9]+)$ ]]; then
+    echo "ERROR: DCU_VISIBLE_DEVICES must contain exactly two device indexes" >&2
+    exit 1
+fi
+if [[ "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]]; then
+    echo "ERROR: DCU_VISIBLE_DEVICES must contain two distinct devices" >&2
+    exit 1
+fi
 
 single_entry=0
 provided_entry_values=0
@@ -39,6 +49,9 @@ else
         smoke)
             matrix=("smoke:1:1")
             ;;
+        pr)
+            matrix=("pr:1:2" "pr:2:2")
+            ;;
         nightly)
             # Keep this matrix aligned with release/2.12 rocm-nightly.yml.
             matrix=(
@@ -63,7 +76,7 @@ run_entry() {
     local run_scope="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
     local container_name="pytorch-2.12-dcu-test-${run_scope}-${config}-${shard}"
     local entry_dir="${REPORT_ROOT}/${config}-${shard}-of-${num_shards}"
-    local hip_visible_devices="0"
+    local dcu_visible_devices="${DCU_VISIBLE_DEVICES}"
     local test_started=0
     local test_completed=0
     local console_rc=0
@@ -97,7 +110,10 @@ run_entry() {
         --env "TEST_CONFIG=${config}" \
         --env "SHARD_NUMBER=${shard}" \
         --env "NUM_TEST_SHARDS=${num_shards}" \
-        --env "HIP_VISIBLE_DEVICES=${hip_visible_devices}" \
+        --env "DCU_VISIBLE_DEVICES=${dcu_visible_devices}" \
+        --env "CUDA_VISIBLE_DEVICES=${dcu_visible_devices}" \
+        --env "HIP_VISIBLE_DEVICES=${dcu_visible_devices}" \
+        --env "ROCR_VISIBLE_DEVICES=${dcu_visible_devices}" \
         --env "CI=1" \
         --env "PYTHONUNBUFFERED=1" \
         --env "PYTORCH_TEST_WITH_ROCM=1" \
@@ -183,7 +199,7 @@ run_entry() {
         elif (( test_completed == 0 )); then
             echo "ERROR: test process ended without a completion marker" >&2
         elif (( report_missing != 0 )); then
-            echo "ERROR: nightly shard did not create /pytorch/test/test-reports" >&2
+            echo "ERROR: DCU test shard did not create /pytorch/test/test-reports" >&2
         else
             echo "ERROR: test report extraction failed with rc=${report_rc}" >&2
         fi
@@ -234,7 +250,7 @@ fi
 
 if (( failed_shards > 0 )); then
     for failure in "${failures[@]}"; do
-        echo "::warning title=DCU nightly test failure::${failure}"
+        echo "::warning title=DCU test failure::${failure}"
     done
     echo "Test failures are report-only; this shard job remains green."
 fi

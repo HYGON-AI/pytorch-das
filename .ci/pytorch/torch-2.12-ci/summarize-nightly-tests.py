@@ -12,7 +12,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--result-root", required=True, type=Path)
     parser.add_argument("--expected-shards", required=True, type=int)
+    parser.add_argument("--expected-config")
     parser.add_argument("--step-summary", type=Path)
+    parser.add_argument("--github-output", type=Path)
     return parser.parse_args()
 
 
@@ -41,11 +43,18 @@ def main() -> int:
             continue
 
         entry = entry_name(status)
-        matrix_entry = (
-            status.get("config"),
-            status.get("shard"),
-            status.get("num_shards"),
-        )
+        config = status.get("config")
+        shard = status.get("shard")
+        num_shards = status.get("num_shards")
+        if (
+            not isinstance(config, str)
+            or not isinstance(shard, int)
+            or not isinstance(num_shards, int)
+        ):
+            unknown.append(f"{entry}: invalid matrix entry")
+            continue
+
+        matrix_entry = (config, shard, num_shards)
         if matrix_entry in matrix_entries:
             unknown.append(f"{entry}: duplicate matrix entry")
             continue
@@ -79,6 +88,17 @@ def main() -> int:
         else:
             unknown.append(entry)
 
+    if args.expected_config:
+        expected_matrix_entries = {
+            (args.expected_config, shard, args.expected_shards)
+            for shard in range(1, args.expected_shards + 1)
+        }
+        unexpected_matrix_entries = matrix_entries - expected_matrix_entries
+        for config, shard, num_shards in sorted(unexpected_matrix_entries):
+            unknown.append(
+                f"{config}:{shard}/{num_shards}: unexpected matrix entry"
+            )
+
     missing_status_shards = max(args.expected_shards - len(status_files), 0)
     unexpected_status_files = max(len(status_files) - args.expected_shards, 0)
     infrastructure_count = (
@@ -86,6 +106,12 @@ def main() -> int:
         + len(unknown)
         + missing_status_shards
         + unexpected_status_files
+    )
+    all_tests_passed = (
+        len(status_files) == args.expected_shards
+        and len(passed) == args.expected_shards
+        and not test_failed
+        and infrastructure_count == 0
     )
     lines = [
         "test_failure_policy=report-only",
@@ -97,6 +123,7 @@ def main() -> int:
         f"passed_shards={len(passed)}",
         f"failed_test_shards={len(test_failed)}",
         f"failed_infrastructure_shards={infrastructure_count}",
+        f"all_tests_passed={str(all_tests_passed).lower()}",
     ]
     if test_failed:
         lines.append("failed_test_entries:")
@@ -110,6 +137,17 @@ def main() -> int:
         "\n".join(lines) + "\n", encoding="utf-8"
     )
     print("\n".join(lines))
+
+    if args.github_output:
+        with args.github_output.open("a", encoding="utf-8") as output:
+            output.write(
+                f"all_tests_passed={str(all_tests_passed).lower()}\n"
+            )
+            output.write(f"passed_shards={len(passed)}\n")
+            output.write(f"failed_test_shards={len(test_failed)}\n")
+            output.write(
+                f"failed_infrastructure_shards={infrastructure_count}\n"
+            )
 
     if args.step_summary:
         with args.step_summary.open("a", encoding="utf-8") as summary:

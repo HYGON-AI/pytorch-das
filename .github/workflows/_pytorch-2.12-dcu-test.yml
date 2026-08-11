@@ -21,6 +21,10 @@ on:
       expected_device_count:
         required: true
         type: string
+      dcu_visible_devices:
+        description: Comma-separated pair of physical DCU indexes assigned to each serial shard.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -47,6 +51,7 @@ jobs:
       DOCKER_IMAGE_NAME: ${{ inputs.test_image_name }}
       REPORT_ROOT: ${{ inputs.result_root }}
       BUILD_ENVIRONMENT: ${{ inputs.build_environment }}
+      DCU_VISIBLE_DEVICES: ${{ inputs.dcu_visible_devices }}
     steps:
       - name: Checkout PyTorch source
         uses: actions/checkout@v4
