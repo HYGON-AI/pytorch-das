@@ -310,7 +310,7 @@ jobs:
               sha256sum "${torchvision_wheels[0]}"
 
               python3 -m pip install --no-deps --force-reinstall dist/test-deps/*.whl
-              python3 -c "import triton; assert triton.__version__.split(\"+\", 1)[0] == \"${TRITON_TEST_VERSION}\"; print(\"Triton:\", triton.__version__)"
+              python3 -c "from importlib.metadata import version; import triton; installed = version(\"triton\"); print(\"Triton module:\", triton.__version__); print(\"Triton distribution:\", installed); assert installed.split(\"+\", 1)[0] == \"${TRITON_TEST_VERSION}\""
             fi
 
             required_paths=(
