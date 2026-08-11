@@ -47,6 +47,42 @@ else()
   endif()
 endif()
 
+if(USE_DTK)
+  # Parse the numeric DTK version from ROCM_PATH/.dtk_version.
+  # Examples:
+  #   DTK-26.04.1-rc1-centos8-x86_64 -> 260401
+  #   DTK_26.04.1-rc1                -> 260401
+  if(NOT EXISTS "${ROCM_PATH}/.dtk_version")
+    message(FATAL_ERROR
+      "USE_DTK is ON but DTK is not installed: ${ROCM_PATH}/.dtk_version is missing.\n"
+      "Install DTK at ${ROCM_PATH} or set USE_DTK=OFF for a standard ROCm build.")
+  endif()
+
+  file(STRINGS "${ROCM_PATH}/.dtk_version"
+       _PYTORCH_DTK_VERSION_LINE LIMIT_COUNT 1)
+
+  string(REGEX MATCH
+    "^DTK[-_]([0-9]+)[.]([0-9][0-9])([.]([0-9]+))?([-_]|$)"
+    _PYTORCH_DTK_VERSION_MATCH
+    "${_PYTORCH_DTK_VERSION_LINE}")
+
+  if(NOT _PYTORCH_DTK_VERSION_MATCH)
+    message(FATAL_ERROR
+      "Invalid DTK version in ${ROCM_PATH}/.dtk_version")
+  endif()
+
+  if(CMAKE_MATCH_4)
+    set(_PYTORCH_DTK_PATCH "${CMAKE_MATCH_4}")
+  else()
+    set(_PYTORCH_DTK_PATCH 0)
+  endif()
+
+  math(EXPR PYTORCH_DTK_VERSION
+    "${CMAKE_MATCH_1} * 10000 + ${CMAKE_MATCH_2} * 100 + ${_PYTORCH_DTK_PATCH}")
+
+  message(STATUS "Detected DTK version: ${PYTORCH_DTK_VERSION}")
+endif()
+
 # MAGMA_HOME
 if(NOT DEFINED ENV{MAGMA_HOME})
   set(MAGMA_HOME ${ROCM_PATH}/magma)

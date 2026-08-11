@@ -169,6 +169,23 @@ def _find_rocm_home() -> str | None:
         logger.warning("No ROCm runtime is found, using ROCM_HOME='%s'", rocm_home)
     return rocm_home
 
+def _find_dtk_version(rocm_home):
+    version_file = os.path.join(rocm_home, ".dtk_version")
+    if not os.path.isfile(version_file):
+        return None
+    with open(version_file, "r", encoding="utf-8") as file:
+        first_line = file.readline().strip()
+
+    match = re.match(
+        r"^DTK[-_]([0-9]+)[.]([0-9][0-9])(?:[.]([0-9]+))?(?:[-_]|$)",
+        first_line,
+    )
+    if match is None:
+        raise RuntimeError(f"Invalid DTK version: {first_line}")
+
+    patch = int(match.group(3) or 0)
+    return int(match.group(1)) * 10000 + int(match.group(2)) * 100 + patch
+
 def _find_sycl_home() -> str | None:
     sycl_home = None
     icpx_path = shutil.which('icpx')
@@ -258,6 +275,9 @@ CUDA_NOT_FOUND_MESSAGE = (
 ROCM_HOME = _find_rocm_home() if (torch.cuda._is_compiled() and torch.version.hip) else None
 HIP_HOME = _join_rocm_home('hip') if ROCM_HOME else None
 IS_HIP_EXTENSION = bool(ROCM_HOME is not None and torch.version.hip is not None)
+PYTORCH_DTK_VERSION = (
+    _find_dtk_version(ROCM_HOME) if IS_HIP_EXTENSION else None
+)
 ROCM_VERSION = None
 if torch.version.hip is not None:
     ROCM_VERSION = tuple(int(v) for v in torch.version.hip.split('.')[:2])
@@ -294,6 +314,11 @@ COMMON_HIP_FLAGS = [
     '-DUSE_ROCM=1',
     '-DHIPBLAS_V2',
 ]
+
+if PYTORCH_DTK_VERSION is not None:
+    COMMON_HIP_FLAGS.append(
+        f'-DPYTORCH_DTK_VERSION={PYTORCH_DTK_VERSION}'
+    )
 
 if not IS_WINDOWS:
     COMMON_HIP_FLAGS.append('-fPIC')

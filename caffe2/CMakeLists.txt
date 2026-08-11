@@ -1446,6 +1446,14 @@ if(USE_ROCM)
     USE_ROCM
     __HIP_PLATFORM_AMD__
     )
+  if(USE_DTK)
+    target_compile_definitions(torch PUBLIC
+      PYTORCH_DTK_VERSION=${PYTORCH_DTK_VERSION}
+      )
+    target_compile_definitions(torch_hip PUBLIC
+      PYTORCH_DTK_VERSION=${PYTORCH_DTK_VERSION}
+      )
+  endif()
 
   if(NOT ROCM_SOURCE_DIR)
     set(ROCM_SOURCE_DIR "$ENV{ROCM_SOURCE_DIR}")
