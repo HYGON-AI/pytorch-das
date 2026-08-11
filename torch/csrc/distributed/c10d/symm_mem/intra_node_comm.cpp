@@ -5,7 +5,10 @@
 #if defined(USE_ROCM)
 #include <amd_smi/amdsmi.h>
 #include <dlfcn.h>
+#include <hip/hip_runtime_api.h>
+#include <cstdio>
 #include <cstdlib>
+#include <mutex>
 #include <string>
 #endif
 
@@ -18,6 +21,153 @@ static std::vector<std::string> ENABLE_INTRA_NODE_COMM = {
 // for testing purposes.
 static std::vector<std::string> TEST_INTRA_NODE_COMM = {"TEST_INTRA_NODE_COMM"};
 static int intraNodeCommIdx = 0;
+
+#if defined(USE_ROCM)
+namespace {
+
+constexpr uint32_t kHcusmiStatusSuccess = 0;
+constexpr uint32_t kHcusmiStatusNotInit = 32;
+constexpr uint64_t kHcusmiInitGpus = 2;
+
+struct HcusmiApi {
+  void* library = nullptr;
+  uint32_t (*init)(uint64_t) = nullptr;
+  uint32_t (*get_processor_handle_from_bdf)(amdsmi_bdf_t, void**) = nullptr;
+  uint32_t (*is_P2P_accessible)(void*, void*, bool*) = nullptr;
+
+  explicit operator bool() const {
+    return library != nullptr && init != nullptr &&
+        get_processor_handle_from_bdf != nullptr &&
+        is_P2P_accessible != nullptr;
+  }
+};
+
+static_assert(sizeof(amdsmi_bdf_t) == sizeof(uint64_t));
+
+HcusmiApi loadHcusmiApi() {
+  const char* path = std::getenv("TORCH_HCUSMI_LIB_PATH");
+  if (path == nullptr || path[0] == '\0') {
+    return {};
+  }
+
+  HcusmiApi api{};
+  api.library = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+  if (api.library == nullptr) {
+    LOG(WARNING) << "IntraNodeComm: failed to load HCuSMI library " << path
+                 << ": " << dlerror() << "; falling back to AMD SMI";
+    return {};
+  }
+
+  api.init = reinterpret_cast<decltype(api.init)>(
+      dlsym(api.library, "hcusmi_init"));
+  api.get_processor_handle_from_bdf =
+      reinterpret_cast<decltype(api.get_processor_handle_from_bdf)>(
+          dlsym(api.library, "hcusmi_get_processor_handle_from_bdf"));
+  api.is_P2P_accessible =
+      reinterpret_cast<decltype(api.is_P2P_accessible)>(
+          dlsym(api.library, "hcusmi_is_P2P_accessible"));
+  if (!api) {
+    LOG(WARNING) << "IntraNodeComm: failed to resolve required HCuSMI symbols; "
+                    "falling back to AMD SMI";
+    dlclose(api.library);
+    return {};
+  }
+  return api;
+}
+
+std::optional<amdsmi_bdf_t> getHcusmiBdf(int deviceIdx) {
+  char pciBusId[32] = {};
+  const auto status =
+      hipDeviceGetPCIBusId(pciBusId, sizeof(pciBusId), deviceIdx);
+  if (status != hipSuccess) {
+    LOG(WARNING) << "IntraNodeComm: hipDeviceGetPCIBusId failed for device "
+                 << deviceIdx << ": " << hipGetErrorString(status)
+                 << "; falling back to AMD SMI";
+    return std::nullopt;
+  }
+
+  unsigned int domain = 0;
+  unsigned int bus = 0;
+  unsigned int device = 0;
+  unsigned int function = 0;
+  if (std::sscanf(
+          pciBusId, "%x:%x:%x.%x", &domain, &bus, &device, &function) != 4 ||
+      bus > 0xff || device > 0x1f || function > 0x7) {
+    LOG(WARNING) << "IntraNodeComm: invalid HIP PCI bus ID " << pciBusId
+                 << "; falling back to AMD SMI";
+    return std::nullopt;
+  }
+
+  amdsmi_bdf_t bdf{};
+  bdf.as_uint = (static_cast<uint64_t>(domain) << 16) |
+      (static_cast<uint64_t>(bus) << 8) |
+      (static_cast<uint64_t>(device) << 3) | function;
+  return bdf;
+}
+
+std::optional<NvlMesh> tryGetHcusmiMesh(
+    const std::vector<int>& rankToDeviceIdx) {
+  if (rankToDeviceIdx.size() > kMaxDevices) {
+    return std::nullopt;
+  }
+
+  static const HcusmiApi hcusmi = loadHcusmiApi();
+  if (!hcusmi) {
+    return std::nullopt;
+  }
+  static std::mutex hcusmiMutex;
+  const std::lock_guard<std::mutex> lock(hcusmiMutex);
+
+  std::vector<void*> processorHandles;
+  processorHandles.reserve(rankToDeviceIdx.size());
+  for (const auto deviceIdx : rankToDeviceIdx) {
+    const auto bdf = getHcusmiBdf(deviceIdx);
+    if (!bdf.has_value()) {
+      return std::nullopt;
+    }
+
+    void* processorHandle = nullptr;
+    auto status =
+        hcusmi.get_processor_handle_from_bdf(*bdf, &processorHandle);
+    if (status == kHcusmiStatusNotInit) {
+      status = hcusmi.init(kHcusmiInitGpus);
+      if (status == kHcusmiStatusSuccess) {
+        status =
+            hcusmi.get_processor_handle_from_bdf(*bdf, &processorHandle);
+      }
+    }
+    if (status != kHcusmiStatusSuccess || processorHandle == nullptr) {
+      LOG(WARNING) << "IntraNodeComm: HCuSMI failed to resolve device "
+                   << deviceIdx << " by BDF, ret=" << status
+                   << "; falling back to AMD SMI";
+      return std::nullopt;
+    }
+    processorHandles.push_back(processorHandle);
+  }
+
+  NvlMesh nvlMesh{};
+  for (size_t srcRank = 0; srcRank < processorHandles.size(); ++srcRank) {
+    for (size_t dstRank = 0; dstRank < processorHandles.size(); ++dstRank) {
+      if (srcRank == dstRank) {
+        continue;
+      }
+      bool accessible = false;
+      const auto status = hcusmi.is_P2P_accessible(
+          processorHandles[srcRank], processorHandles[dstRank], &accessible);
+      if (status != kHcusmiStatusSuccess) {
+        LOG(WARNING) << "IntraNodeComm: HCuSMI P2P query failed, ret="
+                     << status << "; falling back to AMD SMI";
+        return std::nullopt;
+      }
+      nvlMesh[srcRank][dstRank] = accessible ? 1 : 0;
+    }
+  }
+  LOG(INFO) << "IntraNodeComm: using HCuSMI for ROCm topology";
+  return nvlMesh;
+}
+
+} // namespace
+#endif
 
 /**
  * Query the nvlink connection among devices.
@@ -38,6 +188,10 @@ static NvlMesh getNvlMesh(const std::vector<int>& rankToDeviceIdx) {
   }
   return nvlMesh;
 #else
+  if (auto hcusmiMesh = tryGetHcusmiMesh(rankToDeviceIdx)) {
+    return *hcusmiMesh;
+  }
+
   // Load libamd_smi at runtime to avoid linking it into torch_hip (double-load
   // with Python amdsmi causes bus errors). Types/constants from amdsmi.h only.
   struct AmdsmiApi {

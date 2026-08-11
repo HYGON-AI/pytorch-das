@@ -146,9 +146,17 @@ try:
             try:
                 with _hcusmi_cdll_hook():
                     import hcusmi  # type: ignore[import]
+                if hcusmi.__file__ is not None:
+                    hcusmi_library = Path(hcusmi.__file__).with_name(
+                        "libhcu_smi.so"
+                    )
+                    if hcusmi_library.is_file():
+                        os.environ.setdefault(
+                            "TORCH_HCUSMI_LIB_PATH", str(hcusmi_library)
+                        )
                 _HAS_HCUSMI = True
                 _HAS_PYNVML = True
-            except ModuleNotFoundError:
+            except (ModuleNotFoundError, OSError):
                 pass
 
     except ModuleNotFoundError:
