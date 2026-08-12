@@ -7,15 +7,22 @@ TEST_SUITE="${TEST_SUITE:-smoke}"
 REPORT_ROOT="${REPORT_ROOT:-${RUNNER_TEMP:-/tmp}/pytorch-2.12-dcu-reports}"
 BUILD_ENVIRONMENT="${BUILD_ENVIRONMENT:-linux-rocky8.6-rocm-dcu-py3.10}"
 DCU_VISIBLE_DEVICES="${DCU_VISIBLE_DEVICES:-0,1}"
+PR_DCU_DEVICE_PAIRS="${PR_DCU_DEVICE_PAIRS:-0,1;2,3}"
+NIGHTLY_DCU_DEVICE_PAIRS="${NIGHTLY_DCU_DEVICE_PAIRS:-0,1;2,3;4,5;6,7}"
 
-if ! [[ "${DCU_VISIBLE_DEVICES}" =~ ^([0-9]+),([0-9]+)$ ]]; then
-    echo "ERROR: DCU_VISIBLE_DEVICES must contain exactly two device indexes" >&2
-    exit 1
-fi
-if [[ "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]]; then
-    echo "ERROR: DCU_VISIBLE_DEVICES must contain two distinct devices" >&2
-    exit 1
-fi
+validate_device_pair() {
+    local device_pair="$1"
+    if ! [[ "${device_pair}" =~ ^([0-9]+),([0-9]+)$ ]]; then
+        echo "ERROR: device pair must contain exactly two indexes: ${device_pair}" >&2
+        return 1
+    fi
+    if [[ "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]]; then
+        echo "ERROR: device pair must contain distinct indexes: ${device_pair}" >&2
+        return 1
+    fi
+}
+
+validate_device_pair "${DCU_VISIBLE_DEVICES}"
 
 single_entry=0
 provided_entry_values=0
@@ -25,7 +32,17 @@ for value in "${TEST_CONFIG:-}" "${SHARD_NUMBER:-}" "${NUM_TEST_SHARDS:-}"; do
     fi
 done
 
-if (( provided_entry_values > 0 )); then
+pr_coordinator=0
+nightly_coordinator=0
+if [[ "${TEST_SUITE}" == "pr" && "${TEST_CONFIG:-}" == "pr" &&
+    "${SHARD_NUMBER:-}" == "0" && "${NUM_TEST_SHARDS:-}" == "2" ]]; then
+    matrix=("pr:1:2" "pr:2:2")
+    pr_coordinator=1
+elif [[ "${TEST_SUITE}" == "nightly" && "${TEST_CONFIG:-}" == "default" &&
+    "${SHARD_NUMBER:-}" == "0" && "${NUM_TEST_SHARDS:-}" == "4" ]]; then
+    matrix=("default:1:4" "default:2:4" "default:3:4" "default:4:4")
+    nightly_coordinator=1
+elif (( provided_entry_values > 0 )); then
     if (( provided_entry_values != 3 )); then
         echo "ERROR: TEST_CONFIG, SHARD_NUMBER and NUM_TEST_SHARDS must be set together" >&2
         exit 1
@@ -53,10 +70,10 @@ else
             matrix=("pr:1:2" "pr:2:2")
             ;;
         nightly)
-            # Keep this matrix aligned with release/2.12 rocm-nightly.yml.
+            # Run the official default test config with four-way sharding.
             matrix=(
-                "default:1:6" "default:2:6" "default:3:6"
-                "default:4:6" "default:5:6" "default:6:6"
+                "default:1:4" "default:2:4"
+                "default:3:4" "default:4:4"
             )
             ;;
         *)
@@ -67,16 +84,17 @@ else
 fi
 
 mkdir -p "${REPORT_ROOT}"
-failures=()
 
 run_entry() {
     local config="$1"
     local shard="$2"
     local num_shards="$3"
+    local physical_device_pair="$4"
+    # ROCR selects physical devices. HIP/CUDA then see those two devices as 0,1.
+    local logical_device_pair="0,1"
     local run_scope="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
     local container_name="pytorch-2.12-dcu-test-${run_scope}-${config}-${shard}"
     local entry_dir="${REPORT_ROOT}/${config}-${shard}-of-${num_shards}"
-    local dcu_visible_devices="${DCU_VISIBLE_DEVICES}"
     local test_started=0
     local test_completed=0
     local console_rc=0
@@ -110,10 +128,10 @@ run_entry() {
         --env "TEST_CONFIG=${config}" \
         --env "SHARD_NUMBER=${shard}" \
         --env "NUM_TEST_SHARDS=${num_shards}" \
-        --env "DCU_VISIBLE_DEVICES=${dcu_visible_devices}" \
-        --env "CUDA_VISIBLE_DEVICES=${dcu_visible_devices}" \
-        --env "HIP_VISIBLE_DEVICES=${dcu_visible_devices}" \
-        --env "ROCR_VISIBLE_DEVICES=${dcu_visible_devices}" \
+        --env "DCU_VISIBLE_DEVICES=${logical_device_pair}" \
+        --env "CUDA_VISIBLE_DEVICES=${logical_device_pair}" \
+        --env "HIP_VISIBLE_DEVICES=${logical_device_pair}" \
+        --env "ROCR_VISIBLE_DEVICES=${physical_device_pair}" \
         --env "CI=1" \
         --env "PYTHONUNBUFFERED=1" \
         --env "PYTORCH_TEST_WITH_ROCM=1" \
@@ -179,7 +197,6 @@ run_entry() {
     elif (( rc != 0 )); then
         conclusion="failed"
         failure_kind="test"
-        failures+=("${config}:${shard}/${num_shards}:rc=${rc}")
     fi
 
     status_tmp="${entry_dir}/status.json.tmp.$$"
@@ -207,10 +224,86 @@ run_entry() {
     fi
 }
 
+infrastructure_failed=0
+if (( pr_coordinator == 1 || nightly_coordinator == 1 )); then
+    if (( pr_coordinator == 1 )); then
+        coordinator_name="PR"
+        coordinator_config="pr"
+        coordinator_shards=2
+        coordinator_pairs="${PR_DCU_DEVICE_PAIRS}"
+    else
+        coordinator_name="nightly"
+        coordinator_config="default"
+        coordinator_shards=4
+        coordinator_pairs="${NIGHTLY_DCU_DEVICE_PAIRS}"
+    fi
+
+    IFS=';' read -r -a device_pairs <<< "${coordinator_pairs}"
+    if (( ${#device_pairs[@]} != coordinator_shards )); then
+        echo "ERROR: ${coordinator_name} requires ${coordinator_shards} device pairs: ${coordinator_pairs}" >&2
+        exit 1
+    fi
+
+    devices_seen=()
+    for device_pair in "${device_pairs[@]}"; do
+        validate_device_pair "${device_pair}"
+        IFS=',' read -r device_a device_b <<< "${device_pair}"
+        for device in "${device_a}" "${device_b}"; do
+            for seen in "${devices_seen[@]:-}"; do
+                if [[ -n "${seen}" && "${device}" == "${seen}" ]]; then
+                    echo "ERROR: ${coordinator_name} device pairs overlap: ${coordinator_pairs}" >&2
+                    exit 1
+                fi
+            done
+            devices_seen+=("${device}")
+        done
+    done
+
+    echo "===== Running ${coordinator_name} shards in parallel ====="
+    coordinator_pids=()
+    for (( shard=1; shard<=coordinator_shards; shard++ )); do
+        device_pair="${device_pairs[$((shard - 1))]}"
+        echo "${coordinator_config}:${shard}/${coordinator_shards} devices=${device_pair}"
+        run_entry \
+            "${coordinator_config}" "${shard}" "${coordinator_shards}" "${device_pair}" &
+        coordinator_pids+=("$!")
+    done
+
+    set +e
+    for coordinator_pid in "${coordinator_pids[@]}"; do
+        wait "${coordinator_pid}"
+        if (( $? != 0 )); then
+            infrastructure_failed=1
+        fi
+    done
+    set -e
+else
+    for entry in "${matrix[@]}"; do
+        IFS=: read -r config shard num_shards <<< "${entry}"
+        echo "===== Running ${config} shard ${shard}/${num_shards} ====="
+        run_entry \
+            "${config}" "${shard}" "${num_shards}" "${DCU_VISIBLE_DEVICES}"
+    done
+fi
+
+failures=()
 for entry in "${matrix[@]}"; do
     IFS=: read -r config shard num_shards <<< "${entry}"
-    echo "===== Running ${config} shard ${shard}/${num_shards} ====="
-    run_entry "${config}" "${shard}" "${num_shards}"
+    status_file="${REPORT_ROOT}/${config}-${shard}-of-${num_shards}/status.json"
+    if [[ ! -f "${status_file}" ]]; then
+        infrastructure_failed=1
+        continue
+    fi
+    status_json="$(< "${status_file}")"
+    if [[ "${status_json}" == *'"failure_kind":"test"'* ]]; then
+        if [[ "${status_json}" =~ \"exit_code\":(-?[0-9]+) ]]; then
+            failures+=("${config}:${shard}/${num_shards}:rc=${BASH_REMATCH[1]}")
+        else
+            failures+=("${config}:${shard}/${num_shards}:rc=unknown")
+        fi
+    elif [[ "${status_json}" != *'"failure_kind":"none"'* ]]; then
+        infrastructure_failed=1
+    fi
 done
 
 total_shards="${#matrix[@]}"
@@ -253,6 +346,11 @@ if (( failed_shards > 0 )); then
         echo "::warning title=DCU test failure::${failure}"
     done
     echo "Test failures are report-only; this shard job remains green."
+fi
+
+if (( infrastructure_failed != 0 )); then
+    echo "ERROR: one or more test containers failed at the infrastructure level" >&2
+    exit 1
 fi
 
 exit 0

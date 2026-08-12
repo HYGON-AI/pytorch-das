@@ -22,7 +22,15 @@ on:
         required: true
         type: string
       dcu_visible_devices:
-        description: Comma-separated pair of physical DCU indexes assigned to each serial shard.
+        description: Device pair used by smoke and serial nightly shards.
+        required: true
+        type: string
+      pr_dcu_device_pairs:
+        description: Semicolon-separated device pairs for parallel PR containers.
+        required: true
+        type: string
+      nightly_dcu_device_pairs:
+        description: Four semicolon-separated device pairs for parallel nightly containers.
         required: true
         type: string
 
@@ -31,11 +39,11 @@ permissions:
 
 jobs:
   test:
-    name: test (${{ matrix.config }}, ${{ matrix.shard }}, ${{ matrix.num_shards }})
+    name: ${{ matrix.config == 'pr' && 'test (pr, parallel 0-1 + 2-3)' || (matrix.config == 'default' && matrix.shard == 0) && 'test (nightly, 4 parallel shards, 8 DCUs)' || format('test ({0}, {1}, {2})', matrix.config, matrix.shard, matrix.num_shards) }}
     strategy:
       fail-fast: false
-      # The local image and all DCUs belong to one physical runner. Keep the
-      # first version serial; the matrix still provides per-shard UI and logs.
+      # Each suite has one coordinator job when it needs parallel containers,
+      # so GitHub never schedules competing jobs onto this single DCU runner.
       max-parallel: 1
       matrix: ${{ fromJSON(inputs.test_matrix) }}
     runs-on: [self-hosted, Linux, X64, bw1100]
@@ -52,6 +60,8 @@ jobs:
       REPORT_ROOT: ${{ inputs.result_root }}
       BUILD_ENVIRONMENT: ${{ inputs.build_environment }}
       DCU_VISIBLE_DEVICES: ${{ inputs.dcu_visible_devices }}
+      PR_DCU_DEVICE_PAIRS: ${{ inputs.pr_dcu_device_pairs }}
+      NIGHTLY_DCU_DEVICE_PAIRS: ${{ inputs.nightly_dcu_device_pairs }}
     steps:
       - name: Checkout PyTorch source
         uses: actions/checkout@v4
@@ -83,7 +93,7 @@ jobs:
           expected-device-count: ${{ inputs.expected_device_count }}
           run-label: pytorch-2.12-dcu-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.config }}-${{ matrix.shard }}
 
-      - name: Run official DCU test shard
+      - name: Run official DCU tests
         shell: bash
         run: |
           set -o pipefail
@@ -97,12 +107,17 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          entry_dir="${REPORT_ROOT}/${TEST_CONFIG}-${SHARD_NUMBER}-of-${NUM_TEST_SHARDS}"
-          echo "report_dir=${entry_dir}"
-          if [[ -d "${entry_dir}" ]]; then
-            find "${entry_dir}" -maxdepth 3 -type f -ls | sed -n '1,100p'
+          if [[ "${TEST_SUITE}" == "pr" || ( "${TEST_SUITE}" == "nightly" && "${SHARD_NUMBER}" == "0" ) ]]; then
+            echo "report_root=${REPORT_ROOT}"
+            find "${REPORT_ROOT}" -maxdepth 4 -type f -ls | sed -n '1,200p'
           else
-            echo "::warning title=Missing shard report directory::${entry_dir}"
+            entry_dir="${REPORT_ROOT}/${TEST_CONFIG}-${SHARD_NUMBER}-of-${NUM_TEST_SHARDS}"
+            echo "report_dir=${entry_dir}"
+            if [[ -d "${entry_dir}" ]]; then
+              find "${entry_dir}" -maxdepth 3 -type f -ls | sed -n '1,100p'
+            else
+              echo "::warning title=Missing shard report directory::${entry_dir}"
+            fi
           fi
 
       - name: Cleanup shard-scoped containers

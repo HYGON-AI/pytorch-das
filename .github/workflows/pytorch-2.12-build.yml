@@ -80,11 +80,13 @@ jobs:
               ;;
             pr)
               expected_shards=2
-              test_matrix='{"include":[{"config":"pr","shard":1,"num_shards":2},{"config":"pr","shard":2,"num_shards":2}]}'
+              # One runner job coordinates two test containers in parallel.
+              test_matrix='{"include":[{"config":"pr","shard":0,"num_shards":2}]}'
               ;;
             nightly)
-              expected_shards=6
-              test_matrix='{"include":[{"config":"default","shard":1,"num_shards":6},{"config":"default","shard":2,"num_shards":6},{"config":"default","shard":3,"num_shards":6},{"config":"default","shard":4,"num_shards":6},{"config":"default","shard":5,"num_shards":6},{"config":"default","shard":6,"num_shards":6}]}'
+              expected_shards=4
+              # One runner job coordinates four two-DCU containers in parallel.
+              test_matrix='{"include":[{"config":"default","shard":0,"num_shards":4}]}'
               ;;
             *)
               echo "ERROR: unsupported test suite: ${REQUESTED_SUITE}" >&2
@@ -120,6 +122,8 @@ jobs:
       - name: Check DCU test capacity
         if: steps.plan.outputs.test_suite != 'build-only'
         shell: bash
+        env:
+          PLANNED_TEST_SUITE: ${{ steps.plan.outputs.test_suite }}
         run: |
           set -euo pipefail
           test -x /opt/hyhal/bin/hy-smi
@@ -127,8 +131,12 @@ jobs:
 
           /opt/hyhal/bin/hy-smi
           device_count="$(/opt/hyhal/bin/hy-smi | awk '$1 ~ /^[0-9]+$/ { count += 1 } END { print count + 0 }')"
-          if (( device_count < 4 )); then
-            echo "ERROR: expected at least 4 DCU devices, found ${device_count}" >&2
+          required_device_count=4
+          if [[ "${PLANNED_TEST_SUITE}" == "nightly" ]]; then
+            required_device_count=8
+          fi
+          if (( device_count < required_device_count )); then
+            echo "ERROR: expected at least ${required_device_count} DCU devices, found ${device_count}" >&2
             exit 1
           fi
           echo "device_count=${device_count}"
@@ -179,6 +187,7 @@ jobs:
           test -f .ci/pytorch/torch-2.12-ci/pr-tests.txt
           test -f .ci/pytorch/torch-2.12-ci/rebuild-wheel-record.py
           python3 .ci/pytorch/torch-2.12-ci/test_rebuild_wheel_record.py
+          bash .ci/pytorch/torch-2.12-ci/test-parallel-containers.sh
           test -f .ci/pytorch/torch-2.12-ci/run-nightly-test-in-container.sh
           test -f .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
 
@@ -395,8 +404,10 @@ jobs:
       test_image_name: ${{ needs.preflight.outputs.test_image_name }}
       result_root: ${{ needs.preflight.outputs.result_root }}
       build_environment: linux-rocky8.6-rocm-dcu-py3.10
-      expected_device_count: "4"
+      expected_device_count: ${{ needs.preflight.outputs.test_suite == 'nightly' && '8' || '4' }}
       dcu_visible_devices: "0,1"
+      pr_dcu_device_pairs: "0,1;2,3"
+      nightly_dcu_device_pairs: "0,1;2,3;4,5;6,7"
 
   required:
     name: test-required
