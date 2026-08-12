@@ -600,7 +600,7 @@ test_inductor_shard() {
 test_inductor_aoti_cpp() {
   if [[ "$BUILD_ENVIRONMENT" == *rocm* ]]; then
     # We need to hipify before building again
-    python3 tools/amd_build/build_amd.py
+    python3 tools/hcu_build/build_hcu.py
   fi
   if [[ "$BUILD_ENVIRONMENT" == *sm86* ]]; then
     # TODO: Replace me completely, as one should not use conda libstdc++, nor need special path to TORCH_LIB

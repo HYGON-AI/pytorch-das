@@ -126,8 +126,8 @@ case ${DESIRED_PYTHON} in
 esac
 
 if [[ "$DESIRED_CUDA" == *"rocm"* ]]; then
-    echo "Calling build_amd.py at $(date)"
-    python tools/amd_build/build_amd.py
+    echo "Calling build_hcu.py at $(date)"
+    python tools/hcu_build/build_hcu.py
 fi
 
 # This value comes from binary_linux_build.sh (and should only be set to true

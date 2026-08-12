@@ -1,5 +1,5 @@
 # Build file for the C10 HIP.  This directory doesn't actually contain
-# any files; these files are copied over by the HIPIFY script in tools/amd_build
+# any files; these files are copied over by the HIPIFY script in tools/hcu_build
 #
 # At the moment, this cmake is NOT standalone
 

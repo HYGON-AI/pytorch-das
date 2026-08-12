@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 
-# NOTE: `tools/amd_build/build_amd.py` could be a symlink.
+# NOTE: `tools/hcu_build/build_hcu.py` could be a symlink.
 # The behavior of `symlink / '..'` is different from `symlink.parent`.
 # Use `pardir` three times rather than using `path.parents[2]`.
 REPO_ROOT = (
@@ -54,9 +54,9 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-# NOTE: `tools/amd_build/build_amd.py` could be a symlink.
-amd_build_dir = os.path.dirname(os.path.realpath(__file__))
-proj_dir = os.path.dirname(os.path.dirname(amd_build_dir))
+# NOTE: `tools/hcu_build/build_hcu.py` could be a symlink.
+hcu_build_dir = os.path.dirname(os.path.realpath(__file__))
+proj_dir = os.path.dirname(os.path.dirname(hcu_build_dir))
 
 if args.project_directory:
     proj_dir = args.project_directory
@@ -128,7 +128,7 @@ ignores = [
     # These files are compatible with both cuda and hip
     "aten/src/ATen/core/*",
     # Correct path to generate HIPConfig.h:
-    #   CUDAConfig.h.in -> (amd_build) HIPConfig.h.in -> (cmake) HIPConfig.h
+    #   CUDAConfig.h.in -> (hcu_build) HIPConfig.h.in -> (cmake) HIPConfig.h
     "aten/src/ATen/cuda/CUDAConfig.h",
     "third_party/nvfuser/csrc/codegen.cpp",
     "third_party/nvfuser/runtime/block_reduction.cu",

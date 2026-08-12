@@ -12,7 +12,7 @@ If you're compiling for AMD ROCm then first run this command:
    cd <pytorch_root>
 
    # Only run this if you're compiling for ROCm
-   python tools/amd_build/build_amd.py
+   python tools/hcu_build/build_hcu.py
 
 Additional information about ROCm support can be found in the top-level
 `README <https://github.com/pytorch/pytorch/blob/main/README.md>`_.
