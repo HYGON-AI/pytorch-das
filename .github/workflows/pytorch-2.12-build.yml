@@ -177,6 +177,8 @@ jobs:
           test -f .ci/pytorch/torch-2.12-ci/prepare.sh
           test -f .ci/pytorch/torch-2.12-ci/build.sh
           test -f .ci/pytorch/torch-2.12-ci/pr-tests.txt
+          test -f .ci/pytorch/torch-2.12-ci/rebuild-wheel-record.py
+          python3 .ci/pytorch/torch-2.12-ci/test_rebuild_wheel_record.py
           test -f .ci/pytorch/torch-2.12-ci/run-nightly-test-in-container.sh
           test -f .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
 

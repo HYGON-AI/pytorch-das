@@ -171,6 +171,12 @@ if (( ${#repaired_linux_wheels[@]} != 1 )); then
     find /dist/raw -maxdepth 1 -type f -ls || true
     exit 1
 fi
+# CIUpload 0.3.0 修改 dist-info 后可能保留旧 RECORD 路径和哈希；
+# auditwheel 会逐项读取 RECORD，因此必须先重建再继续修复平台标签。
+echo "===== 重建 CIUpload wheel RECORD ====="
+python3 \
+    /pytorch/.ci/pytorch/torch-2.12-ci/rebuild-wheel-record.py \
+    "${repaired_linux_wheels[0]}"
 ls -lh "${repaired_linux_wheels[0]}"
 echo "===== 安装修正后的 wheel ====="
 python3 -m pip install \
