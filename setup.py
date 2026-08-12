@@ -16,6 +16,12 @@
 #   USE_CUDA=0
 #     disables CUDA build
 #
+#   USE_DTK=0
+#     disables DTK (Hygon Toolkit) build. USE_DTK is enabled by default
+#     when USE_ROCM is on and a DTK toolchain is installed under
+#     $ROCM_PATH/.dtk_version. The detected DTK version is exposed to
+#     compilation as PYTORCH_DTK_VERSION.
+#
 #   CFLAGS
 #     flags to apply to both C and C++ files to be compiled (a quirk of setup.py
 #     which we have faithfully adhered to in our build system is that CFLAGS

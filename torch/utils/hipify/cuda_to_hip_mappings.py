@@ -26,9 +26,9 @@ MATH_TRANSPILATIONS = collections.OrderedDict([
 
 CUDATODTK_DICT = collections.OrderedDict(
     [
-        ("CUDART_VERSION", ("DTKRT_VERSION")),
-        ("CUDA_VERSION", ("DTK_VERSION")),
-        ("__CUDA_ARCH__", ("__DTK_ARCH__")),
+        ("CUDART_VERSION", ("FPT_DTKRT_VERSION")),
+        ("CUDA_VERSION", ("FPT_DTK_VERSION")),
+        ("__CUDA_ARCH__", ("__FPT_DTK_ARCH__")),
     ]
 )
 
@@ -3516,8 +3516,8 @@ CAFFE2_PATH_MAPPINGS = collections.OrderedDict([
 
 CUDA_MACROS_MAP = collections.OrderedDict(
     [
-        ("CUDA_VERSION", "DTK_VERSION"),
-        ("__CUDA_ARCH__", "__DTK_ARCH__"),
+        ("CUDA_VERSION", "FPT_DTK_VERSION"),
+        ("__CUDA_ARCH__", "__FPT_DTK_ARCH__"),
     ]
 )
 
