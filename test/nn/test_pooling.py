@@ -1290,7 +1290,40 @@ torch.cuda.synchronize()
         helper(200, 512, 28, 28, 2)
         helper(4, 8, 7, 7, 3, stride=1)
         helper(10, 512, 31, 31, 3, stride=2)
+        helper(1, 64, 8, 8, 3, stride=2)
+        helper(1, 96, 8, 8, 3, stride=2)
+        helper(1, 128, 8, 8, 3, stride=2)
         helper(1, 129, 8, 8, 3, stride=2)
+
+    @unittest.skipIf(not TEST_WITH_ROCM, "ROCm-only prefetch path")
+    @onlyCUDA
+    @dtypes(torch.float)
+    def test_max_pool2d_nhwc_prefetch_edges(self, device, dtype):
+        for channels in (96, 128, 129):
+            input = -torch.arange(channels * 7 * 7, device=device, dtype=dtype).reshape(
+                1, channels, 7, 7
+            )
+            input[:, :, 0, 0] = float("nan")
+            input[:, :, 2, 2] = 5
+            input[:, :, 2, 3] = 5
+            input = input.contiguous(memory_format=torch.channels_last)
+            reference = input.contiguous()
+
+            out, indices = F.max_pool2d(
+                input, kernel_size=3, stride=2, padding=1, return_indices=True
+            )
+            ref_out, ref_indices = F.max_pool2d(
+                reference,
+                kernel_size=3,
+                stride=2,
+                padding=1,
+                return_indices=True,
+            )
+
+            self.assertTrue(out.is_contiguous(memory_format=torch.channels_last))
+            self.assertTrue(indices.is_contiguous(memory_format=torch.channels_last))
+            self.assertEqual(out, ref_out)
+            self.assertEqual(indices, ref_indices)
 
     @onlyCPU
     @dtypes(torch.int32, torch.int64)
