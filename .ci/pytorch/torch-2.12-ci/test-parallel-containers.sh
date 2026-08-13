@@ -19,6 +19,15 @@ grep -Fq \
 grep -Fq \
     'NIGHTLY_DCU_DEVICE_PAIRS: ${{ inputs.nightly_dcu_device_pairs }}' \
     "${REPO_ROOT}/.github/workflows/_pytorch-2.12-dcu-test.yml"
+grep -Fq \
+    'Fail PR after reporting all test failures' \
+    "${REPO_ROOT}/.github/workflows/pytorch-2.12-build.yml"
+grep -Fq \
+    "steps.test_summary.outputs.failed_test_shards != '0'" \
+    "${REPO_ROOT}/.github/workflows/pytorch-2.12-build.yml"
+grep -Fq \
+    'PR tests failed after all shards completed' \
+    "${REPO_ROOT}/.github/workflows/pytorch-2.12-build.yml"
 
 MOCK_BIN="${TEMP_ROOT}/bin"
 MOCK_LOG="${TEMP_ROOT}/docker.log"
@@ -143,9 +152,11 @@ grep -Fq '"failure_kind":"none"' \
 grep -Fq '"exit_code":7' "${REPORT_ROOT}/pr-2-of-2/status.json"
 grep -Fq '"failure_kind":"test"' \
     "${REPORT_ROOT}/pr-2-of-2/status.json"
+grep -Fq 'test_failure_policy=fail-after-summary' \
+    "${REPORT_ROOT}/nightly-summary.txt"
 grep -Fq 'failed_test_shards=1' "${REPORT_ROOT}/nightly-summary.txt"
 
-echo "PR report-only failure policy passed"
+echo "PR collect-all-before-final-failure policy passed"
 
 rm -rf -- "${MOCK_STATE_DIR}" "${REPORT_ROOT}"
 rm -f -- "${MOCK_LOG}"

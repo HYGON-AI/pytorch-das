@@ -101,6 +101,15 @@ jobs:
           chmod +x .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
           .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
 
+      - name: Summarize PR test cases
+        if: ${{ always() && inputs.test_suite == 'pr' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .ci/pytorch/torch-2.12-ci/summarize-junit-tests.py \
+            --result-root "${REPORT_ROOT}" \
+            --step-summary "${GITHUB_STEP_SUMMARY}"
+
       - name: Show local shard reports
         if: always()
         shell: bash

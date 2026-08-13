@@ -187,6 +187,7 @@ jobs:
           test -f .ci/pytorch/torch-2.12-ci/pr-tests.txt
           test -f .ci/pytorch/torch-2.12-ci/rebuild-wheel-record.py
           python3 .ci/pytorch/torch-2.12-ci/test_rebuild_wheel_record.py
+          python3 .ci/pytorch/torch-2.12-ci/test_junit_test_stats.py
           bash .ci/pytorch/torch-2.12-ci/test-parallel-containers.sh
           test -f .ci/pytorch/torch-2.12-ci/run-nightly-test-in-container.sh
           test -f .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
@@ -603,3 +604,13 @@ jobs:
           docker image rm -f \
             "pytorch-2.12-build:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             2>/dev/null || true
+
+      - name: Fail PR after reporting all test failures
+        if: ${{ !cancelled() && needs.preflight.outputs.test_suite == 'pr' && steps.test_summary.outputs.failed_test_shards != '0' && steps.test_summary.outputs.failed_infrastructure_shards == '0' }}
+        shell: bash
+        env:
+          FAILED_TEST_SHARDS: ${{ steps.test_summary.outputs.failed_test_shards }}
+        run: |
+          echo "::error title=PR tests failed::${FAILED_TEST_SHARDS} test shard(s) failed after all shards completed"
+          echo "PR tests failed after all shards completed: failed_test_shards=${FAILED_TEST_SHARDS}" >&2
+          exit 1

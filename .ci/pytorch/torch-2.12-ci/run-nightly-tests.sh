@@ -309,6 +309,10 @@ done
 total_shards="${#matrix[@]}"
 failed_shards="${#failures[@]}"
 passed_shards="$((total_shards - failed_shards))"
+test_failure_policy="report-only"
+if [[ "${TEST_SUITE}" == "pr" ]]; then
+    test_failure_policy="fail-after-summary"
+fi
 if (( single_entry == 1 )); then
     summary_file="${REPORT_ROOT}/${TEST_CONFIG}-${SHARD_NUMBER}-of-${NUM_TEST_SHARDS}/shard-summary.txt"
 else
@@ -316,7 +320,7 @@ else
 fi
 
 {
-    echo "test_failure_policy=report-only"
+    echo "test_failure_policy=${test_failure_policy}"
     echo "total_shards=${total_shards}"
     echo "passed_shards=${passed_shards}"
     echo "failed_test_shards=${failed_shards}"
@@ -332,7 +336,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
         echo
         echo "| Policy | Total shards | Passed | Test failures |"
         echo "| --- | ---: | ---: | ---: |"
-        echo "| Report only | ${total_shards} | ${passed_shards} | ${failed_shards} |"
+        echo "| ${test_failure_policy} | ${total_shards} | ${passed_shards} | ${failed_shards} |"
         if (( failed_shards > 0 )); then
             echo
             echo "Failed test entries:"
@@ -345,7 +349,11 @@ if (( failed_shards > 0 )); then
     for failure in "${failures[@]}"; do
         echo "::warning title=DCU test failure::${failure}"
     done
-    echo "Test failures are report-only; this shard job remains green."
+    if [[ "${TEST_SUITE}" == "pr" ]]; then
+        echo "PR test failures were recorded; the required job will fail after reporting and cleanup."
+    else
+        echo "Test failures are report-only; this shard job remains green."
+    fi
 fi
 
 if (( infrastructure_failed != 0 )); then

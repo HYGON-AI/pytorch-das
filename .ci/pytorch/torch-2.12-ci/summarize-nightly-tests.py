@@ -113,8 +113,13 @@ def main() -> int:
         and not test_failed
         and infrastructure_count == 0
     )
+    test_failure_policy = (
+        "fail-after-summary"
+        if args.expected_config == "pr"
+        else "report-only"
+    )
     lines = [
-        "test_failure_policy=report-only",
+        f"test_failure_policy={test_failure_policy}",
         f"expected_shards={args.expected_shards}",
         f"observed_status_files={len(status_files)}",
         f"completed_test_shards={len(passed) + len(test_failed)}",
@@ -158,12 +163,12 @@ def main() -> int:
             )
             summary.write("| --- | ---: | ---: | ---: | ---: | ---: |\n")
             summary.write(
-                f"| Report only | {args.expected_shards} | {len(status_files)} | "
+                f"| {test_failure_policy} | {args.expected_shards} | {len(status_files)} | "
                 f"{len(passed)} | {len(test_failed)} | {infrastructure_count} |\n"
             )
 
     for entry in test_failed:
-        print(f"::warning title=DCU nightly test failure::{entry}")
+        print(f"::warning title=DCU test failure::{entry}")
     for entry in infrastructure_failed + unknown:
         print(f"::error title=DCU test infrastructure failure::{entry}")
 
