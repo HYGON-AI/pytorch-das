@@ -5,10 +5,13 @@
 #include <ATen/Dispatch.h>
 #include <ATen/native/Pool.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/detail/IntegerDivider.cuh>
+#include <ATen/native/cuda/MemoryAccess.cuh>
 #include <ATen/cuda/detail/TensorInfo.cuh>
 #include <ATen/cuda/detail/IndexUtils.cuh>
 #include <ATen/cuda/detail/KernelUtils.h>
 #include <c10/macros/Macros.h>
+#include <cstdint>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -78,19 +81,33 @@ __global__ void avg_pool2d_out_cuda_frame(const int nthreads,
   }
 }
 
-template <typename scalar_t, typename accscalar_t>
-__global__ void avg_pool2d_out_cuda_frame_nhwc(const int nthreads,
+template <typename scalar_t, typename accscalar_t, int VecSize>
+__global__ void avg_pool2d_out_cuda_frame_nhwc(
+    const uint32_t spatial_planes,
+    const at::cuda::detail::IntDivider<uint32_t> output_hw_divider,
+    const at::cuda::detail::IntDivider<uint32_t> pooled_width_divider,
     const scalar_t* const bottom_data, const int64_t channels,
     const int64_t height, const int64_t width, const int pooled_height,
     const int pooled_width, const int kernel_h, const int kernel_w,
     const int stride_h, const int stride_w, const int pad_h, const int pad_w,
     scalar_t* const top_data, const int divisor_override,
     const bool count_include_pad, const bool use_divisor) {
-  CUDA_KERNEL_LOOP(index, nthreads) {
-    const int c = index % channels;
-    const int pw = (index / channels) % pooled_width;
-    const int ph = (index / channels / pooled_width) % pooled_height;
-    const int n = index / channels / pooled_width / pooled_height;
+  using vec_t = memory::aligned_vector<scalar_t, VecSize>;
+
+  const int c = (blockIdx.x * blockDim.x + threadIdx.x) * VecSize;
+  if (c + VecSize > channels) {
+    return;
+  }
+
+  for (uint32_t spatial_index = blockIdx.y * blockDim.y + threadIdx.y;
+       spatial_index < spatial_planes;
+       spatial_index += static_cast<int64_t>(gridDim.y) * blockDim.y) {
+    const auto n_and_offset = output_hw_divider.divmod(spatial_index);
+    const uint32_t n = n_and_offset.div;
+    const uint32_t spatial_offset = n_and_offset.mod;
+    const auto ph_and_pw = pooled_width_divider.divmod(spatial_offset);
+    const int ph = ph_and_pw.div;
+    const int pw = ph_and_pw.mod;
     int hstart = ph * stride_h - pad_h;
     int wstart = pw * stride_w - pad_w;
     int hend = min(hstart + kernel_h, height + pad_h);
@@ -101,16 +118,41 @@ __global__ void avg_pool2d_out_cuda_frame_nhwc(const int nthreads,
     hend = min(hend, height);
     wend = min(wend, width);
 
+    const int64_t index = spatial_index * channels + c;
     if (hstart >= hend || wstart >= wend) {
-      top_data[index] = scalar_t(0);
+      if constexpr (VecSize == 1) {
+        top_data[index] = scalar_t(0);
+      } else {
+        vec_t out;
+        #pragma unroll
+        for (int i = 0; i < VecSize; ++i) {
+          out.val[i] = scalar_t(0);
+        }
+        *reinterpret_cast<vec_t*>(top_data + index) = out;
+      }
       continue;
     }
 
-    accscalar_t aveval = accscalar_t(0);
+    accscalar_t aveval[VecSize];
+    #pragma unroll
+    for (int i = 0; i < VecSize; ++i) {
+      aveval[i] = accscalar_t(0);
+    }
     const scalar_t* const bottom_slice = bottom_data + n * channels * height * width + c;
     for (int h = hstart; h < hend; ++h) {
+      const scalar_t* bottom_ptr =
+          bottom_slice + (h * width + wstart) * channels;
       for (int w = wstart; w < wend; ++w) {
-        aveval += bottom_slice[(h * width + w) * channels];
+        if constexpr (VecSize == 1) {
+          aveval[0] += *bottom_ptr;
+        } else {
+          const vec_t vals = *reinterpret_cast<const vec_t*>(bottom_ptr);
+          #pragma unroll
+          for (int i = 0; i < VecSize; ++i) {
+            aveval[i] += vals.val[i];
+          }
+        }
+        bottom_ptr += channels;
       }
     }
     int divide_factor;
@@ -123,7 +165,18 @@ __global__ void avg_pool2d_out_cuda_frame_nhwc(const int nthreads,
         divide_factor = (hend - hstart) * (wend - wstart);
       }
     }
-    top_data[index] = static_cast<scalar_t>(aveval / divide_factor);
+    const accscalar_t reciprocal =
+        accscalar_t(1) / static_cast<accscalar_t>(divide_factor);
+    if constexpr (VecSize == 1) {
+      top_data[index] = static_cast<scalar_t>(aveval[0] * reciprocal);
+    } else {
+      vec_t out;
+      #pragma unroll
+      for (int i = 0; i < VecSize; ++i) {
+        out.val[i] = static_cast<scalar_t>(aveval[i] * reciprocal);
+      }
+      *reinterpret_cast<vec_t*>(top_data + index) = out;
+    }
   }
 }
 
@@ -296,28 +349,91 @@ TORCH_IMPL_FUNC(avg_pool2d_out_cuda)
         switch (memory_format){
           case MemoryFormat::ChannelsLast: {
             output.unsafeGetTensorImpl()->empty_tensor_restride(MemoryFormat::ChannelsLast);
-            avg_pool2d_out_cuda_frame_nhwc<scalar_t, accscalar_t>
-                <<<num_blocks,
-                   num_threads,
-                   0,
-                   at::cuda::getCurrentCUDAStream()>>>(
-                    count,
-                    input_data,
-                    nInputPlane,
-                    inputHeight,
-                    inputWidth,
-                    outputHeight,
-                    outputWidth,
-                    kH,
-                    kW,
-                    dH,
-                    dW,
-                    padH,
-                    padW,
-                    output_data,
-                    divisor_override_value,
-                    count_include_pad,
-                    use_divisor);
+            const uint32_t spatial_planes = safe_downcast<uint32_t, int64_t>(
+                output.numel() / nInputPlane);
+            const uint32_t output_hw = safe_downcast<uint32_t, int64_t>(
+                outputHeight * outputWidth);
+            const at::cuda::detail::IntDivider<uint32_t> output_hw_divider(
+                output_hw);
+            const at::cuda::detail::IntDivider<uint32_t> pooled_width_divider(
+                safe_downcast<uint32_t, int64_t>(outputWidth));
+            const uint32_t channel_tile =
+                nInputPlane <= 4 ? 4 :
+                nInputPlane <= 16 ? 16 :
+                nInputPlane <= 32 ? 32 : 64;
+            const uint32_t spatial_tile = 256 / channel_tile;
+            const uint32_t spatial_blocks = static_cast<uint32_t>(std::min(
+                ceil_div<uint64_t>(spatial_planes,spatial_tile),
+                static_cast<uint64_t>(at::cuda::getCurrentDeviceProperties()->maxGridSize[1])));
+            const auto input_addr = reinterpret_cast<uintptr_t>(input_data);
+            const auto output_addr = reinterpret_cast<uintptr_t>(output_data);
+            using vec4_t = memory::aligned_vector<scalar_t, 4>;
+            if (nInputPlane % 4 == 0 &&
+                input_addr % alignof(vec4_t) == 0 &&
+                output_addr % alignof(vec4_t) == 0) {
+              const uint32_t vec_channel_tile = channel_tile / 4;
+              const uint32_t vec_spatial_tile = 256 / vec_channel_tile;
+              const uint32_t vec_spatial_blocks = static_cast<uint32_t>(std::min(
+                  ceil_div<uint64_t>(spatial_planes,vec_spatial_tile),
+                  static_cast<uint64_t>(at::cuda::getCurrentDeviceProperties()->maxGridSize[1])));
+              avg_pool2d_out_cuda_frame_nhwc<scalar_t, accscalar_t, 4>
+                  <<<dim3(
+                         ceil_div<uint32_t>(
+                             static_cast<uint32_t>(nInputPlane / 4),
+                             vec_channel_tile),
+                         vec_spatial_blocks),
+                     dim3(vec_channel_tile, vec_spatial_tile),
+                     0,
+                     at::cuda::getCurrentCUDAStream()>>>(
+                      spatial_planes,
+                      output_hw_divider,
+                      pooled_width_divider,
+                      input_data,
+                      nInputPlane,
+                      inputHeight,
+                      inputWidth,
+                      outputHeight,
+                      outputWidth,
+                      kH,
+                      kW,
+                      dH,
+                      dW,
+                      padH,
+                      padW,
+                      output_data,
+                      divisor_override_value,
+                      count_include_pad,
+                      use_divisor);
+            } else {
+              avg_pool2d_out_cuda_frame_nhwc<scalar_t, accscalar_t, 1>
+                  <<<dim3(
+                         ceil_div<uint32_t>(
+                             static_cast<uint32_t>(nInputPlane),
+                             channel_tile),
+                         spatial_blocks),
+                     dim3(channel_tile, spatial_tile),
+                     0,
+                     at::cuda::getCurrentCUDAStream()>>>(
+                      spatial_planes,
+                      output_hw_divider,
+                      pooled_width_divider,
+                      input_data,
+                      nInputPlane,
+                      inputHeight,
+                      inputWidth,
+                      outputHeight,
+                      outputWidth,
+                      kH,
+                      kW,
+                      dH,
+                      dW,
+                      padH,
+                      padW,
+                      output_data,
+                      divisor_override_value,
+                      count_include_pad,
+                      use_divisor);
+            }
             C10_CUDA_KERNEL_LAUNCH_CHECK();
             break;
           }
