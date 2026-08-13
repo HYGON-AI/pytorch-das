@@ -917,7 +917,7 @@ __launch_bounds__(Warps* kWarpSize) void tinygemm_m16n8k16_chunk_kernel(
         sum_f32);
   }
 #else
-    printf("__builtin_amdgcn_mfma_f32_16x16x16bf16_1k is only supported on HCU architecture greater than or equal to CDNA2\n");
+    printf("__builtin_amdgcn_mfma_f32_16x16x16bf16_1k is only supported on AMD gpu arch greater than or equal to CDNA2\n");
 #endif
 }
 
@@ -1099,7 +1099,7 @@ at::Tensor _weight_int4pack_mm_cuda(
 
 #if defined(USE_ROCM)
   if (!isCDNA2orLater(A.device().index())) {
-    TORCH_CHECK(false, "_weight_int4pack_mm_cuda is only supported on HCU architecture greater than or equal to CDNA2");
+    TORCH_CHECK(false, "_weight_int4pack_mm_cuda is only supported on AMD gpu arch greater than or equal to CDNA2");
   }
 #endif
 
@@ -1294,7 +1294,7 @@ at::Tensor _convert_weight_to_int4pack_cuda(
 
 #if defined(USE_ROCM)
   if (!isCDNA2orLater(in.device().index())) {
-    TORCH_CHECK(false, "_convert_weight_to_int4pack_cuda is only supported on HCU architecture greater than or equal to CDNA2");
+    TORCH_CHECK(false, "_convert_weight_to_int4pack_cuda is only supported on AMD gpu arch greater than or equal to CDNA2");
   }
 #endif
 
