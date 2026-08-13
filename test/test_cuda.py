@@ -5356,7 +5356,7 @@ print(value, end="")
     def test_hcusmi_temperature(self):
         self.assertTrue(0 <= torch.cuda.temperature() <= 150)
 
-    @unittest.skipIf(TEST_WITH_ROCM, "flaky for AMD gpu")
+    @unittest.skipIf(TEST_WITH_ROCM, "flaky for HCU/AMD gpu")
     @unittest.skipIf(not TEST_PYNVML, "pynvml/amdsmi is not available")
     def test_device_memory_used(self):
         """
