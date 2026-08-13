@@ -56,6 +56,7 @@ _HAS_AMDSMI = False
 _PYNVML_ERR = None
 _AMDSMI_ERR = None
 _HAS_HCUSMI = False
+_HCUSMI_ERR = None
 try:
     from torch import version as _version
 
@@ -156,8 +157,8 @@ try:
                         )
                 _HAS_HCUSMI = True
                 _HAS_PYNVML = True
-            except (ModuleNotFoundError, OSError):
-                pass
+            except (ModuleNotFoundError, OSError) as err:
+                _HCUSMI_ERR = err
 
     except ModuleNotFoundError:
         pass
@@ -1053,6 +1054,8 @@ def _raw_device_uuid_hcusmi() -> list[str] | None:
             str(uuid).lower()
         )  # Lower-case to match expected HIP_VISIBLE_DEVICES uuid input
     return uuids
+
+
 def _raw_device_uuid_nvml() -> list[str] | None:
     r"""Return list of device UUID as reported by NVML or None if NVM discovery/initialization failed."""
     from ctypes import byref, c_int, c_void_p, CDLL, create_string_buffer
@@ -1443,13 +1446,13 @@ def _get_pynvml_handler(device: Device = None):
 def _get_amdsmi_handler(device: Device = None):
     if not _HAS_AMDSMI:
         raise ModuleNotFoundError(
-            "hcusmi does not seem to be installed or it can't be imported."
+            "amdsmi does not seem to be installed or it can't be imported."
         ) from _AMDSMI_ERR
     try:
         amdsmi.amdsmi_init()
     except amdsmi.AmdSmiException as e:
         raise RuntimeError(
-            "hcusmi driver can't be loaded, requires >=ROCm5.6 installation"
+            "amdsmi driver can't be loaded, requires >=ROCm6.0 installation"
         ) from e
     device = _get_amdsmi_device_index(device)
     handle = amdsmi.amdsmi_get_processor_handles()[device]
@@ -1460,7 +1463,7 @@ def _get_hcusmi_handler(device: Device = None):
     if not _HAS_HCUSMI:
         raise ModuleNotFoundError(
             "hcusmi does not seem to be installed or it can't be imported."
-        ) from _PYNVML_ERR
+        ) from _HCUSMI_ERR
     try:
         hcusmi.hcusmi_init()
     except hcusmi.HcuSmiException as e:

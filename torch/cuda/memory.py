@@ -804,11 +804,11 @@ def list_gpu_processes(device: "Device" = None) -> str:
                 try:
                     import amdsmi  # type: ignore[import]
                 except ModuleNotFoundError:
-                    return "hcusmi module not found, please install hcusmi"
+                    return "amdsmi module not found, please install amdsmi"
                 try:
                     amdsmi.amdsmi_init()  # type: ignore[attr-defined]
                 except amdsmi.AmdSmiException:  # type: ignore[attr-defined]
-                    return "hcusmi driver can't be loaded, is ROCm installed?"
+                    return "amdsmi driver can't be loaded, is ROCm installed?"
 
                 device = _get_amdsmi_device_index(device)
 
@@ -816,16 +816,16 @@ def list_gpu_processes(device: "Device" = None) -> str:
                     handle = amdsmi.amdsmi_get_processor_handles()[device]  # type: ignore[attr-defined]
                     procs = amdsmi.amdsmi_get_gpu_process_list(handle)  # type: ignore[attr-defined]
                 except amdsmi.AmdSmiException:  # type: ignore[attr-defined]
-                    return "hcusmi cannot list processes from other users"
+                    return "amdsmi cannot list processes from other users"
         else:
             try:
                 import amdsmi  # type: ignore[import]
             except ModuleNotFoundError:
-                return "hcusmi module not found, please install hcusmi"
+                return "amdsmi module not found, please install amdsmi"
             try:
                 amdsmi.amdsmi_init()  # type: ignore[attr-defined]
             except amdsmi.AmdSmiException:  # type: ignore[attr-defined]
-                return "hcusmi driver can't be loaded, is ROCm installed?"
+                return "amdsmi driver can't be loaded, is ROCm installed?"
 
             device = _get_amdsmi_device_index(device)
 
@@ -833,7 +833,7 @@ def list_gpu_processes(device: "Device" = None) -> str:
                 handle = amdsmi.amdsmi_get_processor_handles()[device]  # type: ignore[attr-defined]
                 procs = amdsmi.amdsmi_get_gpu_process_list(handle)  # type: ignore[attr-defined]
             except amdsmi.AmdSmiException:  # type: ignore[attr-defined]
-                return "hcusmi cannot list processes from other users"
+                return "amdsmi cannot list processes from other users"
 
     lines = []
     lines.append(f"GPU:{device}")
