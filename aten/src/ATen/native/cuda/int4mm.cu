@@ -127,7 +127,7 @@ inline __host__ __device__ uint32_t getAlignmentRoundUp(const void* p) {
   return diff == 0 ? 0 : uint32_t(Align) - diff;
 }
 
-#if defined (__gfx90a__) || defined(__gfx942__) || defined(__gfx950__)
+#if defined (__gfx90a__) || defined(__gfx942__) || defined(__gfx950__) || defined(__gfx92a__) || defined(__gfx938__)
 #define CDNA2_OR_LATER 1
 #else
 #define CDNA2_OR_LATER 0
@@ -143,7 +143,7 @@ template<typename T, uint32_t Rank>
 using VecT = T __attribute__((ext_vector_type(Rank)));
 
 static bool isCDNA2orLater(int index) {
-    return at::detail::getCUDAHooks().isGPUArch({"gfx90a", "gfx942", "gfx950"}, index);
+    return at::detail::getCUDAHooks().isGPUArch({"gfx90a", "gfx942", "gfx950", "gfx92a", "gfx938"}, index);
 }
 
 #else
@@ -734,10 +734,17 @@ __launch_bounds__(Warps* kWarpSize) void tinygemm_m16n8k16_chunk_kernel(
 #pragma unroll
         for (int k = 0; k < 2; ++k) {
 #if defined(USE_ROCM)
+#if defined(__gfx92a__) || defined(__gfx938__)
+          cTmp[k] = __builtin_hcu_mmac_f32_16x16x16_bf16_lit_lts(
+              a[i * kInnerKTiles + j * 2 + k].val,
+              b[i][(j * 2 + k) / 2].val[((j * 2 + k) % 2)],
+              cTmp[k], 1, 1);
+#else
           cTmp[k] = __builtin_amdgcn_mfma_f32_16x16x16bf16_1k(
               a[i * kInnerKTiles + j * 2 + k].val,
               b[i][(j * 2 + k) / 2].val[((j * 2 + k) % 2)],
               cTmp[k], 0, 0, 0);
+#endif
 #else
           asm volatile(
               "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
@@ -832,10 +839,17 @@ __launch_bounds__(Warps* kWarpSize) void tinygemm_m16n8k16_chunk_kernel(
 #pragma unroll
       for (int k = 0; k < 2; ++k) {
 #if defined(USE_ROCM)
+#if defined(__gfx92a__) || defined(__gfx938__)
+        cTmp[k] = __builtin_hcu_mmac_f32_16x16x16_bf16_lit_lts(
+          a[j * 2 + k].val,
+          b[0][(j * 2 + k) / 2].val[((j * 2 + k) % 2)],
+          cTmp[k], 1, 1);
+#else
         cTmp[k] = __builtin_amdgcn_mfma_f32_16x16x16bf16_1k(
           a[j * 2 + k].val,
           b[0][(j * 2 + k) / 2].val[((j * 2 + k) % 2)],
           cTmp[k], 0, 0, 0);
+#endif
 #else
         asm volatile(
             "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
@@ -917,7 +931,7 @@ __launch_bounds__(Warps* kWarpSize) void tinygemm_m16n8k16_chunk_kernel(
         sum_f32);
   }
 #else
-    printf("__builtin_amdgcn_mfma_f32_16x16x16bf16_1k is only supported on AMD gpu arch greater than or equal to CDNA2\n");
+    printf("__builtin_hcu_mmac_f32_16x16x16_bf16_lit_lts is only supported on HCU arch gfx92a, gfx938 or later\n");
 #endif
 }
 
@@ -1099,7 +1113,7 @@ at::Tensor _weight_int4pack_mm_cuda(
 
 #if defined(USE_ROCM)
   if (!isCDNA2orLater(A.device().index())) {
-    TORCH_CHECK(false, "_weight_int4pack_mm_cuda is only supported on AMD gpu arch greater than or equal to CDNA2");
+    TORCH_CHECK(false, "_weight_int4pack_mm_cuda is only supported on HCU arch gfx92a, gfx938 or later");
   }
 #endif
 
@@ -1294,7 +1308,7 @@ at::Tensor _convert_weight_to_int4pack_cuda(
 
 #if defined(USE_ROCM)
   if (!isCDNA2orLater(in.device().index())) {
-    TORCH_CHECK(false, "_convert_weight_to_int4pack_cuda is only supported on AMD gpu arch greater than or equal to CDNA2");
+    TORCH_CHECK(false, "_convert_weight_to_int4pack_cuda is only supported on HCU arch gfx92a, gfx938 or later");
   }
 #endif
 
