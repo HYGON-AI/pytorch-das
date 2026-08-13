@@ -945,7 +945,7 @@ def _raw_device_count_amdsmi() -> int:
         amdsmi.amdsmi_init()
     except amdsmi.AmdSmiException as e:
         warnings.warn(
-            f"Can't initialize hcusmi - Error code: {e.err_code}", stacklevel=2
+            f"Can't initialize amdsmi - Error code: {e.err_code}", stacklevel=2
         )
         return -1
     socket_handles = amdsmi.amdsmi_get_processor_handles()
@@ -1021,21 +1021,19 @@ def _raw_device_uuid_amdsmi() -> list[str] | None:
 
 
 
-
-
 def _raw_device_uuid_hcusmi() -> list[str] | None:
     if not _HAS_HCUSMI:
         return None
     try:
         hcusmi.hcusmi_init()
     except hcusmi.HcuSmiException:
-        warnings.warn("Can't initialize amdsmi", stacklevel=2)
+        warnings.warn("Can't initialize hcusmi", stacklevel=2)
         return None
     try:
         socket_handles = hcusmi.hcusmi_get_processor_handles()
         dev_count = len(socket_handles)
     except hcusmi.HcuSmiException:
-        warnings.warn("Can't get amdsmi device count", stacklevel=2)
+        warnings.warn("Can't get hcusmi device count", stacklevel=2)
         return None
     uuids: list[str] = []
     for idx in range(dev_count):
@@ -1050,6 +1048,11 @@ def _raw_device_uuid_hcusmi() -> list[str] | None:
             ]  # Removes 0x prefix from serial
         except hcusmi.HcuSmiException:
             warnings.warn("Cannot get uuid for hcu device", stacklevel=2)
+            return None
+        uuids.append(
+            str(uuid).lower()
+        )  # Lower-case to match expected HIP_VISIBLE_DEVICES uuid input
+    return uuids
 def _raw_device_uuid_nvml() -> list[str] | None:
     r"""Return list of device UUID as reported by NVML or None if NVM discovery/initialization failed."""
     from ctypes import byref, c_int, c_void_p, CDLL, create_string_buffer
