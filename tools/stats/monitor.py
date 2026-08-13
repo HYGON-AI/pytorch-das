@@ -434,7 +434,13 @@ class UsageLogger:
                     gpu_uuid = hcusmi.hcusmi_get_gpu_device_uuid(handle)
                     gpu_utilization = engine_usage["gfx_activity"]
                     gpu_mem_utilization = engine_usage["umc_activity"]
-                    mem_info = hcusmi.hcusmi_get_gpu_memory_usage(handle)
+                    # hcusmi_get_gpu_memory_usage requires a mem_type arg and
+                    # returns an int; use hcusmi_get_gpu_vram_usage instead
+                    vram = hcusmi.hcusmi_get_gpu_vram_usage(handle)
+                    mem_info = {
+                        "vram_usage": vram["vram_used"],
+                        "vram_total": vram["vram_total"],
+                    }
                 else:
                     engine_usage = amdsmi.amdsmi_get_gpu_activity(handle)
                     gpu_uuid = amdsmi.amdsmi_get_gpu_device_uuid(handle)
@@ -541,7 +547,9 @@ class UsageLogger:
         per_process_info = []
         for p in processes:
             if self._gpu_lib_detected == "hcusmi":
-                proc_info = hcusmi.hcusmi_get_gpu_process_info(handle, p)
+                # hcusmi_get_gpu_process_list already returns full per-process
+                # dicts; hcusmi provides no hcusmi_get_gpu_process_info API
+                proc_info = p
             else:
                 try:
                     proc_info = amdsmi.amdsmi_get_gpu_process_info(handle, p)
