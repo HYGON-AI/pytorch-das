@@ -2,7 +2,6 @@
 # Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 # SPDX-License-Identifier: BSD-3-Clause
 
-#!/bin/bash
 
 ### PyTorch HCU/DTK 编译流程
 ### 说明：
@@ -73,11 +72,11 @@ export DISTDIR=${WORK_SPACE}/dist
 
 ### 设置 MKL 路径
 ### 老镜像通常是 /opt/intel/mkl/lib/intel64_lin；
-### 当前部分容器是 oneAPI MKL，例如 /opt/intel/oneapi/mkl/2024.2/lib。
+### 当前部分容器是 oneAPI MKL，例如 /opt/intel/oneapi/mkl/latest/lib。
 if [ -d /opt/intel/mkl/lib/intel64_lin ]; then
     export MKL_LIB_DIR=/opt/intel/mkl/lib/intel64_lin
-elif [ -d /opt/intel/oneapi/mkl/2024.2/lib ]; then
-    export MKL_LIB_DIR=/opt/intel/oneapi/mkl/2024.2/lib
+elif [ -d /opt/intel/oneapi/mkl/latest/lib ]; then
+    export MKL_LIB_DIR=/opt/intel/oneapi/mkl/latest/lib
 else
     echo "ERROR: cannot find MKL lib directory" >&2
     exit 1
@@ -235,11 +234,6 @@ if [ "${MAGMA_ENABLED}" = "1" ]; then
     export LD_LIBRARY_PATH=${ROCM_PATH}/magma/lib:$LD_LIBRARY_PATH
 fi
 export LDFLAGS="-Wl,--copy-dt-needed-entries"
-
-### 替换 /opt/rocm 为本地 ${ROCM_PATH} 路径
-sed -i "s#/opt/rocm#${ROCM_PATH}#g" cmake/Dependencies.cmake
-sed -i "s#/opt/rocm#${ROCM_PATH}#g" third_party/kineto/libkineto/CMakeLists.txt
-sed -i "s#/opt/rocm#${ROCM_PATH}#g" third_party/gloo/cmake/Modules/Findrccl.cmake
 
 ### 给 hipify 脚本加上权限并转码
 if [ -f third_party/gloo/tools/amd_build/build_amd.py ]; then
