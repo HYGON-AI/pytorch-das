@@ -39,7 +39,7 @@ permissions:
 
 jobs:
   test:
-    name: ${{ matrix.config == 'pr' && 'test (pr, parallel 0-1 + 2-3)' || (matrix.config == 'default' && matrix.shard == 0) && 'test (nightly, 4 parallel shards, 8 DCUs)' || format('test ({0}, {1}, {2})', matrix.config, matrix.shard, matrix.num_shards) }}
+    name: ${{ matrix.config == 'pr' && 'test (pr, parallel 4-5 + 6-7)' || (matrix.config == 'default' && matrix.shard == 0) && 'test (nightly, 4 parallel shards, 8 DCUs)' || format('test ({0}, {1}, {2})', matrix.config, matrix.shard, matrix.num_shards) }}
     strategy:
       fail-fast: false
       # Each suite has one coordinator job when it needs parallel containers,

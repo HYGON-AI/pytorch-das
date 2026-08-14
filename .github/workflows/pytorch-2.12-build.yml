@@ -407,7 +407,7 @@ jobs:
       build_environment: linux-rocky8.6-rocm-dcu-py3.10
       expected_device_count: ${{ needs.preflight.outputs.test_suite == 'nightly' && '8' || '4' }}
       dcu_visible_devices: "0,1"
-      pr_dcu_device_pairs: "0,1;2,3"
+      pr_dcu_device_pairs: "4,5;6,7"
       nightly_dcu_device_pairs: "0,1;2,3;4,5;6,7"
 
   required:
