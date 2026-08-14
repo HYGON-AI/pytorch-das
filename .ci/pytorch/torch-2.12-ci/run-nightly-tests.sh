@@ -136,6 +136,7 @@ run_entry() {
         --env "PYTHONUNBUFFERED=1" \
         --env "PYTORCH_TEST_WITH_ROCM=1" \
         --env "PYTORCH_TESTING_DEVICE_ONLY_FOR=cuda" \
+        --env "PYTORCH_TEST_VISIBLE_DEVICE_COUNT=2" \
         --env "CONTINUE_THROUGH_ERROR=1" \
         --env "NO_TD=1" \
         --env "MAX_JOBS=${MAX_JOBS:-4}" \

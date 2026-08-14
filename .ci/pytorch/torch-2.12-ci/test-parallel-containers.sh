@@ -112,6 +112,10 @@ if [[ "$(grep -Fo -- '--env DCU_VISIBLE_DEVICES=0\,1' "${MOCK_LOG}" | wc -l)" -l
     echo "ERROR: both containers must expose their physical pair as logical 0,1" >&2
     exit 1
 fi
+if [[ "$(grep -Fo -- '--env PYTORCH_TEST_VISIBLE_DEVICE_COUNT=2' "${MOCK_LOG}" | wc -l)" -lt 2 ]]; then
+    echo "ERROR: both containers must cap file-level workers to two visible DCUs" >&2
+    exit 1
+fi
 grep -Fq -- '--env ROCR_VISIBLE_DEVICES=4\,5' "${MOCK_LOG}"
 grep -Fq -- '--env ROCR_VISIBLE_DEVICES=6\,7' "${MOCK_LOG}"
 grep -Fq 'pytorch-2.12-dcu-test-fixture-1-pr-1' "${MOCK_LOG}"
