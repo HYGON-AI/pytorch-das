@@ -322,8 +322,13 @@ bool check_flash_attention_hardware_support(sdp_params const& params, bool debug
     if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
         auto dprops = at::cuda::getCurrentDeviceProperties();
         if (debug) {
+#if defined(PYTORCH_DTK_VERSION)
+            TORCH_WARN(
+                    "Flash attention was not compiled for current HCU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+#else
             TORCH_WARN(
                     "Flash attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+#endif
         }
         return false;
     }
@@ -392,8 +397,13 @@ bool check_mem_efficient_hardware_support(sdp_params const& params, bool debug) 
     if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
         auto dprops = at::cuda::getCurrentDeviceProperties();
         if (debug) {
+#if defined(PYTORCH_DTK_VERSION)
+            TORCH_WARN(
+                    "Mem Efficient attention was not compiled for current HCU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+#else
             TORCH_WARN(
                     "Mem Efficient attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+#endif
         }
         return false;
     }
