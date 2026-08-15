@@ -116,6 +116,14 @@ if [[ "$(grep -Fo -- '--env PYTORCH_TEST_VISIBLE_DEVICE_COUNT=2' "${MOCK_LOG}" |
     echo "ERROR: both containers must cap file-level workers to two visible DCUs" >&2
     exit 1
 fi
+if [[ "$(grep -Fo -- '--env TORCH_SERIALIZATION_DEBUG=1' "${MOCK_LOG}" | wc -l)" -lt 2 ]]; then
+    echo "ERROR: both containers must enable serialization debug assertions" >&2
+    exit 1
+fi
+if [[ "$(grep -Fo -- '--env FA_SO_PATH=/opt/flash_attn_2_cuda.so' "${MOCK_LOG}" | wc -l)" -lt 2 ]]; then
+    echo "ERROR: both containers must receive the Flash Attention library path" >&2
+    exit 1
+fi
 grep -Fq -- '--env ROCR_VISIBLE_DEVICES=4\,5' "${MOCK_LOG}"
 grep -Fq -- '--env ROCR_VISIBLE_DEVICES=6\,7' "${MOCK_LOG}"
 grep -Fq 'pytorch-2.12-dcu-test-fixture-1-pr-1' "${MOCK_LOG}"

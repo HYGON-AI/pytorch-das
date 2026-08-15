@@ -37,6 +37,20 @@ python3 -m pip install --no-deps --force-reinstall "${torch_wheel}"
 torch_path="$(python3 -c 'import torch, os; print(os.path.dirname(torch.__file__))')"
 export LD_LIBRARY_PATH="${torch_path}/lib:${LD_LIBRARY_PATH}"
 
+FA_SO_PATH="${FA_SO_PATH:?FA_SO_PATH is required}"
+export FA_SO_PATH
+if [[ ! -s "${FA_SO_PATH}" ]]; then
+    echo "ERROR: Flash Attention library is missing or empty: ${FA_SO_PATH}" >&2
+    exit 1
+fi
+echo "Flash Attention library: ${FA_SO_PATH}"
+fa_ldd_output="$(ldd "${FA_SO_PATH}" 2>&1)"
+printf '%s\n' "${fa_ldd_output}"
+if grep -Fq 'not found' <<< "${fa_ldd_output}"; then
+    echo "ERROR: Flash Attention library has unresolved dependencies" >&2
+    exit 1
+fi
+
 python3 - <<'PY'
 import torch
 
@@ -72,7 +86,9 @@ PY
 elif [[ "${TEST_CONFIG}" == "pr" ]]; then
     cd /pytorch
     pr_test_list=".ci/pytorch/torch-2.12-ci/pr-tests.txt"
+    pr_skip_list=".ci/pytorch/torch-2.12-ci/pr-skipped-tests.txt"
     test -s "${pr_test_list}"
+    test -s "${pr_skip_list}"
     mapfile -t pr_tests < "${pr_test_list}"
     if (( ${#pr_tests[@]} == 0 )); then
         echo "ERROR: PR test list is empty" >&2
@@ -98,6 +114,9 @@ elif [[ "${TEST_CONFIG}" == "pr" ]]; then
 
     echo "===== PR test selection (${#pr_tests[@]} modules), shard ${SHARD_NUMBER}/${NUM_TEST_SHARDS} ====="
     printf '  %s\n' "${pr_tests[@]}"
+    export PYTORCH_DCU_PR_SKIP_FILE="/pytorch/${pr_skip_list}"
+    export PYTHONPATH="/pytorch/.ci/pytorch/torch-2.12-ci:${PYTHONPATH:-}"
+    echo "PR case-level skip policy: ${PYTORCH_DCU_PR_SKIP_FILE}"
     touch /tmp/pytorch-nightly-test-started
     set +e
     python3 test/run_test.py \
@@ -107,7 +126,9 @@ elif [[ "${TEST_CONFIG}" == "pr" ]]; then
         --exclude-quantization-tests \
         --shard "${SHARD_NUMBER}" "${NUM_TEST_SHARDS}" \
         --verbose \
-        --keep-going
+        --keep-going \
+        -- \
+        -p dcu_pr_skip_plugin
     test_rc=$?
     set -e
 else

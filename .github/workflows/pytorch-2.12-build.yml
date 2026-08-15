@@ -47,6 +47,7 @@ env:
   TRITON_TEST_VERSION: "3.7.0"
   TORCHVISION_TEST_INDEX_URL: "http://10.16.1.201:9929/customer/dtk2604-rc4/+simple/"
   TORCHVISION_TEST_VERSION: "0.27.0"
+  AICC_BASE_URL: "http://42.228.13.241:18000/ai_cc/nightly"
 
 jobs:
   preflight:
@@ -185,9 +186,14 @@ jobs:
           test -f .ci/pytorch/torch-2.12-ci/prepare.sh
           test -f .ci/pytorch/torch-2.12-ci/build.sh
           test -f .ci/pytorch/torch-2.12-ci/pr-tests.txt
+          test -f .ci/pytorch/torch-2.12-ci/pr-skipped-tests.txt
           test -f .ci/pytorch/torch-2.12-ci/rebuild-wheel-record.py
+          test -f .ci/pytorch/torch-2.12-ci/install-aicc.sh
           python3 .ci/pytorch/torch-2.12-ci/test_rebuild_wheel_record.py
           python3 .ci/pytorch/torch-2.12-ci/test_junit_test_stats.py
+          python3 .ci/pytorch/torch-2.12-ci/test_dcu_pr_skip_plugin.py
+          bash .ci/pytorch/torch-2.12-ci/test-install-aicc.sh
+          bash .ci/pytorch/torch-2.12-ci/test-pr-environment-policy.sh
           bash .ci/pytorch/torch-2.12-ci/test-parallel-containers.sh
           test -f .ci/pytorch/torch-2.12-ci/run-nightly-test-in-container.sh
           test -f .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
@@ -281,6 +287,7 @@ jobs:
             -e TRITON_TEST_VERSION \
             -e TORCHVISION_TEST_INDEX_URL \
             -e TORCHVISION_TEST_VERSION \
+            -e AICC_BASE_URL \
             "${CONTAINER_NAME}" bash -lc '
             set -euo pipefail
             cd /pytorch
@@ -297,6 +304,11 @@ jobs:
             cp -v "${repaired_wheels[0]}" dist/
 
             if [[ "${TEST_SUITE}" == "pr" || "${TEST_SUITE}" == "nightly" ]]; then
+              chmod 755 .ci/pytorch/torch-2.12-ci/install-aicc.sh
+              .ci/pytorch/torch-2.12-ci/install-aicc.sh
+              chmod 755 .ci/pytorch/torch-2.12-ci/install-dcu-test-compat.sh
+              .ci/pytorch/torch-2.12-ci/install-dcu-test-compat.sh
+
               download_test_wheel() {
                 local destination="$1"
                 local index_url="$2"
@@ -344,6 +356,11 @@ jobs:
               build/lib
               build/bin
               .additional_ci_files
+              .ci/pytorch/torch-2.12-ci/amd-smi
+              .ci/pytorch/torch-2.12-ci/dcu_pr_skip_plugin.py
+              .ci/pytorch/torch-2.12-ci/install-aicc.sh
+              .ci/pytorch/torch-2.12-ci/install-dcu-test-compat.sh
+              .ci/pytorch/torch-2.12-ci/pr-skipped-tests.txt
               .ci/pytorch/torch-2.12-ci/pr-tests.txt
             )
             for path in "${required_paths[@]}"; do
@@ -352,11 +369,17 @@ jobs:
             find dist -maxdepth 2 -type f -name "*.whl" -ls
           '
 
+          aicc_installer="not-installed"
+          if [[ "${TEST_SUITE}" == "pr" || "${TEST_SUITE}" == "nightly" ]]; then
+            aicc_installer="$(docker exec "${CONTAINER_NAME}" cat /opt/dtk/.info/aicc_installer_name)"
+          fi
+
           docker image rm -f "${TEST_IMAGE_NAME}" 2>/dev/null || true
           docker commit \
             --change "LABEL org.pytorch.dcu.source-sha=${GITHUB_SHA}" \
             --change "LABEL org.pytorch.dcu.workflow-run=${GITHUB_RUN_ID}" \
             --change "LABEL org.pytorch.dcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}" \
+            --change "LABEL org.pytorch.dcu.aicc-installer=${aicc_installer}" \
             "${CONTAINER_NAME}" "${TEST_IMAGE_NAME}"
           docker image inspect "${TEST_IMAGE_NAME}" \
             --format 'test image={{.RepoTags}} size={{.Size}} labels={{json .Config.Labels}}'

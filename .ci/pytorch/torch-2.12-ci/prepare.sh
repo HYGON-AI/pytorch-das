@@ -123,7 +123,7 @@ python3 -m pip install --no-cache-dir \
     hypothesis \
     expecttest==0.2.1 \
     scipy \
-    sympy==1.12.1 \
+    sympy==1.13.3 \
     tlparse==0.3.5 \
     botocore \
     numba \
