@@ -6,6 +6,63 @@ AICC_BASE_URL="${AICC_BASE_URL:-http://42.228.13.241:18000/ai_cc/nightly}"
 AICC_DTK_DIR="${AICC_DTK_DIR:-/opt/dtk}"
 AICC_INSTALLER_URL="${AICC_INSTALLER_URL:-}"
 AICC_INSTALLER_SHA256="${AICC_INSTALLER_SHA256:-}"
+AICC_INDEX_RETRIES="${AICC_INDEX_RETRIES:-5}"
+AICC_RETRY_DELAY_SECONDS="${AICC_RETRY_DELAY_SECONDS:-2}"
+AICC_INSTALLER_REGEX='dtk_llvm_[[:alnum:].-]+_[0-9]{8}([0-9]{4})?\.run'
+
+fetch_index() {
+    local url="$1"
+    local attempt
+    local download_ok
+    local output
+
+    for (( attempt=1; attempt<=AICC_INDEX_RETRIES; attempt++ )); do
+        download_ok=0
+        output=""
+        if command -v wget >/dev/null 2>&1; then
+            if output="$(wget \
+                --no-verbose \
+                --tries=1 \
+                --timeout=30 \
+                --output-document=- \
+                "${url}")"; then
+                download_ok=1
+            fi
+        elif command -v curl >/dev/null 2>&1; then
+            if output="$(curl \
+                --fail \
+                --silent \
+                --show-error \
+                --location \
+                --connect-timeout 30 \
+                --max-time 60 \
+                "${url}")"; then
+                download_ok=1
+            fi
+        else
+            echo "ERROR: neither wget nor curl is available" >&2
+            return 1
+        fi
+
+        if (( download_ok == 1 )) && [[ -n "${output}" ]]; then
+            if grep -qE "${AICC_INSTALLER_REGEX}" <<< "${output}"; then
+                printf '%s\n' "${output}"
+                return 0
+            fi
+            echo \
+                "WARNING: AICC index response contained no dated installer" \
+                >&2
+        fi
+
+        echo \
+            "WARNING: failed to fetch AICC index (attempt ${attempt}/${AICC_INDEX_RETRIES})" \
+            >&2
+        if (( attempt < AICC_INDEX_RETRIES && AICC_RETRY_DELAY_SECONDS > 0 )); then
+            sleep "${AICC_RETRY_DELAY_SECONDS}"
+        fi
+    done
+    return 1
+}
 
 resolve_latest_installer() {
     local index_html
@@ -13,7 +70,12 @@ resolve_latest_installer() {
     local timestamp
     local latest
 
-    index_html="$(wget --quiet --output-document=- "${AICC_BASE_URL%/}/")"
+    if ! index_html="$(fetch_index "${AICC_BASE_URL%/}/")"; then
+        echo \
+            "ERROR: unable to fetch AICC nightly index: ${AICC_BASE_URL%/}/" \
+            >&2
+        return 1
+    fi
     latest=""
     while IFS= read -r candidate; do
         timestamp="${candidate%.run}"
@@ -25,7 +87,7 @@ resolve_latest_installer() {
             latest="${timestamp} ${candidate}"
         fi
     done < <(
-        grep -oE 'dtk_llvm_[[:alnum:].-]+_[0-9]{8}([0-9]{4})?\.run' \
+        grep -oE "${AICC_INSTALLER_REGEX}" \
             <<< "${index_html}" | sort -u || true
     )
 
