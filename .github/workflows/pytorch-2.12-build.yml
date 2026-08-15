@@ -47,7 +47,7 @@ env:
   TRITON_TEST_VERSION: "3.7.0"
   TORCHVISION_TEST_INDEX_URL: "http://10.16.1.201:9929/customer/dtk2604-rc4/+simple/"
   TORCHVISION_TEST_VERSION: "0.27.0"
-  AICC_BASE_URL: "http://42.228.13.241:18000/ai_cc/nightly"
+  AICC_BASE_URL: "http://10.16.1.201:8000/ai_cc/nightly/"
 
 jobs:
   preflight:
