@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 CI_DIR = Path(__file__).resolve().parent
-PLUGIN_PATH = CI_DIR / "dcu_pr_skip_plugin.py"
+PLUGIN_PATH = CI_DIR / "pr_skip_plugin.py"
 SKIP_FILE = CI_DIR / "pr-skipped-tests.txt"
 
 
@@ -17,7 +17,7 @@ class _FakeMark:
 
 
 sys.modules.setdefault("pytest", types.SimpleNamespace(mark=_FakeMark()))
-spec = importlib.util.spec_from_file_location("dcu_pr_skip_plugin", PLUGIN_PATH)
+spec = importlib.util.spec_from_file_location("pr_skip_plugin", PLUGIN_PATH)
 plugin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(plugin)
 

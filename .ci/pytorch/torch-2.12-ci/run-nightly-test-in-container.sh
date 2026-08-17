@@ -178,7 +178,7 @@ elif [[ "${TEST_CONFIG}" == "pr" ]]; then
         --verbose
         --keep-going
         --
-        -p dcu_pr_skip_plugin
+        -p pr_skip_plugin
     )
     set +e
     timeout --signal=TERM --kill-after=60s \

@@ -191,7 +191,7 @@ jobs:
           test -f .ci/pytorch/torch-2.12-ci/install-aicc.sh
           python3 .ci/pytorch/torch-2.12-ci/test_rebuild_wheel_record.py
           python3 .ci/pytorch/torch-2.12-ci/test_junit_test_stats.py
-          python3 .ci/pytorch/torch-2.12-ci/test_dcu_pr_skip_plugin.py
+          python3 .ci/pytorch/torch-2.12-ci/test_pr_skip_plugin.py
           bash .ci/pytorch/torch-2.12-ci/test-install-aicc.sh
           bash .ci/pytorch/torch-2.12-ci/test-pr-environment-policy.sh
           bash .ci/pytorch/torch-2.12-ci/test-pr-hang-policy.sh
@@ -307,8 +307,8 @@ jobs:
             if [[ "${TEST_SUITE}" == "pr" || "${TEST_SUITE}" == "nightly" ]]; then
               chmod 755 .ci/pytorch/torch-2.12-ci/install-aicc.sh
               .ci/pytorch/torch-2.12-ci/install-aicc.sh
-              chmod 755 .ci/pytorch/torch-2.12-ci/install-dcu-test-compat.sh
-              .ci/pytorch/torch-2.12-ci/install-dcu-test-compat.sh
+              chmod 755 .ci/pytorch/torch-2.12-ci/install-test-compat.sh
+              .ci/pytorch/torch-2.12-ci/install-test-compat.sh
 
               download_test_wheel() {
                 local destination="$1"
@@ -358,9 +358,9 @@ jobs:
               build/bin
               .additional_ci_files
               .ci/pytorch/torch-2.12-ci/amd-smi
-              .ci/pytorch/torch-2.12-ci/dcu_pr_skip_plugin.py
+              .ci/pytorch/torch-2.12-ci/pr_skip_plugin.py
               .ci/pytorch/torch-2.12-ci/install-aicc.sh
-              .ci/pytorch/torch-2.12-ci/install-dcu-test-compat.sh
+              .ci/pytorch/torch-2.12-ci/install-test-compat.sh
               .ci/pytorch/torch-2.12-ci/pr-skipped-tests.txt
               .ci/pytorch/torch-2.12-ci/pr-tests.txt
             )

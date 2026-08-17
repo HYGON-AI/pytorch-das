@@ -64,7 +64,7 @@ HY_SMI
 chmod 755 "${TEMP_ROOT}/hy-smi"
 
 AMD_SMI_COMPAT_PATH="${TEMP_ROOT}/bin/amd-smi" \
-bash "${CI_DIR}/install-dcu-test-compat.sh"
+bash "${CI_DIR}/install-test-compat.sh"
 test -x "${TEMP_ROOT}/bin/amd-smi"
 device_lines="$(HY_SMI_PATH="${TEMP_ROOT}/hy-smi" "${TEMP_ROOT}/bin/amd-smi" list)"
 test "$(grep -c '^GPU ' <<< "${device_lines}")" = "2"
