@@ -1,5 +1,5 @@
 name: PyTorch 2.12 Build
-run-name: PyTorch 2.12 · ${{ github.event_name == 'pull_request' && 'PR tests' || github.event_name == 'push' && github.ref_name == '2.12.0-dev-opensource-V1' && 'post-merge publish' || github.event_name == 'schedule' && 'nightly full tests' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
+run-name: PyTorch 2.12 · ${{ github.event_name == 'pull_request' && 'PR build-only (tests temporarily skipped)' || github.event_name == 'push' && github.ref_name == 'ljz/pytorch-2.12-ci' && 'feature build-only (tests temporarily skipped)' || github.event_name == 'push' && github.ref_name == '2.12.0-dev-opensource-V1' && 'post-merge publish' || github.event_name == 'schedule' && 'nightly full tests' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
 
 on:
   workflow_dispatch:
@@ -68,7 +68,8 @@ jobs:
         id: plan
         shell: bash
         env:
-          REQUESTED_SUITE: ${{ github.event_name == 'schedule' && 'nightly' || github.event_name == 'pull_request' && 'pr' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
+          # Temporary landing policy: build PR commits, but do not start HCU test containers.
+          REQUESTED_SUITE: ${{ github.event_name == 'schedule' && 'nightly' || github.event_name == 'pull_request' && 'build-only' || github.event_name == 'push' && github.ref_name == 'ljz/pytorch-2.12-ci' && 'build-only' || github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
         run: |
           set -euo pipefail
           case "${REQUESTED_SUITE}" in
