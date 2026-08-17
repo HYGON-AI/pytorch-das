@@ -84,7 +84,7 @@ def append_junit_step_summary(
     stats: Dict[str, Union[int, float]],
 ) -> None:
     with summary_path.open("a", encoding="utf-8") as summary:
-        summary.write("## DCU test case summary\n\n")
+        summary.write("## HCU test case summary\n\n")
         summary.write(
             "| Total | Passed | Failed | Errors | Skipped | Success rate | Duration |\n"
         )

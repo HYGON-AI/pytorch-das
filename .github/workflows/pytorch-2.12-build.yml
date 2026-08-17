@@ -25,7 +25,7 @@ on:
     - cron: "0 18 * * 0,2,4"
 
 # The build and every test shard share one local Docker daemon. Prevent two
-# active runs from contending for the same DCU host. The bw1100 label must be
+# active runs from contending for the same HCU host. The bw1100 label must be
 # unique to this physical runner because GitHub does not provide job affinity.
 concurrency:
   group: pytorch-2.12-bw1100
@@ -43,7 +43,7 @@ env:
   ROCM_PATH: "/opt/dtk"
   TOOLKIT_DIR: "/pytorch"
   AMDGPU_TARGETS: "gfx906;gfx926;gfx928;gfx936;gfx938"
-  BUILD_ENVIRONMENT: "linux-rocky8.6-rocm-dcu-py3.10"
+  BUILD_ENVIRONMENT: "linux-rocky8.6-rocm-hcu-py3.10"
   TEST_DEPENDENCY_INDEX_URL: "http://10.16.1.201:9929/nightly/dtk2604/+simple/"
   TRITON_TEST_VERSION: "3.7.0"
   TORCHVISION_TEST_INDEX_URL: "http://10.16.1.201:9929/customer/dtk2604-rc4/+simple/"
@@ -87,7 +87,7 @@ jobs:
               ;;
             nightly)
               expected_shards=4
-              # One runner job coordinates four two-DCU containers in parallel.
+              # One runner job coordinates four two-HCU containers in parallel.
               test_matrix='{"include":[{"config":"default","shard":0,"num_shards":4}]}'
               ;;
             *)
@@ -121,7 +121,7 @@ jobs:
           df -h
           test -d /opt/dtk
 
-      - name: Check DCU test capacity
+      - name: Check HCU test capacity
         if: steps.plan.outputs.test_suite != 'build-only'
         shell: bash
         env:
@@ -138,7 +138,7 @@ jobs:
             required_device_count=8
           fi
           if (( device_count < required_device_count )); then
-            echo "ERROR: expected at least ${required_device_count} DCU devices, found ${device_count}" >&2
+            echo "ERROR: expected at least ${required_device_count} HCU devices, found ${device_count}" >&2
             exit 1
           fi
           echo "device_count=${device_count}"
@@ -157,7 +157,7 @@ jobs:
       RESULT_ROOT: ${{ needs.preflight.outputs.result_root }}
       IMAGE_NAME: pytorch-2.12-build:${{ github.run_id }}-${{ github.run_attempt }}
       CONTAINER_NAME: pytorch-2.12-${{ github.run_id }}-${{ github.run_attempt }}
-      BUILD_RUN_LABEL: org.pytorch.dcu.build=${{ github.run_id }}-${{ github.run_attempt }}
+      BUILD_RUN_LABEL: org.pytorch.hcu.build=${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout PyTorch source
         uses: actions/checkout@v4
@@ -222,8 +222,8 @@ jobs:
           docker run -d \
             --name "${CONTAINER_NAME}" \
             --label "${BUILD_RUN_LABEL}" \
-            --label "org.pytorch.dcu.workflow-run=${GITHUB_RUN_ID}" \
-            --label "org.pytorch.dcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}" \
+            --label "org.pytorch.hcu.workflow-run=${GITHUB_RUN_ID}" \
+            --label "org.pytorch.hcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}" \
             --network host \
             --ipc host \
             --shm-size=64g \
@@ -379,10 +379,10 @@ jobs:
 
           docker image rm -f "${TEST_IMAGE_NAME}" 2>/dev/null || true
           docker commit \
-            --change "LABEL org.pytorch.dcu.source-sha=${GITHUB_SHA}" \
-            --change "LABEL org.pytorch.dcu.workflow-run=${GITHUB_RUN_ID}" \
-            --change "LABEL org.pytorch.dcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}" \
-            --change "LABEL org.pytorch.dcu.aicc-installer=${aicc_installer}" \
+            --change "LABEL org.pytorch.hcu.source-sha=${GITHUB_SHA}" \
+            --change "LABEL org.pytorch.hcu.workflow-run=${GITHUB_RUN_ID}" \
+            --change "LABEL org.pytorch.hcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}" \
+            --change "LABEL org.pytorch.hcu.aicc-installer=${aicc_installer}" \
             "${CONTAINER_NAME}" "${TEST_IMAGE_NAME}"
           docker image inspect "${TEST_IMAGE_NAME}" \
             --format 'test image={{.RepoTags}} size={{.Size}} labels={{json .Config.Labels}}'
@@ -420,25 +420,25 @@ jobs:
           docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
           docker image rm -f "${IMAGE_NAME}" 2>/dev/null || true
 
-  dcu-test:
-    name: dcu-test
+  hcu-test:
+    name: hcu-test
     needs: [preflight, build]
     if: ${{ needs.preflight.outputs.test_suite != 'build-only' && needs.build.result == 'success' }}
-    uses: ./.github/workflows/_pytorch-2.12-dcu-test.yml
+    uses: ./.github/workflows/_pytorch-2.12-hcu-test.yml
     with:
       test_suite: ${{ needs.preflight.outputs.test_suite }}
       test_matrix: ${{ needs.preflight.outputs.test_matrix }}
       test_image_name: ${{ needs.preflight.outputs.test_image_name }}
       result_root: ${{ needs.preflight.outputs.result_root }}
-      build_environment: linux-rocky8.6-rocm-dcu-py3.10
+      build_environment: linux-rocky8.6-rocm-hcu-py3.10
       expected_device_count: ${{ needs.preflight.outputs.test_suite == 'nightly' && '8' || '4' }}
-      dcu_visible_devices: "0,1"
-      pr_dcu_device_pairs: "4,5;6,7"
-      nightly_dcu_device_pairs: "0,1;2,3;4,5;6,7"
+      hcu_visible_devices: "0,1"
+      pr_hcu_device_pairs: "4,5;6,7"
+      nightly_hcu_device_pairs: "0,1;2,3;4,5;6,7"
 
   required:
     name: test-required
-    needs: [preflight, build, dcu-test]
+    needs: [preflight, build, hcu-test]
     # Run after failed/skipped dependencies, but honor an explicit user cancel.
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: [self-hosted, Linux, X64, bw1100]
@@ -450,14 +450,14 @@ jobs:
       RESULT_ROOT: ${{ needs.preflight.outputs.result_root }}
       PREFLIGHT_RESULT: ${{ needs.preflight.result }}
       BUILD_RESULT: ${{ needs.build.result }}
-      TEST_RESULT: ${{ needs.dcu-test.result }}
+      TEST_RESULT: ${{ needs.hcu-test.result }}
     steps:
       - name: Checkout PyTorch source
         uses: actions/checkout@v4
         with:
           path: source
 
-      - name: Summarize required jobs and DCU tests
+      - name: Summarize required jobs and HCU tests
         id: test_summary
         shell: bash
         run: |
@@ -465,13 +465,13 @@ jobs:
           infrastructure_failed=0
 
           {
-            echo "## PyTorch 2.12 DCU pipeline"
+            echo "## PyTorch 2.12 HCU pipeline"
             echo
             echo "| Job | Result |"
             echo "| --- | --- |"
             echo "| preflight | ${PREFLIGHT_RESULT} |"
             echo "| build | ${BUILD_RESULT} |"
-            echo "| dcu-test | ${TEST_RESULT} |"
+            echo "| hcu-test | ${TEST_RESULT} |"
             echo
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -489,10 +489,10 @@ jobs:
               echo "::error title=Unexpected test result::build-only test result=${TEST_RESULT}"
               infrastructure_failed=1
             fi
-            echo "Build-only run: no DCU test shards were requested." >> "${GITHUB_STEP_SUMMARY}"
+            echo "Build-only run: no HCU test shards were requested." >> "${GITHUB_STEP_SUMMARY}"
           else
             if [[ "${TEST_RESULT}" != "success" ]]; then
-              echo "::error title=DCU test infrastructure failed::result=${TEST_RESULT}"
+              echo "::error title=HCU test infrastructure failed::result=${TEST_RESULT}"
               infrastructure_failed=1
             fi
 
@@ -541,8 +541,8 @@ jobs:
 
           printf '%s\n' "${PYPI_PASSWORD}" |
             docker run --rm -i \
-              --label "org.pytorch.dcu.workflow-run=${GITHUB_RUN_ID}" \
-              --label "org.pytorch.dcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}" \
+              --label "org.pytorch.hcu.workflow-run=${GITHUB_RUN_ID}" \
+              --label "org.pytorch.hcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}" \
               --network host \
               --env DEVPI_URL \
               --env DEVPI_USER \
@@ -617,8 +617,8 @@ jobs:
 
           mapfile -t containers < <(
             docker ps -aq \
-              --filter "label=org.pytorch.dcu.workflow-run=${GITHUB_RUN_ID}" \
-              --filter "label=org.pytorch.dcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}"
+              --filter "label=org.pytorch.hcu.workflow-run=${GITHUB_RUN_ID}" \
+              --filter "label=org.pytorch.hcu.workflow-attempt=${GITHUB_RUN_ATTEMPT}"
           )
           if (( ${#containers[@]} > 0 )); then
             docker rm -f "${containers[@]}"

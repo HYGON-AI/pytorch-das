@@ -83,11 +83,11 @@ import torch
 print("Installed torch:", torch.__version__)
 print("Torch path:", torch.__file__)
 print("HIP version:", torch.version.hip)
-print("DCU available:", torch.cuda.is_available())
-print("DCU count:", torch.cuda.device_count())
+print("HCU available:", torch.cuda.is_available())
+print("HCU count:", torch.cuda.device_count())
 
 if not torch.cuda.is_available():
-    raise RuntimeError("The installed wheel cannot access a DCU device")
+    raise RuntimeError("The installed wheel cannot access a HCU device")
 if torch.version.hip is None:
     raise RuntimeError("The installed wheel does not report a HIP runtime")
 PY
@@ -140,9 +140,9 @@ elif [[ "${TEST_CONFIG}" == "pr" ]]; then
 
     echo "===== PR test selection (${#pr_tests[@]} modules), shard ${SHARD_NUMBER}/${NUM_TEST_SHARDS} ====="
     printf '  %s\n' "${pr_tests[@]}"
-    export PYTORCH_DCU_PR_SKIP_FILE="/pytorch/${pr_skip_list}"
+    export PYTORCH_HCU_PR_SKIP_FILE="/pytorch/${pr_skip_list}"
     export PYTHONPATH="/pytorch/.ci/pytorch/torch-2.12-ci:${PYTHONPATH:-}"
-    # Keep two in-process pytest reruns so transient DCU failures can recover.
+    # Keep two in-process pytest reruns so transient HCU failures can recover.
     # The outer run_test.py retry count stays at one, which caps each failing
     # case at three executions instead of multiplying it to as many as nine.
     export PYTORCH_NUM_PYTEST_RERUNS=2
@@ -150,7 +150,7 @@ elif [[ "${TEST_CONFIG}" == "pr" ]]; then
     # pytest processes merely to classify the same failure as consistent.
     export PYTORCH_TEST_FAILURE_ATTEMPTS=1
     # Official timeout selection returns None when no historical timing exists.
-    # Bound that module subprocess so a hung DCU call can be retried/skipped by
+    # Bound that module subprocess so a hung HCU call can be retried/skipped by
     # run_test.py and the remaining PR modules can still run.
     export PYTORCH_TEST_FALLBACK_TIMEOUT_SECONDS=1800
     PR_TEST_TIMEOUT_SECONDS="${PR_TEST_TIMEOUT_SECONDS:-13500}"
@@ -162,7 +162,7 @@ elif [[ "${TEST_CONFIG}" == "pr" ]]; then
         echo "ERROR: the timeout command is required for PR tests" >&2
         exit 1
     }
-    echo "PR case-level skip policy: ${PYTORCH_DCU_PR_SKIP_FILE}"
+    echo "PR case-level skip policy: ${PYTORCH_HCU_PR_SKIP_FILE}"
     echo "PR pytest reruns per process: ${PYTORCH_NUM_PYTEST_RERUNS}"
     echo "PR attempts per failed case: ${PYTORCH_TEST_FAILURE_ATTEMPTS}"
     echo "PR fallback module timeout: ${PYTORCH_TEST_FALLBACK_TIMEOUT_SECONDS}s"

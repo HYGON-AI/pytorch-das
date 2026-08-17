@@ -4,11 +4,11 @@ set -Eeuo pipefail
 
 DOCKER_IMAGE_NAME="${DOCKER_IMAGE_NAME:?DOCKER_IMAGE_NAME is required}"
 TEST_SUITE="${TEST_SUITE:-smoke}"
-REPORT_ROOT="${REPORT_ROOT:-${RUNNER_TEMP:-/tmp}/pytorch-2.12-dcu-reports}"
-BUILD_ENVIRONMENT="${BUILD_ENVIRONMENT:-linux-rocky8.6-rocm-dcu-py3.10}"
-DCU_VISIBLE_DEVICES="${DCU_VISIBLE_DEVICES:-0,1}"
-PR_DCU_DEVICE_PAIRS="${PR_DCU_DEVICE_PAIRS:-4,5;6,7}"
-NIGHTLY_DCU_DEVICE_PAIRS="${NIGHTLY_DCU_DEVICE_PAIRS:-0,1;2,3;4,5;6,7}"
+REPORT_ROOT="${REPORT_ROOT:-${RUNNER_TEMP:-/tmp}/pytorch-2.12-hcu-reports}"
+BUILD_ENVIRONMENT="${BUILD_ENVIRONMENT:-linux-rocky8.6-rocm-hcu-py3.10}"
+HCU_VISIBLE_DEVICES="${HCU_VISIBLE_DEVICES:-0,1}"
+PR_HCU_DEVICE_PAIRS="${PR_HCU_DEVICE_PAIRS:-4,5;6,7}"
+NIGHTLY_HCU_DEVICE_PAIRS="${NIGHTLY_HCU_DEVICE_PAIRS:-0,1;2,3;4,5;6,7}"
 
 validate_device_pair() {
     local device_pair="$1"
@@ -22,7 +22,7 @@ validate_device_pair() {
     fi
 }
 
-validate_device_pair "${DCU_VISIBLE_DEVICES}"
+validate_device_pair "${HCU_VISIBLE_DEVICES}"
 
 single_entry=0
 provided_entry_values=0
@@ -93,7 +93,7 @@ run_entry() {
     # ROCR selects physical devices. HIP/CUDA then see those two devices as 0,1.
     local logical_device_pair="0,1"
     local run_scope="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
-    local container_name="pytorch-2.12-dcu-test-${run_scope}-${config}-${shard}"
+    local container_name="pytorch-2.12-hcu-test-${run_scope}-${config}-${shard}"
     local entry_dir="${REPORT_ROOT}/${config}-${shard}-of-${num_shards}"
     local test_started=0
     local test_completed=0
@@ -113,9 +113,9 @@ run_entry() {
     # shellcheck disable=SC2086
     docker run --detach \
         --name "${container_name}" \
-        --label "org.pytorch.dcu.workflow-run=${GITHUB_RUN_ID:-local}" \
-        --label "org.pytorch.dcu.workflow-attempt=${GITHUB_RUN_ATTEMPT:-1}" \
-        --label "org.pytorch.dcu.nightly=${run_scope}" \
+        --label "org.pytorch.hcu.workflow-run=${GITHUB_RUN_ID:-local}" \
+        --label "org.pytorch.hcu.workflow-attempt=${GITHUB_RUN_ATTEMPT:-1}" \
+        --label "org.pytorch.hcu.nightly=${run_scope}" \
         --label "${HCU_CONTAINER_LABEL:-org.pytorch.hcu.run=local}" \
         ${HCU_DOCKER_GPU_ARGS:-} \
         --network host \
@@ -128,7 +128,7 @@ run_entry() {
         --env "TEST_CONFIG=${config}" \
         --env "SHARD_NUMBER=${shard}" \
         --env "NUM_TEST_SHARDS=${num_shards}" \
-        --env "DCU_VISIBLE_DEVICES=${logical_device_pair}" \
+        --env "HCU_VISIBLE_DEVICES=${logical_device_pair}" \
         --env "CUDA_VISIBLE_DEVICES=${logical_device_pair}" \
         --env "HIP_VISIBLE_DEVICES=${logical_device_pair}" \
         --env "ROCR_VISIBLE_DEVICES=${physical_device_pair}" \
@@ -219,7 +219,7 @@ run_entry() {
         elif (( test_completed == 0 )); then
             echo "ERROR: test process ended without a completion marker" >&2
         elif (( report_missing != 0 )); then
-            echo "ERROR: DCU test shard did not create /pytorch/test/test-reports" >&2
+            echo "ERROR: HCU test shard did not create /pytorch/test/test-reports" >&2
         else
             echo "ERROR: test report extraction failed with rc=${report_rc}" >&2
         fi
@@ -233,12 +233,12 @@ if (( pr_coordinator == 1 || nightly_coordinator == 1 )); then
         coordinator_name="PR"
         coordinator_config="pr"
         coordinator_shards=2
-        coordinator_pairs="${PR_DCU_DEVICE_PAIRS}"
+        coordinator_pairs="${PR_HCU_DEVICE_PAIRS}"
     else
         coordinator_name="nightly"
         coordinator_config="default"
         coordinator_shards=4
-        coordinator_pairs="${NIGHTLY_DCU_DEVICE_PAIRS}"
+        coordinator_pairs="${NIGHTLY_HCU_DEVICE_PAIRS}"
     fi
 
     IFS=';' read -r -a device_pairs <<< "${coordinator_pairs}"
@@ -285,7 +285,7 @@ else
         IFS=: read -r config shard num_shards <<< "${entry}"
         echo "===== Running ${config} shard ${shard}/${num_shards} ====="
         run_entry \
-            "${config}" "${shard}" "${num_shards}" "${DCU_VISIBLE_DEVICES}"
+            "${config}" "${shard}" "${num_shards}" "${HCU_VISIBLE_DEVICES}"
     done
 fi
 
@@ -335,7 +335,7 @@ fi
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
-        echo "## DCU test shard summary"
+        echo "## HCU test shard summary"
         echo
         echo "| Policy | Total shards | Passed | Test failures |"
         echo "| --- | ---: | ---: | ---: |"
@@ -350,7 +350,7 @@ fi
 
 if (( failed_shards > 0 )); then
     for failure in "${failures[@]}"; do
-        echo "::warning title=DCU test failure::${failure}"
+        echo "::warning title=HCU test failure::${failure}"
     done
     if [[ "${TEST_SUITE}" == "pr" ]]; then
         echo "PR test failures were recorded; the required job will fail after reporting and cleanup."

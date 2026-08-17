@@ -31,7 +31,7 @@ class _FakeItem:
         self.markers.append(marker)
 
 
-class TestDcuPrSkipPlugin(unittest.TestCase):
+class TestHcuPrSkipPlugin(unittest.TestCase):
     def test_marks_exactly_the_reviewed_cases(self):
         clauses = plugin.load_skip_clauses(SKIP_FILE)
         self.assertEqual(len(clauses), 7)

@@ -59,7 +59,7 @@ fi
 mkdir -p "${TEMP_ROOT}/bin"
 cat > "${TEMP_ROOT}/hy-smi" <<'HY_SMI'
 #!/usr/bin/env bash
-printf '%s\n' 'header' '0 DCU-a' '1 DCU-b' 'footer'
+printf '%s\n' 'header' '0 HCU-a' '1 HCU-b' 'footer'
 HY_SMI
 chmod 755 "${TEMP_ROOT}/hy-smi"
 
@@ -69,4 +69,4 @@ test -x "${TEMP_ROOT}/bin/amd-smi"
 device_lines="$(HY_SMI_PATH="${TEMP_ROOT}/hy-smi" "${TEMP_ROOT}/bin/amd-smi" list)"
 test "$(grep -c '^GPU ' <<< "${device_lines}")" = "2"
 
-echo "PR skip and DCU environment policy passed"
+echo "PR skip and HCU environment policy passed"

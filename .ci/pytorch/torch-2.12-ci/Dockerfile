@@ -2,7 +2,7 @@
 # PyTorch 2.12 + DTK 26.04 编译环境
 FROM 42.228.13.241:5000/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.10-mkl2024.2.0.664
 # ARG PYTHON_VERSION=3.10
-#FROM harbor.sourcefind.cn:5443/dcu/admin/base/dev:rockylinux8.6-mpi5.0-gcc11.3-cmake3.29-py${PYTHON_VERSION}-mkl2024.2.0.664
+#FROM harbor.sourcefind.cn:5443/hcu/admin/base/dev:rockylinux8.6-mpi5.0-gcc11.3-cmake3.29-py${PYTHON_VERSION}-mkl2024.2.0.664
 # 构建参数
 # ----------------------------
 ARG PYTHON_VERSION=3.10

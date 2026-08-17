@@ -336,7 +336,7 @@ cp -vf \
 log "执行 PyTorch AMD build 脚本"
 cd "${TOOLKIT_DIR}"
 python3 \
-    tools/amd_build/build_amd.py
+    tools/hcu_build/build_hcu.py
 # ----------------------------
 # 检查
 # ----------------------------

@@ -11,14 +11,14 @@ grep -Fq \
     'test_matrix='\''{"include":[{"config":"pr","shard":0,"num_shards":2}]}'\''' \
     "${REPO_ROOT}/.github/workflows/pytorch-2.12-build.yml"
 grep -Fq \
-    'PR_DCU_DEVICE_PAIRS: ${{ inputs.pr_dcu_device_pairs }}' \
-    "${REPO_ROOT}/.github/workflows/_pytorch-2.12-dcu-test.yml"
+    'PR_HCU_DEVICE_PAIRS: ${{ inputs.pr_hcu_device_pairs }}' \
+    "${REPO_ROOT}/.github/workflows/_pytorch-2.12-hcu-test.yml"
 grep -Fq \
     'test_matrix='\''{"include":[{"config":"default","shard":0,"num_shards":4}]}'\''' \
     "${REPO_ROOT}/.github/workflows/pytorch-2.12-build.yml"
 grep -Fq \
-    'NIGHTLY_DCU_DEVICE_PAIRS: ${{ inputs.nightly_dcu_device_pairs }}' \
-    "${REPO_ROOT}/.github/workflows/_pytorch-2.12-dcu-test.yml"
+    'NIGHTLY_HCU_DEVICE_PAIRS: ${{ inputs.nightly_hcu_device_pairs }}' \
+    "${REPO_ROOT}/.github/workflows/_pytorch-2.12-hcu-test.yml"
 grep -Fq \
     'Fail PR after reporting all test failures' \
     "${REPO_ROOT}/.github/workflows/pytorch-2.12-build.yml"
@@ -101,19 +101,19 @@ TEST_SUITE="pr" \
 TEST_CONFIG="pr" \
 SHARD_NUMBER="0" \
 NUM_TEST_SHARDS="2" \
-DCU_VISIBLE_DEVICES="0,1" \
-PR_DCU_DEVICE_PAIRS="4,5;6,7" \
+HCU_VISIBLE_DEVICES="0,1" \
+PR_HCU_DEVICE_PAIRS="4,5;6,7" \
 REPORT_ROOT="${REPORT_ROOT}" \
 GITHUB_RUN_ID="fixture" \
 GITHUB_RUN_ATTEMPT="1" \
 bash "${CI_DIR}/run-nightly-tests.sh"
 
-if [[ "$(grep -Fo -- '--env DCU_VISIBLE_DEVICES=0\,1' "${MOCK_LOG}" | wc -l)" -lt 2 ]]; then
+if [[ "$(grep -Fo -- '--env HCU_VISIBLE_DEVICES=0\,1' "${MOCK_LOG}" | wc -l)" -lt 2 ]]; then
     echo "ERROR: both containers must expose their physical pair as logical 0,1" >&2
     exit 1
 fi
 if [[ "$(grep -Fo -- '--env PYTORCH_TEST_VISIBLE_DEVICE_COUNT=2' "${MOCK_LOG}" | wc -l)" -lt 2 ]]; then
-    echo "ERROR: both containers must cap file-level workers to two visible DCUs" >&2
+    echo "ERROR: both containers must cap file-level workers to two visible HCUs" >&2
     exit 1
 fi
 if [[ "$(grep -Fo -- '--env TORCH_SERIALIZATION_DEBUG=1' "${MOCK_LOG}" | wc -l)" -lt 2 ]]; then
@@ -126,8 +126,8 @@ if [[ "$(grep -Fo -- '--env FA_SO_PATH=/opt/flash_attn_2_cuda.so' "${MOCK_LOG}" 
 fi
 grep -Fq -- '--env ROCR_VISIBLE_DEVICES=4\,5' "${MOCK_LOG}"
 grep -Fq -- '--env ROCR_VISIBLE_DEVICES=6\,7' "${MOCK_LOG}"
-grep -Fq 'pytorch-2.12-dcu-test-fixture-1-pr-1' "${MOCK_LOG}"
-grep -Fq 'pytorch-2.12-dcu-test-fixture-1-pr-2' "${MOCK_LOG}"
+grep -Fq 'pytorch-2.12-hcu-test-fixture-1-pr-1' "${MOCK_LOG}"
+grep -Fq 'pytorch-2.12-hcu-test-fixture-1-pr-2' "${MOCK_LOG}"
 
 for shard in 1 2; do
     status_file="${REPORT_ROOT}/pr-${shard}-of-2/status.json"
@@ -152,8 +152,8 @@ TEST_SUITE="pr" \
 TEST_CONFIG="pr" \
 SHARD_NUMBER="0" \
 NUM_TEST_SHARDS="2" \
-DCU_VISIBLE_DEVICES="0,1" \
-PR_DCU_DEVICE_PAIRS="4,5;6,7" \
+HCU_VISIBLE_DEVICES="0,1" \
+PR_HCU_DEVICE_PAIRS="4,5;6,7" \
 REPORT_ROOT="${REPORT_ROOT}" \
 GITHUB_RUN_ID="fixture" \
 GITHUB_RUN_ATTEMPT="2" \
@@ -183,8 +183,8 @@ TEST_SUITE="nightly" \
 TEST_CONFIG="default" \
 SHARD_NUMBER="0" \
 NUM_TEST_SHARDS="4" \
-DCU_VISIBLE_DEVICES="0,1" \
-NIGHTLY_DCU_DEVICE_PAIRS="0,1;2,3;4,5;6,7" \
+HCU_VISIBLE_DEVICES="0,1" \
+NIGHTLY_HCU_DEVICE_PAIRS="0,1;2,3;4,5;6,7" \
 REPORT_ROOT="${REPORT_ROOT}" \
 GITHUB_RUN_ID="fixture" \
 GITHUB_RUN_ATTEMPT="3" \
@@ -197,7 +197,7 @@ for shard in 1 2 3 4; do
     status_file="${REPORT_ROOT}/default-${shard}-of-4/status.json"
     test -f "${status_file}"
     grep -Fq '"conclusion":"passed"' "${status_file}"
-    grep -Fq "pytorch-2.12-dcu-test-fixture-3-default-${shard}" "${MOCK_LOG}"
+    grep -Fq "pytorch-2.12-hcu-test-fixture-3-default-${shard}" "${MOCK_LOG}"
 done
 grep -Fq 'total_shards=4' "${REPORT_ROOT}/nightly-summary.txt"
 grep -Fq 'passed_shards=4' "${REPORT_ROOT}/nightly-summary.txt"
@@ -218,8 +218,8 @@ TEST_SUITE="nightly" \
 TEST_CONFIG="default" \
 SHARD_NUMBER="0" \
 NUM_TEST_SHARDS="4" \
-DCU_VISIBLE_DEVICES="0,1" \
-NIGHTLY_DCU_DEVICE_PAIRS="0,1;2,3;4,5;6,7" \
+HCU_VISIBLE_DEVICES="0,1" \
+NIGHTLY_HCU_DEVICE_PAIRS="0,1;2,3;4,5;6,7" \
 REPORT_ROOT="${REPORT_ROOT}" \
 GITHUB_RUN_ID="fixture" \
 GITHUB_RUN_ATTEMPT="4" \

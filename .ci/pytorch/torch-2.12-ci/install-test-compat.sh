@@ -12,4 +12,4 @@ fi
 
 test -f "${CI_DIR}/amd-smi"
 install -m 0755 "${CI_DIR}/amd-smi" "${AMD_SMI_COMPAT_PATH}"
-echo "Installed DCU amd-smi compatibility command: ${AMD_SMI_COMPAT_PATH}"
+echo "Installed HCU amd-smi compatibility command: ${AMD_SMI_COMPAT_PATH}"

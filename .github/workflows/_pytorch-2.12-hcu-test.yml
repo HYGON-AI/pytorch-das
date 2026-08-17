@@ -1,4 +1,4 @@
-name: PyTorch 2.12 DCU test
+name: PyTorch 2.12 HCU test
 
 on:
   workflow_call:
@@ -21,15 +21,15 @@ on:
       expected_device_count:
         required: true
         type: string
-      dcu_visible_devices:
+      hcu_visible_devices:
         description: Device pair used by smoke and serial nightly shards.
         required: true
         type: string
-      pr_dcu_device_pairs:
+      pr_hcu_device_pairs:
         description: Semicolon-separated device pairs for parallel PR containers.
         required: true
         type: string
-      nightly_dcu_device_pairs:
+      nightly_hcu_device_pairs:
         description: Four semicolon-separated device pairs for parallel nightly containers.
         required: true
         type: string
@@ -39,11 +39,11 @@ permissions:
 
 jobs:
   test:
-    name: ${{ matrix.config == 'pr' && 'test (pr, parallel 4-5 + 6-7)' || (matrix.config == 'default' && matrix.shard == 0) && 'test (nightly, 4 parallel shards, 8 DCUs)' || format('test ({0}, {1}, {2})', matrix.config, matrix.shard, matrix.num_shards) }}
+    name: ${{ matrix.config == 'pr' && 'test (pr, parallel 4-5 + 6-7)' || (matrix.config == 'default' && matrix.shard == 0) && 'test (nightly, 4 parallel shards, 8 HCUs)' || format('test ({0}, {1}, {2})', matrix.config, matrix.shard, matrix.num_shards) }}
     strategy:
       fail-fast: false
       # Each suite has one coordinator job when it needs parallel containers,
-      # so GitHub never schedules competing jobs onto this single DCU runner.
+      # so GitHub never schedules competing jobs onto this single HCU runner.
       max-parallel: 1
       matrix: ${{ fromJSON(inputs.test_matrix) }}
     runs-on: [self-hosted, Linux, X64, bw1100]
@@ -61,9 +61,9 @@ jobs:
       DOCKER_IMAGE_NAME: ${{ inputs.test_image_name }}
       REPORT_ROOT: ${{ inputs.result_root }}
       BUILD_ENVIRONMENT: ${{ inputs.build_environment }}
-      DCU_VISIBLE_DEVICES: ${{ inputs.dcu_visible_devices }}
-      PR_DCU_DEVICE_PAIRS: ${{ inputs.pr_dcu_device_pairs }}
-      NIGHTLY_DCU_DEVICE_PAIRS: ${{ inputs.nightly_dcu_device_pairs }}
+      HCU_VISIBLE_DEVICES: ${{ inputs.hcu_visible_devices }}
+      PR_HCU_DEVICE_PAIRS: ${{ inputs.pr_hcu_device_pairs }}
+      NIGHTLY_HCU_DEVICE_PAIRS: ${{ inputs.nightly_hcu_device_pairs }}
     steps:
       - name: Checkout PyTorch source
         uses: actions/checkout@v4
@@ -76,9 +76,9 @@ jobs:
           set -euo pipefail
           docker image inspect "${DOCKER_IMAGE_NAME}" >/dev/null
 
-          image_source_sha="$(docker image inspect "${DOCKER_IMAGE_NAME}" --format '{{index .Config.Labels "org.pytorch.dcu.source-sha"}}')"
-          image_run_id="$(docker image inspect "${DOCKER_IMAGE_NAME}" --format '{{index .Config.Labels "org.pytorch.dcu.workflow-run"}}')"
-          image_run_attempt="$(docker image inspect "${DOCKER_IMAGE_NAME}" --format '{{index .Config.Labels "org.pytorch.dcu.workflow-attempt"}}')"
+          image_source_sha="$(docker image inspect "${DOCKER_IMAGE_NAME}" --format '{{index .Config.Labels "org.pytorch.hcu.source-sha"}}')"
+          image_run_id="$(docker image inspect "${DOCKER_IMAGE_NAME}" --format '{{index .Config.Labels "org.pytorch.hcu.workflow-run"}}')"
+          image_run_attempt="$(docker image inspect "${DOCKER_IMAGE_NAME}" --format '{{index .Config.Labels "org.pytorch.hcu.workflow-attempt"}}')"
 
           if [[ "${image_source_sha}" != "${GITHUB_SHA}" ]]; then
             echo "ERROR: local test image source SHA mismatch: ${image_source_sha}" >&2
@@ -89,13 +89,13 @@ jobs:
             exit 1
           fi
 
-      - name: Validate DCU runner
+      - name: Validate HCU runner
         uses: ./source/.github/actions/setup-hcu
         with:
           expected-device-count: ${{ inputs.expected_device_count }}
-          run-label: pytorch-2.12-dcu-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.config }}-${{ matrix.shard }}
+          run-label: pytorch-2.12-hcu-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.config }}-${{ matrix.shard }}
 
-      - name: Run official DCU tests
+      - name: Run official HCU tests
         shell: bash
         run: |
           set -o pipefail

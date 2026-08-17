@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Set, Tuple
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Summarize local PyTorch DCU nightly shard results."
+        description="Summarize local PyTorch HCU nightly shard results."
     )
     parser.add_argument("--result-root", required=True, type=Path)
     parser.add_argument("--expected-shards", required=True, type=int)
@@ -156,7 +156,7 @@ def main() -> int:
 
     if args.step_summary:
         with args.step_summary.open("a", encoding="utf-8") as summary:
-            summary.write("## DCU test summary\n\n")
+            summary.write("## HCU test summary\n\n")
             summary.write(
                 "| Policy | Expected | Completed | Passed | Test failures | "
                 "Infrastructure failures |\n"
@@ -168,13 +168,13 @@ def main() -> int:
             )
 
     for entry in test_failed:
-        print(f"::warning title=DCU test failure::{entry}")
+        print(f"::warning title=HCU test failure::{entry}")
     for entry in infrastructure_failed + unknown:
-        print(f"::error title=DCU test infrastructure failure::{entry}")
+        print(f"::error title=HCU test infrastructure failure::{entry}")
 
     if len(status_files) != args.expected_shards:
         print(
-            "::error title=Incomplete DCU test matrix::"
+            "::error title=Incomplete HCU test matrix::"
             f"expected {args.expected_shards} status files, "
             f"found {len(status_files)}"
         )
