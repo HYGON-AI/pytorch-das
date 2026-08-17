@@ -194,6 +194,7 @@ jobs:
           python3 .ci/pytorch/torch-2.12-ci/test_dcu_pr_skip_plugin.py
           bash .ci/pytorch/torch-2.12-ci/test-install-aicc.sh
           bash .ci/pytorch/torch-2.12-ci/test-pr-environment-policy.sh
+          bash .ci/pytorch/torch-2.12-ci/test-pr-hang-policy.sh
           bash .ci/pytorch/torch-2.12-ci/test-parallel-containers.sh
           test -f .ci/pytorch/torch-2.12-ci/run-nightly-test-in-container.sh
           test -f .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh

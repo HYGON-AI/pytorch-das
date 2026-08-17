@@ -15,6 +15,32 @@ source_optional_environment() {
 source_optional_environment /opt/dtk/env.sh
 source_optional_environment /opt/rh/gcc-toolset-13/enable
 
+print_pr_timeout_diagnostics() {
+    local cache_root="/pytorch/.pytest_cache/v/cache/stepcurrent"
+    local cache_path
+    local timestamp
+
+    echo "===== PR shard timeout diagnostics =====" >&2
+    echo "Most recently started pytest cases (newest first):" >&2
+    if [[ -d "${cache_root}" ]]; then
+        while read -r timestamp cache_path; do
+            [[ -n "${cache_path:-}" ]] || continue
+            printf '%s: ' "${cache_path}" >&2
+            cat "${cache_path}" >&2 || true
+            printf '\n' >&2
+        done < <(
+            find "${cache_root}" -type f -name lastrun -printf '%T@ %p\n' |
+                sort -nr | sed -n '1,20p'
+        )
+    else
+        echo "No pytest stepcurrent cache was created." >&2
+    fi
+    echo "Remaining test-related processes:" >&2
+    ps -eo pid,ppid,stat,etime,args | \
+        grep -E 'python|pytest|run_test.py' | grep -v grep >&2 || true
+    echo "===== End PR shard timeout diagnostics =====" >&2
+}
+
 export PATH="/opt/dtk/bin:/opt/dtk/llvm/bin:${PATH}"
 export LD_LIBRARY_PATH="/opt/intel/oneapi/mkl/2024.2/lib:/opt/intel/oneapi/mkl/2024.2/lib/intel64:/opt/dtk/lib:/opt/dtk/lib64:/opt/hyhal/lib:/usr/local/hyhal/lib:${LD_LIBRARY_PATH:-}"
 
@@ -116,21 +142,56 @@ elif [[ "${TEST_CONFIG}" == "pr" ]]; then
     printf '  %s\n' "${pr_tests[@]}"
     export PYTORCH_DCU_PR_SKIP_FILE="/pytorch/${pr_skip_list}"
     export PYTHONPATH="/pytorch/.ci/pytorch/torch-2.12-ci:${PYTHONPATH:-}"
+    # Keep two in-process pytest reruns so transient DCU failures can recover.
+    # The outer run_test.py retry count stays at one, which caps each failing
+    # case at three executions instead of multiplying it to as many as nine.
+    export PYTORCH_NUM_PYTEST_RERUNS=2
+    # Preserve keep-going/resume behavior, but avoid starting two additional
+    # pytest processes merely to classify the same failure as consistent.
+    export PYTORCH_TEST_FAILURE_ATTEMPTS=1
+    # Official timeout selection returns None when no historical timing exists.
+    # Bound that module subprocess so a hung DCU call can be retried/skipped by
+    # run_test.py and the remaining PR modules can still run.
+    export PYTORCH_TEST_FALLBACK_TIMEOUT_SECONDS=1800
+    PR_TEST_TIMEOUT_SECONDS="${PR_TEST_TIMEOUT_SECONDS:-13500}"
+    if ! [[ "${PR_TEST_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: invalid PR_TEST_TIMEOUT_SECONDS=${PR_TEST_TIMEOUT_SECONDS}" >&2
+        exit 1
+    fi
+    command -v timeout >/dev/null 2>&1 || {
+        echo "ERROR: the timeout command is required for PR tests" >&2
+        exit 1
+    }
     echo "PR case-level skip policy: ${PYTORCH_DCU_PR_SKIP_FILE}"
+    echo "PR pytest reruns per process: ${PYTORCH_NUM_PYTEST_RERUNS}"
+    echo "PR attempts per failed case: ${PYTORCH_TEST_FAILURE_ATTEMPTS}"
+    echo "PR fallback module timeout: ${PYTORCH_TEST_FALLBACK_TIMEOUT_SECONDS}s"
+    echo "PR shard hard timeout: ${PR_TEST_TIMEOUT_SECONDS}s"
     touch /tmp/pytorch-nightly-test-started
-    set +e
-    python3 test/run_test.py \
-        --include "${pr_tests[@]}" \
-        --exclude-jit-executor \
-        --exclude-distributed-tests \
-        --exclude-quantization-tests \
-        --shard "${SHARD_NUMBER}" "${NUM_TEST_SHARDS}" \
-        --verbose \
-        --keep-going \
-        -- \
+    pr_test_command=(
+        python3 test/run_test.py
+        --include "${pr_tests[@]}"
+        --exclude-jit-executor
+        --exclude-distributed-tests
+        --exclude-quantization-tests
+        --shard "${SHARD_NUMBER}" "${NUM_TEST_SHARDS}"
+        --verbose
+        --keep-going
+        --
         -p dcu_pr_skip_plugin
+    )
+    set +e
+    timeout --signal=TERM --kill-after=60s \
+        "${PR_TEST_TIMEOUT_SECONDS}s" \
+        "${pr_test_command[@]}"
     test_rc=$?
     set -e
+    if (( test_rc == 124 || test_rc == 137 )); then
+        echo \
+            "ERROR: PR shard ${SHARD_NUMBER}/${NUM_TEST_SHARDS} exceeded " \
+            "${PR_TEST_TIMEOUT_SECONDS}s" >&2
+        print_pr_timeout_diagnostics
+    fi
 else
     # Same test entry point used by release/2.12 _rocm-test.yml.
     cd /pytorch

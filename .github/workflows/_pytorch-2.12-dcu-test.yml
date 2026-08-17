@@ -47,7 +47,9 @@ jobs:
       max-parallel: 1
       matrix: ${{ fromJSON(inputs.test_matrix) }}
     runs-on: [self-hosted, Linux, X64, bw1100]
-    timeout-minutes: 4320
+    # PR has an in-container 3h45m shard deadline; retain 45 minutes for
+    # diagnostics, report extraction and cleanup if that deadline is reached.
+    timeout-minutes: ${{ inputs.test_suite == 'pr' && 270 || 4320 }}
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
