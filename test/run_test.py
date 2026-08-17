@@ -106,12 +106,6 @@ TEST_CONFIG = os.getenv("TEST_CONFIG", "")
 BUILD_ENVIRONMENT = os.getenv("BUILD_ENVIRONMENT", "")
 RERUN_DISABLED_TESTS = os.getenv("PYTORCH_TEST_RERUN_DISABLED_TESTS", "0") == "1"
 NUM_PYTEST_RERUNS = int(os.getenv("PYTORCH_NUM_PYTEST_RERUNS", "2"))
-FALLBACK_TEST_TIMEOUT_SECONDS = int(
-    os.getenv("PYTORCH_TEST_FALLBACK_TIMEOUT_SECONDS", "0")
-)
-TEST_FAILURE_ATTEMPTS = int(os.getenv("PYTORCH_TEST_FAILURE_ATTEMPTS", "3"))
-if TEST_FAILURE_ATTEMPTS < 1:
-    raise ValueError("PYTORCH_TEST_FAILURE_ATTEMPTS must be at least 1")
 DISTRIBUTED_TEST_PREFIX = "distributed"
 INDUCTOR_TEST_PREFIX = "inductor"
 IS_SLOW = "slow" in TEST_CONFIG or "slow" in BUILD_ENVIRONMENT
@@ -643,15 +637,6 @@ def run_test(
         if is_cpp_test
         else None
     )
-    if (
-        timeout is None
-        and options.enable_timeout
-        and FALLBACK_TEST_TIMEOUT_SECONDS > 0
-    ):
-        timeout = FALLBACK_TEST_TIMEOUT_SECONDS
-        print_to_stderr(
-            f"Using fallback timeout of {timeout}s for {test_module}"
-        )
     print_to_stderr(f"Executing {command} ... [{datetime.now()}]")
 
     with ExitStack() as stack:
@@ -766,10 +751,10 @@ def run_test_retries(
     # If continue through error is not set, then we fail fast.
     #
     # If continue through error is set, then we skip that test, and keep going.
-    # Basically if the same test reaches the configured failure-attempt limit
-    # (three by default), skip the test on the next run, but still fail in the
-    # end. I take advantage of the value saved in stepcurrent to keep track of
-    # the most recently run test (which is the one that failed on an error).
+    # Basically if the same test fails 3 times in a row, skip the test on the
+    # next run, but still fail in the end. I take advantage of the value saved
+    # in stepcurrent to keep track of the most recently run test (which is the
+    # one that failed if there was a failure).
 
     def print_to_file(s):
         print(s, file=output, flush=True)
@@ -829,7 +814,7 @@ def run_test_retries(
             print_to_file(
                 "Test succeeded in new process, continuing with the rest of the tests"
             )
-        elif num_failures[current_failure] >= TEST_FAILURE_ATTEMPTS:
+        elif num_failures[current_failure] >= 3:
             # This is for log classifier so it can prioritize consistently
             # failing tests instead of reruns. [1:-1] to remove quotes
             print_to_file(f"FAILED CONSISTENTLY: {current_failure[1:-1]}")
@@ -854,16 +839,8 @@ def run_test_retries(
             print_to_file("Retrying single test...")
         print_items = []  # do not continue printing them, massive waste of space
 
-    consistent_failures = [
-        x[1:-1]
-        for x in num_failures
-        if num_failures[x] >= TEST_FAILURE_ATTEMPTS
-    ]
-    flaky_failures = [
-        x[1:-1]
-        for x in num_failures
-        if 0 < num_failures[x] < TEST_FAILURE_ATTEMPTS
-    ]
+    consistent_failures = [x[1:-1] for x in num_failures if num_failures[x] >= 3]
+    flaky_failures = [x[1:-1] for x in num_failures if 0 < num_failures[x] < 3]
     if len(flaky_failures) > 0:
         print_to_file(
             "The following tests failed and then succeeded when run in a new process"

@@ -36,14 +36,6 @@ NUM_PROCS = 1 if IS_MEM_LEAK_CHECK else 3 if not TEST_CUDA or SM80OrLater else 2
 NUM_PROCS_FOR_SHARDING_CALC = NUM_PROCS if not IS_ROCM or IS_MEM_LEAK_CHECK else 2
 THRESHOLD = 60 * 10  # 10 minutes
 
-
-def cap_num_procs_to_visible_devices(
-    num_procs: int, visible_device_count: int
-) -> int:
-    if visible_device_count < 1:
-        return num_procs
-    return min(num_procs, visible_device_count)
-
 # See Note [ROCm parallel CI testing]
 # Special logic for ROCm GHA runners to query number of GPUs available.
 # torch.version.hip was not available to check if this was a ROCm self-hosted runner.
@@ -65,19 +57,6 @@ if IS_ROCM and not IS_MEM_LEAK_CHECK:
     except subprocess.CalledProcessError:
         # The safe default for ROCm GHA runners is to run tests serially.
         NUM_PROCS = 1
-
-# ROCm-compatible runtimes installed outside /opt/rocm cannot be discovered by
-# the path check above.  Containerized CI can provide the number of logical
-# devices it exposes so file-level workers never receive an invalid device.
-VISIBLE_DEVICE_COUNT = int(
-    os.getenv("PYTORCH_TEST_VISIBLE_DEVICE_COUNT", "0")
-)
-NUM_PROCS = cap_num_procs_to_visible_devices(
-    NUM_PROCS, VISIBLE_DEVICE_COUNT
-)
-NUM_PROCS_FOR_SHARDING_CALC = cap_num_procs_to_visible_devices(
-    NUM_PROCS_FOR_SHARDING_CALC, VISIBLE_DEVICE_COUNT
-)
 
 
 class ShardJob:

@@ -1,9 +1,0 @@
-# Pytest -k clauses explicitly approved for skipping in the PR failure review.
-# Keep these case-scoped: do not exclude an entire test module.
-TestNN and test_batchnorm_2D_train_NCHW_vs_cpu_mixed_bfloat16
-TestNN and test_batchnorm_2D_train_NHWC_vs_NCHW_mixed_bfloat16
-TestNN and test_batchnorm_3D_train_NCHW_vs_cpu_mixed_bfloat16
-TestNN and test_batchnorm_3D_train_NHWC_vs_NCHW_mixed_bfloat16
-TestTorchDeviceTypeCUDA and test_cdist_large_cuda
-TestGDS and test_gds_read_write_tensors
-TestMatmulCudaCUDA and test_grouped_gemm_rocm_ck_flag_cuda
