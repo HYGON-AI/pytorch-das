@@ -13,6 +13,7 @@ ciflow_push_tags:
 - ciflow/h100-cutlass-backend
 - ciflow/h100-distributed
 - ciflow/h100-symm-mem
+- ciflow/hcu
 - ciflow/inductor
 - ciflow/inductor-cu126
 - ciflow/inductor-micro-benchmark

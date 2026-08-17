@@ -13,7 +13,11 @@ try:
     # using tools/ to optimize test run.
     sys.path.append(str(REPO_ROOT))
     from tools.testing.test_run import ShardedTest, TestRun
-    from tools.testing.test_selections import calculate_shards, THRESHOLD
+    from tools.testing.test_selections import (
+        calculate_shards,
+        cap_num_procs_to_visible_devices,
+        THRESHOLD,
+    )
 except ModuleNotFoundError:
     print("Can't import required modules, exiting")
     sys.exit(1)
@@ -21,6 +25,17 @@ except ModuleNotFoundError:
 
 def gen_class_times(test_times: dict[str, float]) -> dict[str, dict[str, float]]:
     return {k: {"class1": v} for k, v in test_times.items()}
+
+
+class TestCapNumProcsToVisibleDevices(unittest.TestCase):
+    def test_caps_worker_count_to_visible_devices(self) -> None:
+        self.assertEqual(cap_num_procs_to_visible_devices(3, 2), 2)
+
+    def test_preserves_smaller_worker_count(self) -> None:
+        self.assertEqual(cap_num_procs_to_visible_devices(2, 8), 2)
+
+    def test_preserves_worker_count_when_no_device_is_visible(self) -> None:
+        self.assertEqual(cap_num_procs_to_visible_devices(3, 0), 3)
 
 
 class TestCalculateShards(unittest.TestCase):

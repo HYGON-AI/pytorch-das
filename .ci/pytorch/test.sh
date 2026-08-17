@@ -185,8 +185,10 @@ if [[ -d "${HF_CACHE}" && "$TEST_CONFIG" != "onnx" ]]; then
 fi
 
 if [[ "$TEST_CONFIG" == 'default' ]]; then
-  export CUDA_VISIBLE_DEVICES=0
-  export HIP_VISIBLE_DEVICES=0
+  # HCU CI assigns a device pair per shard; retain the upstream single-device
+  # default when the HCU-specific override is absent.
+  export CUDA_VISIBLE_DEVICES="${HCU_VISIBLE_DEVICES:-0}"
+  export HIP_VISIBLE_DEVICES="${HCU_VISIBLE_DEVICES:-0}"
 fi
 
 if [[ "$TEST_CONFIG" == 'distributed' ]] && [[ "$BUILD_ENVIRONMENT" == *rocm* ]]; then

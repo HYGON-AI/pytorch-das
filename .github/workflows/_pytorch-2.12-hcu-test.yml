@@ -1,0 +1,148 @@
+name: PyTorch 2.12 HCU test
+
+on:
+  workflow_call:
+    inputs:
+      test_suite:
+        required: true
+        type: string
+      test_matrix:
+        required: true
+        type: string
+      test_image_name:
+        required: true
+        type: string
+      result_root:
+        required: true
+        type: string
+      build_environment:
+        required: true
+        type: string
+      expected_device_count:
+        required: true
+        type: string
+      hcu_visible_devices:
+        description: Device pair used by smoke and serial nightly shards.
+        required: true
+        type: string
+      pr_hcu_device_pairs:
+        description: Semicolon-separated device pairs for parallel PR containers.
+        required: true
+        type: string
+      nightly_hcu_device_pairs:
+        description: Four semicolon-separated device pairs for parallel nightly containers.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.config == 'pr' && 'test (pr, parallel 4-5 + 6-7)' || (matrix.config == 'default' && matrix.shard == 0) && 'test (nightly, 4 parallel shards, 8 HCUs)' || format('test ({0}, {1}, {2})', matrix.config, matrix.shard, matrix.num_shards) }}
+    strategy:
+      fail-fast: false
+      # Each suite has one coordinator job when it needs parallel containers,
+      # so GitHub never schedules competing jobs onto this single HCU runner.
+      max-parallel: 1
+      matrix: ${{ fromJSON(inputs.test_matrix) }}
+    runs-on: [self-hosted, Linux, X64, bw1100]
+    # PR has an in-container 3h45m shard deadline; retain 45 minutes for
+    # diagnostics, report extraction and cleanup if that deadline is reached.
+    timeout-minutes: ${{ inputs.test_suite == 'pr' && 270 || 4320 }}
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}/source
+    env:
+      TEST_SUITE: ${{ inputs.test_suite }}
+      TEST_CONFIG: ${{ matrix.config }}
+      SHARD_NUMBER: ${{ matrix.shard }}
+      NUM_TEST_SHARDS: ${{ matrix.num_shards }}
+      DOCKER_IMAGE_NAME: ${{ inputs.test_image_name }}
+      REPORT_ROOT: ${{ inputs.result_root }}
+      BUILD_ENVIRONMENT: ${{ inputs.build_environment }}
+      HCU_VISIBLE_DEVICES: ${{ inputs.hcu_visible_devices }}
+      PR_HCU_DEVICE_PAIRS: ${{ inputs.pr_hcu_device_pairs }}
+      NIGHTLY_HCU_DEVICE_PAIRS: ${{ inputs.nightly_hcu_device_pairs }}
+    steps:
+      - name: Checkout PyTorch source
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Verify local test image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image inspect "${DOCKER_IMAGE_NAME}" >/dev/null
+
+          image_source_sha="$(docker image inspect "${DOCKER_IMAGE_NAME}" --format '{{index .Config.Labels "org.pytorch.hcu.source-sha"}}')"
+          image_run_id="$(docker image inspect "${DOCKER_IMAGE_NAME}" --format '{{index .Config.Labels "org.pytorch.hcu.workflow-run"}}')"
+          image_run_attempt="$(docker image inspect "${DOCKER_IMAGE_NAME}" --format '{{index .Config.Labels "org.pytorch.hcu.workflow-attempt"}}')"
+
+          if [[ "${image_source_sha}" != "${GITHUB_SHA}" ]]; then
+            echo "ERROR: local test image source SHA mismatch: ${image_source_sha}" >&2
+            exit 1
+          fi
+          if [[ "${image_run_id}" != "${GITHUB_RUN_ID}" || "${image_run_attempt}" != "${GITHUB_RUN_ATTEMPT}" ]]; then
+            echo "ERROR: local test image belongs to another workflow run" >&2
+            exit 1
+          fi
+
+      - name: Validate HCU runner
+        uses: ./source/.github/actions/setup-hcu
+        with:
+          expected-device-count: ${{ inputs.expected_device_count }}
+          run-label: pytorch-2.12-hcu-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.config }}-${{ matrix.shard }}
+
+      - name: Run official HCU tests
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p "${REPORT_ROOT}"
+          chmod +x .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
+          .ci/pytorch/torch-2.12-ci/run-nightly-tests.sh
+
+      - name: Summarize PR test cases
+        if: ${{ always() && inputs.test_suite == 'pr' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .ci/pytorch/torch-2.12-ci/summarize-junit-tests.py \
+            --result-root "${REPORT_ROOT}" \
+            --step-summary "${GITHUB_STEP_SUMMARY}"
+
+      - name: Show local shard reports
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if [[ "${TEST_SUITE}" == "pr" || ( "${TEST_SUITE}" == "nightly" && "${SHARD_NUMBER}" == "0" ) ]]; then
+            echo "report_root=${REPORT_ROOT}"
+            find "${REPORT_ROOT}" -maxdepth 4 -type f -ls | sed -n '1,200p'
+          else
+            entry_dir="${REPORT_ROOT}/${TEST_CONFIG}-${SHARD_NUMBER}-of-${NUM_TEST_SHARDS}"
+            echo "report_dir=${entry_dir}"
+            if [[ -d "${entry_dir}" ]]; then
+              find "${entry_dir}" -maxdepth 3 -type f -ls | sed -n '1,100p'
+            else
+              echo "::warning title=Missing shard report directory::${entry_dir}"
+            fi
+          fi
+
+      - name: Cleanup shard-scoped containers
+        if: always()
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set +e
+          if [[ -z "${HCU_CONTAINER_LABEL:-}" ]]; then
+            exit 0
+          fi
+          mapfile -t containers < <(
+            docker ps -aq --filter "label=${HCU_CONTAINER_LABEL}"
+          )
+          if (( ${#containers[@]} > 0 )); then
+            docker rm -f "${containers[@]}"
+          fi

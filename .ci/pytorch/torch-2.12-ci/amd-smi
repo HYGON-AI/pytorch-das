@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+HY_SMI_PATH="${HY_SMI_PATH:-/opt/hyhal/bin/hy-smi}"
+
+if [[ "${1:-}" != "list" || "$#" != 1 ]]; then
+    echo "ERROR: the HCU amd-smi compatibility command only supports: amd-smi list" >&2
+    exit 2
+fi
+if [[ ! -x "${HY_SMI_PATH}" ]]; then
+    echo "ERROR: hy-smi is unavailable: ${HY_SMI_PATH}" >&2
+    exit 1
+fi
+
+# Match the independent device-count convention used by setup-hcu.  The
+# upstream PyTorch test only counts output lines containing the word GPU.
+"${HY_SMI_PATH}" | awk '$1 ~ /^[0-9]+$/ { print "GPU " $1 }'

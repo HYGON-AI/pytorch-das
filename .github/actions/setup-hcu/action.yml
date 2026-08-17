@@ -1,0 +1,94 @@
+name: Setup HCU runner
+description: Validate shared HCU runner prerequisites without touching unrelated workloads.
+
+inputs:
+  expected-device-count:
+    description: Minimum number of HCU devices that must be visible through hy-smi.
+    required: true
+  run-label:
+    description: Unique value used to scope Docker cleanup to this workflow run.
+    required: true
+
+outputs:
+  device-count:
+    description: Number of HCU devices detected by hy-smi.
+    value: ${{ steps.health.outputs.device-count }}
+  container-label:
+    description: Docker label selector used by this workflow run.
+    value: ${{ steps.workspace.outputs.container-label }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check HCU runner health
+      id: health
+      shell: bash
+      env:
+        EXPECTED_DEVICE_COUNT: ${{ inputs.expected-device-count }}
+      run: |
+        set -euo pipefail
+
+        if ! [[ "${EXPECTED_DEVICE_COUNT}" =~ ^[1-9][0-9]*$ ]]; then
+          echo "expected-device-count must be a positive integer" >&2
+          exit 1
+        fi
+
+        command -v docker
+        test -d /opt/dtk
+        command -v rocminfo
+        test -x /opt/hyhal/bin/hy-smi
+
+        echo "DTK directory: /opt/dtk"
+        /opt/hyhal/bin/hy-smi
+        rocminfo
+
+        device_count="$(/opt/hyhal/bin/hy-smi | awk '$1 ~ /^[0-9]+$/ { count += 1 } END { print count + 0 }')"
+        if (( device_count < EXPECTED_DEVICE_COUNT )); then
+          echo "Expected at least ${EXPECTED_DEVICE_COUNT} HCU devices, found ${device_count}" >&2
+          exit 1
+        fi
+
+        if command -v rocm-smi >/dev/null 2>&1; then
+          rocm-smi || true
+        else
+          echo "Optional diagnostic rocm-smi is not installed."
+        fi
+        if command -v hipconfig >/dev/null 2>&1; then
+          hipconfig || true
+        else
+          echo "Optional diagnostic hipconfig is not installed."
+        fi
+
+        echo "device-count=${device_count}" >> "${GITHUB_OUTPUT}"
+
+    - name: Prepare scoped HCU workspace
+      id: workspace
+      shell: bash
+      env:
+        RUN_LABEL: ${{ inputs.run-label }}
+      run: |
+        set -euo pipefail
+
+        safe_label="${RUN_LABEL//[^a-zA-Z0-9_.-]/-}"
+        container_label="org.pytorch.hcu.run=${safe_label}"
+        workspace="${RUNNER_TEMP}/hcu-${safe_label}"
+        mkdir -p "${workspace}"
+
+        echo "HCU_CONTAINER_LABEL=${container_label}" >> "${GITHUB_ENV}"
+        echo "HCU_WORKSPACE=${workspace}" >> "${GITHUB_ENV}"
+        echo "HCU_DOCKER_GPU_ARGS=--device=/dev/kfd --device=/dev/dri --group-add video --security-opt seccomp=unconfined --cap-add SYS_PTRACE --volume /opt/hyhal:/opt/hyhal:ro" >> "${GITHUB_ENV}"
+        echo "container-label=${container_label}" >> "${GITHUB_OUTPUT}"
+
+    - name: Remove stale containers scoped to this run
+      shell: bash
+      env:
+        RUN_LABEL: ${{ inputs.run-label }}
+      run: |
+        set -euo pipefail
+
+        safe_label="${RUN_LABEL//[^a-zA-Z0-9_.-]/-}"
+        container_label="org.pytorch.hcu.run=${safe_label}"
+        mapfile -t containers < <(docker ps -aq --filter "label=${container_label}")
+        if (( ${#containers[@]} > 0 )); then
+          docker rm -f "${containers[@]}"
+        fi
