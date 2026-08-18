@@ -2087,15 +2087,25 @@ if [[ "${TEST_CONFIG}" == "onnx" ]]; then
   install_torchvision
   "$(dirname "${BASH_SOURCE[0]}")/../../scripts/onnx/test.sh"
 elif [[ "${TEST_CONFIG}" == *numpy_2* ]]; then
-  # Install numpy-2.0.2 and compatible scipy & numba versions
+  # Install the validated NumPy 2.1 dependency stack on Python versions that support it.
+  NUMPY_2_TEST_PACKAGES=(
+    "numpy==2.1.0; python_version < '3.14'"
+    "scipy==1.13.1; python_version < '3.14'"
+    "numba==0.61.2; python_version < '3.14'"
+    "tensorboard==2.18.0; python_version < '3.14'"
+    "tensorboard-data-server==0.7.2; python_version < '3.14'"
+    "numpy==2.3.4; python_version >= '3.14'"
+    "scipy==1.16.2; python_version >= '3.14'"
+    "tensorboard==2.18.0; python_version >= '3.14'"
+  )
   # Force re-install of pandas to avoid error where pandas checks numpy version from initial install and fails upon import
   TMP_PANDAS_VERSION=$(python -c "import pandas; print(pandas.__version__)" 2>/dev/null)
   if [ -n "$TMP_PANDAS_VERSION" ]; then
-    python -m pip install --pre numpy==2.0.2 scipy==1.13.1 numba==0.60.0 pandas=="$TMP_PANDAS_VERSION" --force-reinstall
+    python -m pip install --pre "${NUMPY_2_TEST_PACKAGES[@]}" pandas=="$TMP_PANDAS_VERSION" --force-reinstall
   else
-    python -m pip install --pre numpy==2.0.2 scipy==1.13.1 numba==0.60.0
+    python -m pip install --pre "${NUMPY_2_TEST_PACKAGES[@]}"
   fi
-  python test/run_test.py --include dynamo/test_functions.py dynamo/test_unspec.py test_binary_ufuncs.py test_fake_tensor.py test_linalg.py test_numpy_interop.py test_tensor_creation_ops.py test_torch.py torch_np/test_basic.py
+  python test/run_test.py --include dynamo/test_functions.py dynamo/test_unspec.py test_binary_ufuncs.py test_fake_tensor.py test_linalg.py test_monitor.py test_numpy_interop.py test_tensor_creation_ops.py test_tensorboard.py test_torch.py torch_np/test_basic.py
 elif [[ "${TEST_CONFIG}" == *backward* ]]; then
   test_forward_backward_compatibility
   # Do NOT add tests after bc check tests, see its comment.
