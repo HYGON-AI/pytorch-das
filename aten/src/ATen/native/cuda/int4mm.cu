@@ -127,7 +127,7 @@ inline __host__ __device__ uint32_t getAlignmentRoundUp(const void* p) {
   return diff == 0 ? 0 : uint32_t(Align) - diff;
 }
 
-#if defined (__gfx90a__) || defined(__gfx942__) || defined(__gfx950__) || defined(__gfx92a__) || defined(__gfx938__)
+#if defined (__gfx90a__) || defined(__gfx942__) || defined(__gfx936__) || defined(__gfx950__) || defined(__gfx92a__) || defined(__gfx938__)
 #define CDNA2_OR_LATER 1
 #else
 #define CDNA2_OR_LATER 0
@@ -143,7 +143,7 @@ template<typename T, uint32_t Rank>
 using VecT = T __attribute__((ext_vector_type(Rank)));
 
 static bool isCDNA2orLater(int index) {
-    return at::detail::getCUDAHooks().isGPUArch({"gfx90a", "gfx942", "gfx950", "gfx92a", "gfx938"}, index);
+    return at::detail::getCUDAHooks().isGPUArch({"gfx90a", "gfx942", "gfx936", "gfx950", "gfx92a", "gfx938"}, index);
 }
 
 #else
@@ -734,7 +734,12 @@ __launch_bounds__(Warps* kWarpSize) void tinygemm_m16n8k16_chunk_kernel(
 #pragma unroll
         for (int k = 0; k < 2; ++k) {
 #if defined(USE_ROCM)
-#if defined(__gfx92a__) || defined(__gfx938__)
+#if defined(__gfx936__) || defined(__gfx92a__)
+          cTmp[k] = __builtin_hcu_mmac_f32_16x16x16_bf16(
+              a[i * kInnerKTiles + j * 2 + k].val,
+              b[i][(j * 2 + k) / 2].val[((j * 2 + k) % 2)],
+              cTmp[k]);
+#elif defined(__gfx938__)
           cTmp[k] = __builtin_hcu_mmac_f32_16x16x16_bf16_lit_lts(
               a[i * kInnerKTiles + j * 2 + k].val,
               b[i][(j * 2 + k) / 2].val[((j * 2 + k) % 2)],
@@ -839,7 +844,12 @@ __launch_bounds__(Warps* kWarpSize) void tinygemm_m16n8k16_chunk_kernel(
 #pragma unroll
       for (int k = 0; k < 2; ++k) {
 #if defined(USE_ROCM)
-#if defined(__gfx92a__) || defined(__gfx938__)
+#if defined(__gfx936__) || defined(__gfx92a__)
+        cTmp[k] = __builtin_hcu_mmac_f32_16x16x16_bf16(
+          a[j * 2 + k].val,
+          b[0][(j * 2 + k) / 2].val[((j * 2 + k) % 2)],
+          cTmp[k]);
+#elif defined(__gfx938__)
         cTmp[k] = __builtin_hcu_mmac_f32_16x16x16_bf16_lit_lts(
           a[j * 2 + k].val,
           b[0][(j * 2 + k) / 2].val[((j * 2 + k) % 2)],
@@ -889,11 +899,39 @@ __launch_bounds__(Warps* kWarpSize) void tinygemm_m16n8k16_chunk_kernel(
   // Reduce independent k-tiles (same m/n) across warps
   //
   __shared__ float4 smem_sum[Warps][kWarpSize];
+#if defined(USE_ROCM) && (defined(__gfx936__) || defined(__gfx92a__))
+  __shared__ VecT<float, 4> plain_sum[Warps][kWarpSize];
+#endif
 
   // FIXME: this likely doesn't need to be a true reduction tree, can just be a
   // serial sum, maybe (unless nvcc/ptxas goes back to its old ways)
   // smem_sum[warpId][laneId] = TreeReduce4<KTilesPerIteration>::reduce(c);
-#if defined(USE_ROCM)
+#if defined(USE_ROCM) && (defined(__gfx936__) || defined(__gfx92a__))
+  // The non-lit HCU MMAC returns the same values as lit_lts, but with a
+  // different C-tile lane/component layout.
+  plain_sum[warpId][laneId] = c;
+  __syncthreads();
+
+  VecT<float, 4> lit_sum{0.0f, 0.0f, 0.0f, 0.0f};
+#pragma unroll
+  for (int dst_component = 0; dst_component < 4; ++dst_component) {
+    // Invert the plain->lit mapping:
+    //   lit_index = (src_lane & 3)
+    //             + (((src_lane >> 2) & 3) << 6)
+    //             + ((src_lane >> 4) << 2)
+    //             + (src_component << 4)
+    const int src_lane =
+        dst_component + ((laneId >> 4) << 2) + ((laneId & 3) << 4);
+    const int src_component = (laneId >> 2) & 3;
+    lit_sum[dst_component] =
+        plain_sum[warpId][src_lane][src_component];
+  }
+
+  smem_sum[warpId][laneId].x = lit_sum[0];
+  smem_sum[warpId][laneId].y = lit_sum[1];
+  smem_sum[warpId][laneId].z = lit_sum[2];
+  smem_sum[warpId][laneId].w = lit_sum[3];
+#elif defined(USE_ROCM)
   smem_sum[warpId][laneId].x = c[0];
   smem_sum[warpId][laneId].y = c[1];
   smem_sum[warpId][laneId].z = c[2];
@@ -931,7 +969,7 @@ __launch_bounds__(Warps* kWarpSize) void tinygemm_m16n8k16_chunk_kernel(
         sum_f32);
   }
 #else
-    printf("__builtin_hcu_mmac_f32_16x16x16_bf16_lit_lts is only supported on HCU arch gfx92a, gfx938 or later\n");
+    printf("__builtin_hcu_mmac_f32_16x16x16_bf16 is only supported on HCU arch gfx938 or gfx936 or gfx92a or later\n");
 #endif
 }
 
@@ -1113,7 +1151,7 @@ at::Tensor _weight_int4pack_mm_cuda(
 
 #if defined(USE_ROCM)
   if (!isCDNA2orLater(A.device().index())) {
-    TORCH_CHECK(false, "_weight_int4pack_mm_cuda is only supported on HCU arch gfx92a, gfx938 or later");
+    TORCH_CHECK(false, "_weight_int4pack_mm_cuda is only supported on HCU arch gfx938 or gfx936 or gfx92a or later");
   }
 #endif
 
@@ -1308,7 +1346,7 @@ at::Tensor _convert_weight_to_int4pack_cuda(
 
 #if defined(USE_ROCM)
   if (!isCDNA2orLater(in.device().index())) {
-    TORCH_CHECK(false, "_convert_weight_to_int4pack_cuda is only supported on HCU arch gfx92a, gfx938 or later");
+    TORCH_CHECK(false, "_convert_weight_to_int4pack_cuda is only supported on HCU arch gfx938 or gfx936 or gfx92a or later");
   }
 #endif
 
