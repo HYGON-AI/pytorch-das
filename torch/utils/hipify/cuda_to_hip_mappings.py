@@ -3516,8 +3516,8 @@ CAFFE2_PATH_MAPPINGS = collections.OrderedDict([
 
 CUDA_MACROS_MAP = collections.OrderedDict(
     [
-        ("CUDA_VERSION", "FPT_DTK_VERSION"),
-        ("__CUDA_ARCH__", "__FPT_DTK_ARCH__"),
+        ("CUDA_VERSION", ("FPT_DTK_VERSION",)),
+        ("__CUDA_ARCH__", ("__FPT_DTK_ARCH__",)),
     ]
 )
 
