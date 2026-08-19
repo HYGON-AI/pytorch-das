@@ -1,0 +1,25 @@
+name: PyTorch 2.12 nightly test
+run-name: PyTorch 2.12 nightly full test - V1
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub cron is UTC: Beijing 02:00 every Monday, Wednesday and Friday.
+    - cron: "0 18 * * 0,2,4"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pytorch-2.12-nightly-v1
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    name: build V1 and run four nightly shards
+    uses: ./.github/workflows/_pytorch-2.12-pipeline.yml
+    with:
+      suite: nightly
+      source_ref: 2.12.0-dev-opensource-V1
+      merge_pr: false
+      publish: false
