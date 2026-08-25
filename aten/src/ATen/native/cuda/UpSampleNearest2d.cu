@@ -381,29 +381,50 @@ static void upsample_nearest2d_out_cuda_template(
         constexpr int pixels_per_block = 4;
         int channel_tiles_per_block = std::min<int>(channel_tiles, 1024 / c_tile);
         int tile_blocks = (channel_tiles + channel_tiles_per_block - 1) / channel_tiles_per_block;
-        int pixel_num = nbatch * output_height * output_width;
-        int pixel_blocks = (pixel_num + pixels_per_block - 1) / pixels_per_block;
-        num_threads = channel_tiles_per_block * pixels_per_block;
+        size_t pixel_num = static_cast<size_t>(nbatch) * output_height * output_width;
+        size_t pixel_blocks = (pixel_num + pixels_per_block - 1) / pixels_per_block;
+        const int64_t shared_num_threads = channel_tiles_per_block * pixels_per_block;
         const int64_t num_blocks = pixel_blocks * tile_blocks;
         AT_DISPATCH_FLOATING_TYPES_AND3(ScalarType::Half, ScalarType::BFloat16, ScalarType::Byte, input.scalar_type(), "upsample_nearest2d_nhwc_tile_vec_shared_out_frame", [&] {
           const scalar_t* idata = input.const_data_ptr<scalar_t>();
           scalar_t* odata = output.mutable_data_ptr<scalar_t>();
-          upsample_nearest2d_nhwc_tile_vec_shared_out_frame<scalar_t, nn_compute_source_index_fn, c_tile, vec, pixels_per_block>
-            <<<num_blocks, num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-              idata,
-              odata,
-              channels,
-              input_height,
-              input_width,
-              output_height,
-              output_width,
-              height_scale,
-              width_scale,
-              pixel_num,
-              channel_tiles,
-              channel_tiles_per_block,
-              tile_blocks
-          );
+          using VecT = memory::aligned_vector<scalar_t, vec>;
+          const bool can_vec4 =
+              channels % vec == 0 &&
+              reinterpret_cast<uintptr_t>(idata) % alignof(VecT) == 0 &&
+              reinterpret_cast<uintptr_t>(odata) % alignof(VecT) == 0;
+          if (can_vec4) {
+            upsample_nearest2d_nhwc_tile_vec_shared_out_frame<scalar_t, nn_compute_source_index_fn, c_tile, vec, pixels_per_block>
+              <<<num_blocks, shared_num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                idata,
+                odata,
+                channels,
+                input_height,
+                input_width,
+                output_height,
+                output_width,
+                height_scale,
+                width_scale,
+                pixel_num,
+                channel_tiles,
+                channel_tiles_per_block,
+                tile_blocks
+            );
+          } else {
+            upsample_nearest2d_nhwc_out_frame<scalar_t, nn_compute_source_index_fn>
+              <<<ceil_div(output.numel(), num_threads), num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                idata,
+                odata,
+                channels,
+                input_height,
+                input_width,
+                output_height,
+                output_width,
+                height_scale,
+                width_scale,
+                output.numel()
+            );
+          }
           C10_CUDA_KERNEL_LAUNCH_CHECK();
         });
       }else{
@@ -411,20 +432,41 @@ static void upsample_nearest2d_out_cuda_template(
         AT_DISPATCH_FLOATING_TYPES_AND3(ScalarType::Half, ScalarType::BFloat16, ScalarType::Byte, input.scalar_type(), "upsample_nearest2d_nhwc_tile_vec_out_frame", [&] {
           const scalar_t* idata = input.const_data_ptr<scalar_t>();
           scalar_t* odata = output.mutable_data_ptr<scalar_t>();
-          upsample_nearest2d_nhwc_tile_vec_out_frame<scalar_t, nn_compute_source_index_fn, c_tile, vec>
-            <<<ceil_div(num_kernels, num_threads), num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-              idata,
-              odata,
-              channels,
-              input_height,
-              input_width,
-              output_height,
-              output_width,
-              height_scale,
-              width_scale,
-              channel_tiles,
-              num_kernels
-          );
+          using VecT = memory::aligned_vector<scalar_t, vec>;
+          const bool can_vec4 =
+              channels % vec == 0 &&
+              reinterpret_cast<uintptr_t>(idata) % alignof(VecT) == 0 &&
+              reinterpret_cast<uintptr_t>(odata) % alignof(VecT) == 0;
+          if (can_vec4) {
+            upsample_nearest2d_nhwc_tile_vec_out_frame<scalar_t, nn_compute_source_index_fn, c_tile, vec>
+              <<<ceil_div(num_kernels, num_threads), num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                idata,
+                odata,
+                channels,
+                input_height,
+                input_width,
+                output_height,
+                output_width,
+                height_scale,
+                width_scale,
+                channel_tiles,
+                num_kernels
+            );
+          } else {
+            upsample_nearest2d_nhwc_out_frame<scalar_t, nn_compute_source_index_fn>
+              <<<ceil_div(output.numel(), num_threads), num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                idata,
+                odata,
+                channels,
+                input_height,
+                input_width,
+                output_height,
+                output_width,
+                height_scale,
+                width_scale,
+                output.numel()
+            );
+          }
           C10_CUDA_KERNEL_LAUNCH_CHECK();
         });
       }
