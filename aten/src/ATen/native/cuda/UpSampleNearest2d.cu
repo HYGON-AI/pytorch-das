@@ -377,11 +377,13 @@ static void upsample_nearest2d_out_cuda_template(
       constexpr int c_tile = 4;
       constexpr int vec = 4;
       int channel_tiles = (channels + c_tile - 1) / c_tile;
-      if(channel_tiles >= 32){
+      const size_t pixel_num =
+          static_cast<size_t>(nbatch) * output_height * output_width;
+      constexpr size_t min_shared_pixel_num = 16 * 1024;
+      if (channel_tiles >= 32 && pixel_num >= min_shared_pixel_num) {
         constexpr int pixels_per_block = 4;
         int channel_tiles_per_block = std::min<int>(channel_tiles, 1024 / c_tile);
         int tile_blocks = (channel_tiles + channel_tiles_per_block - 1) / channel_tiles_per_block;
-        size_t pixel_num = static_cast<size_t>(nbatch) * output_height * output_width;
         size_t pixel_blocks = (pixel_num + pixels_per_block - 1) / pixels_per_block;
         const int64_t shared_num_threads = channel_tiles_per_block * pixels_per_block;
         const int64_t num_blocks = pixel_blocks * tile_blocks;
