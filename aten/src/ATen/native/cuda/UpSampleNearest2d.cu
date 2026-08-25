@@ -341,7 +341,7 @@ static void upsample_nearest2d_out_cuda_template(
   }
 
   // heuristic: only use channels_last path when it's faster than the contiguous path
-  if (memory_format == at::MemoryFormat::ChannelsLast && channels >= 4 && \
+  if (memory_format == at::MemoryFormat::ChannelsLast && \
         output.is_contiguous(memory_format)) {
     at::Tensor input = input_.contiguous(at::MemoryFormat::ChannelsLast);
 
