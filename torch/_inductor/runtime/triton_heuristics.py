@@ -3153,7 +3153,9 @@ def pointwise(
     assert not inductor_meta.get("no_x_dim")
 
     numel = functools.reduce(operator.mul, size_hints.values())
-    bs = max(256, min(numel // 128, 2048))
+    # add limit for len(size_hints) > 2
+    const_max_value = 2048 if len(size_hints) <= 2 else 1024
+    bs = max(256, min(numel // 128, const_max_value))
 
     hinted_configs = autotune_hints_to_configs(
         inductor_meta.get("autotune_hints", OrderedSet()),
