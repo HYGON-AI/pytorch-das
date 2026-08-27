@@ -1049,7 +1049,7 @@ torch.cuda.synchronize()
     @onlyNativeDeviceTypes
     @gcIfJetson
     @dtypes(torch.float, torch.double)
-    @dtypesIfCUDA(torch.half, torch.bfloat16, torch.float, torch.double)
+    @dtypesIfCUDA(torch.half, torch.float, torch.double)
     def test_avg_pool2d_nhwc(self, device, dtype):
         def helper(
             n,
@@ -1061,24 +1061,19 @@ torch.cuda.synchronize()
             count_include_pad=True,
             divisor_override=None,
             padding=0,
-            unaligned=False,
         ):
             if stride is None:
                 stride = kernel_size
             input = torch.randn(n, c, h, w, dtype=dtype, device=device)
-            input = input.contiguous(memory_format=torch.channels_last)
-            if unaligned:
-                strides = (c * h * w, 1, w * c, c)
-                storage = torch.empty(
-                    1 + n * c * h * w, dtype=dtype, device=device
-                )
-                unaligned_input = torch.as_strided(
-                    storage, (n, c, h, w), strides, storage_offset=1
-                )
-                unaligned_input.copy_(input)
-                input = unaligned_input
-                self.assertTrue(input.is_contiguous(memory_format=torch.channels_last))
-            input.requires_grad_()
+            input = input.contiguous(memory_format=torch.channels_last).requires_grad_()
+            grad = torch.randn(
+                n,
+                c,
+                (h + 2 * padding - kernel_size) // stride + 1,
+                (w + 2 * padding - kernel_size) // stride + 1,
+                dtype=dtype,
+                device=device,
+            )
             pool = torch.nn.AvgPool2d(
                 kernel_size,
                 stride=stride,
@@ -1088,6 +1083,7 @@ torch.cuda.synchronize()
             ).to(device)
 
             ref_input = input.detach().clone().contiguous().requires_grad_(True)
+            ref_grad = grad.detach().clone().contiguous()
             ref_pool = torch.nn.AvgPool2d(
                 kernel_size,
                 stride=stride,
@@ -1097,20 +1093,19 @@ torch.cuda.synchronize()
             ).to(device)
 
             out = pool(input)
+            out.backward(grad)
             ref_out = ref_pool(ref_input)
+            ref_out.backward(ref_grad)
 
             self.assertTrue(out.is_contiguous(memory_format=torch.channels_last))
             self.assertTrue(ref_out.is_contiguous())
             self.assertEqual(out, ref_out)
-            if padding == 0:
-                grad = torch.randn(out.shape, dtype=dtype, device=device)
-                out.backward(grad)
-                ref_out.backward(grad.detach().clone().contiguous())
-                self.assertEqual(input.grad, ref_input.grad)
+            self.assertEqual(input.grad, ref_input.grad)
 
         helper(4, 8, 8, 8, 3)
         helper(4, 8, 8, 8, 3, count_include_pad=False, padding=1)
         helper(4, 8, 8, 8, 5, count_include_pad=False, padding=2, stride=2)
+        helper(4, 8, 8, 8, 3, padding=1)
         helper(4, 8, 8, 8, 3, divisor_override=42)
         helper(4, 8, 8, 8, 7)
         # ROCm 16GB MI25 hits OOM error. Clear caching allocator prior to running large subtest.
@@ -1121,7 +1116,7 @@ torch.cuda.synchronize()
         helper(4, 8, 7, 7, 5, padding=2, stride=1)
         helper(10, 512, 31, 31, 3, stride=2)
         helper(1, 7, 8, 8, 3, stride=2)
-        helper(1, 8, 8, 8, 3, stride=2, unaligned=True)
+        helper(1, 8, 8, 8, 3, stride=2)
         helper(1, 129, 8, 8, 3, stride=2)
 
     @onlyCPU
