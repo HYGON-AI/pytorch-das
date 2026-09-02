@@ -72,6 +72,20 @@ def set_driver_to_gpu():
         return
 
     driver = triton.runtime.driver
+    # Hygon deployments use the dedicated HCU backend. Give it priority over
+    # generic platform fallbacks before walking the remaining backends.
+    hcu_backend = triton.backends.backends.get("hcu")
+    if hcu_backend is not None and hcu_backend.driver.is_active():
+        if (
+            isinstance(driver.active, hcu_backend.driver)
+            or hasattr(driver.active, "_obj")
+            and isinstance(driver.active._obj, hcu_backend.driver)
+        ):
+            # Don't re-initialize backend if it is already active
+            return
+        driver.set_active(hcu_backend.driver())
+        return
+
     for name, backend in triton.backends.backends.items():
         if _is_backend_active(name, backend) and name != "cpu":
             # After https://github.com/triton-lang/triton/commit/b844d519bc5e86edf00fe6b3c6c2d1badcd509a4,
