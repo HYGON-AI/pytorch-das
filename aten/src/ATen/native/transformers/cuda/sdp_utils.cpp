@@ -322,8 +322,13 @@ bool check_flash_attention_hardware_support(sdp_params const& params, bool debug
     if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
         auto dprops = at::cuda::getCurrentDeviceProperties();
         if (debug) {
+#if defined(PYTORCH_DTK_VERSION)
+            TORCH_WARN(
+                    "Flash attention was not compiled for current HCU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+#else
             TORCH_WARN(
                     "Flash attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+#endif
         }
         return false;
     }
@@ -331,8 +336,13 @@ bool check_flash_attention_hardware_support(sdp_params const& params, bool debug
     if (aotriton::isArchExperimentallySupported(stream)) {
       static const bool enable_experimental = c10::utils::check_env("TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL") == true;
       if (!enable_experimental) {
+#if defined(PYTORCH_DTK_VERSION)
+        TORCH_WARN_ONCE("Flash Efficient attention on Current HCU is still experimental."
+            " Enable it with TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1.");
+#else
         TORCH_WARN_ONCE("Flash Efficient attention on Current AMD GPU is still experimental."
             " Enable it with TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1.");
+#endif
         return false;
       }
     }
@@ -387,8 +397,13 @@ bool check_mem_efficient_hardware_support(sdp_params const& params, bool debug) 
     if (hipSuccess != aotriton::v2::flash::check_gpu(stream)) {
         auto dprops = at::cuda::getCurrentDeviceProperties();
         if (debug) {
+#if defined(PYTORCH_DTK_VERSION)
+            TORCH_WARN(
+                    "Mem Efficient attention was not compiled for current HCU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+#else
             TORCH_WARN(
                     "Mem Efficient attention was not compiled for current AMD GPU architecture. Attempting to run on architecture ", dprops->gcnArchName);
+#endif
         }
         return false;
     }
@@ -396,8 +411,13 @@ bool check_mem_efficient_hardware_support(sdp_params const& params, bool debug) 
     if (aotriton::isArchExperimentallySupported(stream)) {
       static const bool enable_experimental = c10::utils::check_env("TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL") == true;
       if (!enable_experimental) {
+#if defined(PYTORCH_DTK_VERSION)
+        TORCH_WARN_ONCE("Mem Efficient attention on Current HCU is still experimental."
+            " Enable it with TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1.");
+#else
         TORCH_WARN_ONCE("Mem Efficient attention on Current AMD GPU is still experimental."
             " Enable it with TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1.");
+#endif
         return false;
       }
     }
