@@ -11,6 +11,7 @@ from torch import Tensor
 from torch._C import FileCheck
 
 from torch._inductor import config, inductor_prims, ir, utils
+from torch._inductor.fx_passes.misc_patterns import _misc_patterns_init
 from torch._inductor.lowering import clone as lowering_clone, register_lowering
 from torch._inductor.pattern_matcher import PatternMatcherPass
 from torch._inductor.test_case import run_tests, TestCase

@@ -25,6 +25,7 @@ from torch.testing._internal.inductor_utils import (
     HAS_GPU_AND_TRITON,
     requires_gpu_with_enough_memory,
 )
+from torch.utils.cpp_extension import PYTORCH_DTK_VERSION
 
 
 try:
@@ -53,6 +54,13 @@ from torch._inductor.runtime.triton_heuristics import (
 from torch._inductor.test_case import run_tests, TestCase
 
 
+TEST_WITH_HCUSMI = (
+    torch.version.hip is not None
+    and PYTORCH_DTK_VERSION is not None
+    and torch.cuda._HAS_HCUSMI
+)
+
+
 @triton.jit
 def amd_sqr_kernel(in_ptr, out_ptr, numel, BLOCK_SIZE: tl.constexpr):
     pid = tl.program_id(0)
@@ -75,6 +83,30 @@ def get_autotuned_amd_sqr_kernel():
         ],
         key=[],
     )(amd_sqr_kernel)
+
+
+@triton.jit
+def hcu_sqr_kernel(in_ptr, out_ptr, numel, BLOCK_SIZE: tl.constexpr):
+    pid = tl.program_id(0)
+    offsets = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    data = tl.load(in_ptr + offsets, mask=offsets < numel)
+    sqr = data * data
+    tl.store(out_ptr + offsets, sqr, mask=offsets < numel)
+
+
+@functools.lru_cache
+def get_autotuned_hcu_sqr_kernel():
+    return triton.autotune(
+        configs=[
+            triton.Config(
+                {
+                    "BLOCK_SIZE": 64,
+                    "waves_per_eu": 3,
+                }
+            )
+        ],
+        key=[],
+    )(hcu_sqr_kernel)
 
 
 @instantiate_parametrized_tests
@@ -244,6 +276,7 @@ class TestTritonHeuristics(TestCase):
             self.assertEqual(configs[0].num_consumer_groups, num_consumer_groups)
             self.assertEqual(configs[0].num_buffers_warp_spec, num_buffers_warp_spec)
 
+    @unittest.skipIf(TEST_WITH_HCUSMI, "HCuSMI is available; use HCU test")
     @runOnRocm
     def test_amd_special_config_args(self):
         """
@@ -264,6 +297,35 @@ class TestTritonHeuristics(TestCase):
 
         def fn(x):
             return triton_sqr(x)
+
+        x = torch.randn(32, device=GPU_TYPE)
+        ref = fn(x)
+        res = torch.compile(fn)(x)
+        self.assertEqual(ref, res)
+
+    @unittest.skipIf(not TEST_WITH_HCUSMI, "requires HCU environment with HCuSMI")
+    @runOnRocm
+    def test_hcu_special_config_args(self):
+        """
+        Verify that HCU Triton configs accept special config kwargs such as
+        waves_per_eu when the kwarg is not present in the kernel signature.
+        """
+
+        @torch.library.triton_op(
+            "test_triton_heuristics::hcu_triton_sqr", mutates_args=()
+        )
+        def hcu_triton_sqr(x: torch.Tensor) -> torch.Tensor:
+            y = torch.empty_like(x)
+
+            def grid(meta):
+                return (triton.cdiv(x.numel(), meta["BLOCK_SIZE"]),)
+
+            torch.library.wrap_triton(get_autotuned_hcu_sqr_kernel())[grid](
+                x, y, x.numel()
+            )
+
+        def fn(x):
+            return hcu_triton_sqr(x)
 
         x = torch.randn(32, device=GPU_TYPE)
         ref = fn(x)
