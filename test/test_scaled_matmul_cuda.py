@@ -1268,6 +1268,8 @@ class TestFP8Matmul(TestCase):
               torch.version.cuda and torch.version.cuda >= "12.9"):
             out = e5m2()
             self.assertEqual(out, torch.ones_like(out) * 128.)
+        elif torch.version.hip and e5m2_type == torch.float8_e5m2:
+            e5m2()
         elif torch.version.hip:
             with self.assertRaisesRegex(
                 ValueError,
