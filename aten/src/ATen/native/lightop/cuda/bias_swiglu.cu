@@ -1,17 +1,6 @@
 /* coding=utf-8
- * Copyright (c) 2023, S-3000 CORPORATION.  All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <limits>
@@ -76,7 +65,7 @@ __global__ void FusedBiasSwiGLU_gpu_kernel(int elem_cnt, scalar_t* out, const sc
         *(LoadT*)(v_bias_multiplier) = *(LoadT*)(bias + col_id + dim / 2);
         #pragma unroll
         for(int i = 0; i < VEC; i++){
-            v_out[i] = static_cast<scalar_t>(silu_mul<acc_t>(static_cast<acc_t>(v_in[i] + v_bias_in[i]), 
+            v_out[i] = static_cast<scalar_t>(silu_mul<acc_t>(static_cast<acc_t>(v_in[i] + v_bias_in[i]),
                                              static_cast<acc_t>(v_multiplier[i] + v_bias_multiplier[i])));
         }
         *(LoadT*)(out + row_id * dim / 2 + col_id) = *(LoadT*)v_out;
@@ -134,7 +123,7 @@ __global__ void FusedBiasSwiGLU_backward_gpu_kernel(int elem_cnt, scalar_t* in_g
         for(int i = 0; i < VEC; i++){
             acc_t x_diff;
             acc_t m_diff;
-            silu_mul_backward<acc_t>(x_diff, m_diff, static_cast<acc_t>(v_out_grad[i]), static_cast<acc_t>(v_in[i] + v_bias_in[i]), 
+            silu_mul_backward<acc_t>(x_diff, m_diff, static_cast<acc_t>(v_out_grad[i]), static_cast<acc_t>(v_in[i] + v_bias_in[i]),
                                           static_cast<acc_t>(v_multiplier[i] + v_bias_multiplier[i]));
             v_in_grad[i] = static_cast<scalar_t>(x_diff);
             v_multiplier_grad[i] = static_cast<scalar_t>(m_diff);
@@ -176,8 +165,8 @@ at::Tensor fuse_bias_swiglu_forward_gpu(const Tensor& in, const Tensor& bias) {
     at::Tensor out =
         // at::empty({elem_cnt / 2},
         at::empty(sizeVec,
-                  at::device(at::kCUDA).dtype(in.scalar_type()));    
-               
+                  at::device(at::kCUDA).dtype(in.scalar_type()));
+
     FusedBiasSwiGLU_gpu_launch(elem_cnt, &in, &out, &bias);
     return out;
 }
@@ -196,4 +185,3 @@ std::tuple<Tensor, Tensor> fuse_bias_swiglu_backward_gpu(const Tensor& out_grad,
 }
 }//namespace native
 }//namespace at
-

@@ -454,3 +454,21 @@ and reference the following license:
     LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
     OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
     PERFORMANCE OF THIS SOFTWARE.
+
+=======================================================================
+HYGON Modifications
+=======================================================================
+The HYGON distribution contains modifications to the upstream PyTorch
+sources for HCU and DTK support. These contributions include:
+
+- DTK version and architecture macro integration;
+- HCU/HIP runtime, build, and library integration;
+- hipFile and hipBLASLt grouped GEMM integration;
+- LightOp operator and kernel integration;
+- HCU-specific CUDA-to-HIP and NVCC argument mappings;
+- FlashAttention/CUTLASS HIP adaptation;
+- related tests, build metadata, and developer tooling.
+
+The upstream copyright and license notices in modified files remain in place.
+Third-party source and dependency details are recorded in
+THIRD_PARTY_NOTICES.md.

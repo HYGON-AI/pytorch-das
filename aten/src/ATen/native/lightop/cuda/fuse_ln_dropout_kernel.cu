@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
 #include <ATen/native/lightop/cuda/layernorm.h>
 
 //int get_layernorm_blocksize(int cols)
