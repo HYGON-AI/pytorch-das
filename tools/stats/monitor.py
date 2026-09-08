@@ -50,6 +50,7 @@ from tools.stats.utilization_stats_lib import (
 
 _HAS_PYNVML = False
 _HAS_AMDSMI = False
+_HAS_HCUSMI = False
 
 _job_name = os.environ.get("JOB_NAME", "")
 _job_id = os.environ.get("JOB_ID", "")
@@ -94,6 +95,13 @@ try:
     import amdsmi  # type: ignore[import]
 
     _HAS_AMDSMI = True
+except ModuleNotFoundError:
+    pass
+
+try:
+    import hcusmi  # type: ignore[import]
+
+    _HAS_HCUSMI = True
 except ModuleNotFoundError:
     pass
 
@@ -187,6 +195,7 @@ class UsageLogger:
         is_debug_mode: bool = False,
         pynvml_enabled: bool = False,
         amdsmi_enabled: bool = False,
+        hcusmi_enabled: bool = False,
     ) -> None:
         """
         log_interval: Time interval in seconds for collecting usage data; default is 5 seconds.
@@ -209,6 +218,7 @@ class UsageLogger:
 
         self._has_pynvml = pynvml_enabled
         self._has_amdsmi = amdsmi_enabled
+        self._has_hcusmi = hcusmi_enabled
         self._gpu_handles: list[Any] = []
         self._gpu_lib_detected: str = ""
         self._num_of_cpus = 0
@@ -315,7 +325,7 @@ class UsageLogger:
                 record.memory = memory_stats
 
                 # collect gpu metrics
-                if self._has_pynvml or self._has_amdsmi:
+                if self._has_pynvml or self._has_amdsmi or self._has_hcusmi:
                     gpu_list = self._calculate_gpu_utilization(data_list)
                     record.gpu_usage = gpu_list
                 stats.data = record
@@ -393,7 +403,7 @@ class UsageLogger:
 
     def _collect_gpu_data(self) -> list[GpuData]:
         gpu_data_list = []
-        if self._has_pynvml:
+        if self._gpu_lib_detected == "pynvml":
             # Iterate over the available GPUs
             for gpu_handle in self._gpu_handles:
                 # see https://docs.nvidia.com/deploy/nvml-api/group__nvmlDeviceQueries.html
@@ -416,15 +426,27 @@ class UsageLogger:
                         total_mem_value=total_mem_MB,
                     )
                 )
-        elif self._has_amdsmi:
+        elif self._gpu_lib_detected in ("amdsmi", "hcusmi"):
             # Iterate over the available GPUs
             for handle in self._gpu_handles:
-                # see https://rocm.docs.amd.com/projects/amdsmi/en/latest/how-to/amdsmi-py-lib.html
-                engine_usage = amdsmi.amdsmi_get_gpu_activity(handle)
-                gpu_uuid = amdsmi.amdsmi_get_gpu_device_uuid(handle)
-                gpu_utilization = engine_usage["gfx_activity"]
-                gpu_mem_utilization = gpu_utilization["umc_activity"]
-                mem_info = amdsmi.amdsmi_get_gpu_memory_usage(handle)
+                if self._gpu_lib_detected == "hcusmi":
+                    engine_usage = hcusmi.hcusmi_get_gpu_activity(handle)
+                    gpu_uuid = hcusmi.hcusmi_get_gpu_device_uuid(handle)
+                    gpu_utilization = engine_usage["gfx_activity"]
+                    gpu_mem_utilization = engine_usage["umc_activity"]
+                    # hcusmi_get_gpu_memory_usage requires a mem_type arg and
+                    # returns an int; use hcusmi_get_gpu_vram_usage instead
+                    vram = hcusmi.hcusmi_get_gpu_vram_usage(handle)
+                    mem_info = {
+                        "vram_usage": vram["vram_used"],
+                        "vram_total": vram["vram_total"],
+                    }
+                else:
+                    engine_usage = amdsmi.amdsmi_get_gpu_activity(handle)
+                    gpu_uuid = amdsmi.amdsmi_get_gpu_device_uuid(handle)
+                    gpu_utilization = engine_usage["gfx_activity"]
+                    gpu_mem_utilization = engine_usage["umc_activity"]
+                    mem_info = amdsmi.amdsmi_get_gpu_memory_usage(handle)
 
                 allocate_mem_MB = mem_info["vram_usage"] / 1024**2
                 total_mem_MB = mem_info["vram_total"] / 1024**2
@@ -455,7 +477,16 @@ class UsageLogger:
                     pynvml.nvmlDeviceGetHandleByIndex(i)
                     for i in range(pynvml.nvmlDeviceGetCount())
                 ]
-            if self._has_amdsmi:
+            if self._has_hcusmi:
+                try:
+                    self._gpu_lib_detected = "hcusmi"
+                    self._gpu_handles = hcusmi.hcusmi_get_processor_handles()
+                except Exception:
+                    if not self._has_amdsmi:
+                        raise
+                    self._gpu_lib_detected = "amdsmi"
+                    self._gpu_handles = amdsmi.amdsmi_get_processor_handles()
+            elif self._has_amdsmi:
                 self._gpu_lib_detected = "amdsmi"
                 self._gpu_handles = amdsmi.amdsmi_get_processor_handles()
 
@@ -465,7 +496,7 @@ class UsageLogger:
             self._metadata.gpu_count = len(self._gpu_handles)
             self._metadata.cpu_count = self._num_of_cpus
 
-            if self._has_pynvml or self._has_amdsmi:
+            if self._has_pynvml or self._has_hcusmi or self._has_amdsmi:
                 if len(self._gpu_handles) == 0:
                     self._metadata.gpu_type = ""
                 else:
@@ -474,6 +505,11 @@ class UsageLogger:
             self._metadata.error = str(e)
 
     def _shutdown_gpu_connections(self) -> None:
+        if self._has_hcusmi:
+            try:
+                hcusmi.hcusmi_shut_down()
+            except Exception:
+                pass
         if self._has_amdsmi:
             try:
                 amdsmi.amdsmi_shut_down()
@@ -504,15 +540,21 @@ class UsageLogger:
         return per_process_info
 
     def _rocm_get_per_process_gpu_info(self, handle: Any) -> list[dict[str, Any]]:
-        processes = amdsmi.amdsmi_get_gpu_process_list(handle)
+        if self._gpu_lib_detected == "hcusmi":
+            processes = hcusmi.hcusmi_get_gpu_process_list(handle)
+        else:
+            processes = amdsmi.amdsmi_get_gpu_process_list(handle)
         per_process_info = []
         for p in processes:
-            try:
-                proc_info = amdsmi.amdsmi_get_gpu_process_info(handle, p)
-            except AttributeError:
-                # https://github.com/ROCm/amdsmi/commit/c551c3caedbd903ba828e7fdffa5b56d475a15e7
-                # BC-breaking change that removes amdsmi_get_gpu_process_info API from amdsmi
+            if self._gpu_lib_detected == "hcusmi":
+                # hcusmi_get_gpu_process_list already returns full per-process
+                # dicts; hcusmi provides no hcusmi_get_gpu_process_info API
                 proc_info = p
+            else:
+                try:
+                    proc_info = amdsmi.amdsmi_get_gpu_process_info(handle, p)
+                except AttributeError:
+                    proc_info = p
 
             info = {
                 "pid": proc_info["pid"],
@@ -556,12 +598,19 @@ def main() -> None:
     # initialize gpu management libraries
     pynvml_enabled = False
     amdsmi_enabled = False
+    hcusmi_enabled = False
 
     if _HAS_PYNVML:
         try:
             pynvml.nvmlInit()
             pynvml_enabled = True
         except pynvml.NVMLError:
+            pass
+    if _HAS_HCUSMI:
+        try:
+            hcusmi.hcusmi_init()
+            hcusmi_enabled = True
+        except hcusmi.HcuSmiException:
             pass
     if _HAS_AMDSMI:
         try:
@@ -577,6 +626,7 @@ def main() -> None:
         is_debug_mode=args.debug,
         pynvml_enabled=pynvml_enabled,
         amdsmi_enabled=amdsmi_enabled,
+        hcusmi_enabled=hcusmi_enabled,
     )
 
     # gracefully exit the script when pid is killed

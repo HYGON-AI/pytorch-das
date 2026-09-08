@@ -16,8 +16,10 @@ from torch import _C
 from torch._utils import _augment_memory_snapshot_stack_traces, _dummy_type
 
 from . import (
+    _HAS_HCUSMI,
     _get_amdsmi_device_index,
     _get_device_index,
+    _get_hcusmi_device_index,
     _get_nvml_device_index,
     _lazy_init,
     is_initialized,
@@ -790,22 +792,48 @@ def list_gpu_processes(device: "Device" = None) -> str:
         handle = pynvml.nvmlDeviceGetHandleByIndex(device)
         procs = pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
     else:
-        try:
-            import amdsmi  # type: ignore[import]
-        except ModuleNotFoundError:
-            return "amdsmi module not found, please install amdsmi"
-        try:
-            amdsmi.amdsmi_init()  # type: ignore[attr-defined]
-        except amdsmi.AmdSmiException:  # type: ignore[attr-defined]
-            return "amdsmi driver can't be loaded, is ROCm installed?"
+        if _HAS_HCUSMI:
+            try:
+                import hcusmi  # type: ignore[import]
+                hcusmi.hcusmi_init()  # type: ignore[attr-defined]
+                hcusmi_device = _get_hcusmi_device_index(device)
+                handle = hcusmi.hcusmi_get_processor_handles()[hcusmi_device]  # type: ignore[attr-defined]
+                procs = hcusmi.hcusmi_get_gpu_process_list(handle)  # type: ignore[attr-defined]
+                device = hcusmi_device
+            except Exception:
+                try:
+                    import amdsmi  # type: ignore[import]
+                except ModuleNotFoundError:
+                    return "amdsmi module not found, please install amdsmi"
+                try:
+                    amdsmi.amdsmi_init()  # type: ignore[attr-defined]
+                except amdsmi.AmdSmiException:  # type: ignore[attr-defined]
+                    return "amdsmi driver can't be loaded, is ROCm installed?"
 
-        device = _get_amdsmi_device_index(device)
+                device = _get_amdsmi_device_index(device)
 
-        try:
-            handle = amdsmi.amdsmi_get_processor_handles()[device]  # type: ignore[attr-defined]
-            procs = amdsmi.amdsmi_get_gpu_process_list(handle)  # type: ignore[attr-defined]
-        except amdsmi.AmdSmiException:  # type: ignore[attr-defined]
-            return "amdsmi cannot list processes from other users"
+                try:
+                    handle = amdsmi.amdsmi_get_processor_handles()[device]  # type: ignore[attr-defined]
+                    procs = amdsmi.amdsmi_get_gpu_process_list(handle)  # type: ignore[attr-defined]
+                except amdsmi.AmdSmiException:  # type: ignore[attr-defined]
+                    return "amdsmi cannot list processes from other users"
+        else:
+            try:
+                import amdsmi  # type: ignore[import]
+            except ModuleNotFoundError:
+                return "amdsmi module not found, please install amdsmi"
+            try:
+                amdsmi.amdsmi_init()  # type: ignore[attr-defined]
+            except amdsmi.AmdSmiException:  # type: ignore[attr-defined]
+                return "amdsmi driver can't be loaded, is ROCm installed?"
+
+            device = _get_amdsmi_device_index(device)
+
+            try:
+                handle = amdsmi.amdsmi_get_processor_handles()[device]  # type: ignore[attr-defined]
+                procs = amdsmi.amdsmi_get_gpu_process_list(handle)  # type: ignore[attr-defined]
+            except amdsmi.AmdSmiException:  # type: ignore[attr-defined]
+                return "amdsmi cannot list processes from other users"
 
     lines = []
     lines.append(f"GPU:{device}")
@@ -815,6 +843,12 @@ def list_gpu_processes(device: "Device" = None) -> str:
         if not torch.version.hip:
             mem = p.usedGpuMemory / (1024 * 1024)
             pid = p.pid
+        elif _HAS_HCUSMI:
+            # hcusmi_get_gpu_process_list already returns full per-process
+            # dicts; hcusmi provides no hcusmi_get_gpu_process_info API
+            proc_info = p
+            mem = proc_info["memory_usage"]["vram_mem"] / (1024 * 1024)
+            pid = proc_info["pid"]
         else:
             try:
                 proc_info = amdsmi.amdsmi_get_gpu_process_info(handle, p)  # type: ignore[possibly-undefined]
