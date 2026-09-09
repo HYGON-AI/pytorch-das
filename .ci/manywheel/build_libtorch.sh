@@ -92,8 +92,8 @@ retry pip install -qr requirements.txt
 retry pip install -q numpy==2.0.1
 
 if [[ "$DESIRED_CUDA" == *"rocm"* ]]; then
-    echo "Calling build_amd.py at $(date)"
-    python tools/amd_build/build_amd.py
+    echo "Calling build_hcu.py at $(date)"
+    python tools/hcu_build/build_hcu.py
     # TODO remove this work-around once pytorch sources are updated
     export ROCclr_DIR=/opt/rocm/rocclr/lib/cmake/rocclr
 fi

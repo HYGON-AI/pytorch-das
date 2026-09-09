@@ -126,7 +126,7 @@ if [[ "$BUILD_ENVIRONMENT" == *rocm* ]]; then
   fi
 
   # hipify sources
-  python tools/amd_build/build_amd.py
+  python tools/hcu_build/build_hcu.py
 fi
 
 if [[ "$BUILD_ENVIRONMENT" == *xpu* ]]; then

@@ -1,0 +1,98 @@
+From e474e3004435b9c688c011465c9d3a1b1692d0f8 Mon Sep 17 00:00:00 2001
+Date: Wed, 15 Jul 2026 15:56:14 +0800
+Subject: [PATCH 2/2] [das] feat(kineto): add begin-end trace slices
+
+Why:
+Some trace consumers require explicit begin and end events instead of complete events for GPU activities.
+
+What:
+Add the KINETO_USE_BE environment switch and emit B/E Chrome trace slices when it is enabled.
+
+Impact:
+Default trace output remains unchanged when KINETO_USE_BE is unset or zero.
+---
+ libkineto/src/output_json.cpp | 51 +++++++++++++++++++++++++++++------
+ libkineto/src/output_json.h   |  1 +
+ 2 files changed, 44 insertions(+), 8 deletions(-)
+
+diff --git a/libkineto/src/output_json.cpp b/libkineto/src/output_json.cpp
+index fe01155..73f1f23 100644
+--- a/libkineto/src/output_json.cpp
++++ b/libkineto/src/output_json.cpp
+@@ -479,6 +479,10 @@ ChromeTraceLogger::ChromeTraceLogger(const std::string& traceFileName) {
+   fileName_ = traceFileName.empty() ? defaultFileName() : traceFileName;
+   traceOf_.clear(std::ios_base::badbit);
+   openTraceFile();
++  const char* be = std::getenv("KINETO_USE_BE");
++  if (be && be[0] != '\0' && std::string(be) != "0") {
++    beSlices_ = true;
++  }
+ }
+
+ void ChromeTraceLogger::handleDeviceInfo(const DeviceInfo& info, int64_t time) {
+@@ -820,14 +824,45 @@ void ChromeTraceLogger::handleActivity(const libkineto::ITraceActivity& op) {
+   sanitizeForNonReadableChars(op_name);
+
+   ts = transToRelativeTime(ts);
+-  writeCompleteEvent(
+-      /*cat=*/toString(op.type()),
+-      /*name=*/op_name,
+-      /*pid=*/device,
+-      /*tid=*/sanitizeTid(resource),
+-      /*ts=*/ts,
+-      /*dur=*/duration,
+-      /*args=*/args);
++  if (beSlices_) {
++    int64_t end_ts = ts + duration;
++    if (end_ts < ts) {
++      end_ts = ts;
++    }
++    fmt::print(traceOf_, R"JSON(
++  {{
++    "ph": "B",
++    "cat": "{}",
++    "name": "{}",
++    "pid": {},
++    "tid": {},
++    "ts": {}
++    {}
++  }},)JSON",
++        toString(op.type()), op_name, device, sanitizeTid(resource),
++        fmtTs(ts), args.renderField());
++    fmt::print(traceOf_, R"JSON(
++  {{
++    "ph": "E",
++    "cat": "{}",
++    "name": "{}",
++    "pid": {},
++    "tid": {},
++    "ts": {}
++    {}
++  }},)JSON",
++        toString(op.type()), op_name, device, sanitizeTid(resource),
++        fmtTs(end_ts), args.renderField());
++  } else {
++    writeCompleteEvent(
++        /*cat=*/toString(op.type()),
++        /*name=*/op_name,
++        /*pid=*/device,
++        /*tid=*/sanitizeTid(resource),
++        /*ts=*/ts,
++        /*dur=*/duration,
++        /*args=*/args);
++  }
+   if (op.flowId() > 0) {
+     handleGenericLink(op);
+   }
+diff --git a/libkineto/src/output_json.h b/libkineto/src/output_json.h
+index a4ce427..b384a6b 100644
+--- a/libkineto/src/output_json.h
++++ b/libkineto/src/output_json.h
+@@ -203,6 +203,7 @@ class ChromeTraceLogger : public libkineto::ActivityLogger {
+   // pg_name, value is pgConfig that will be used to populate pg_config in
+   // distributedInfo of trace
+   std::unordered_map<std::string, pgConfig> pgMap_ = {};
++  bool beSlices_ = false;
+ };
+
+ // std::chrono header start

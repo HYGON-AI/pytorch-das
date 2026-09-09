@@ -641,7 +641,7 @@ def is_out_of_place(rel_filepath) -> bool:
     return True
 
 
-# Keep this synchronized with includes/ignores in build_amd.py
+# Keep this synchronized with includes/ignores in build_hcu.py
 def is_pytorch_file(rel_filepath) -> bool:
     _deprecated("is_pytorch_file")
     if os.path.isabs(rel_filepath):

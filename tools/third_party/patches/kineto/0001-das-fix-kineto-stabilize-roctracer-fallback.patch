@@ -1,0 +1,159 @@
+From e62e34bcb3994b3b88c41342200ee6892531c59a Mon Sep 17 00:00:00 2001
+Date: Wed, 15 Jul 2026 15:53:17 +0800
+Subject: [PATCH 1/2] [das] fix(kineto): stabilize roctracer fallback
+
+Why:
+ROCtracer fallback builds need to avoid Rocprof registration and preserve kernel names before deferred activity serialization.
+
+What:
+Store captured kernel names, avoid unused-parameter warnings, and skip Rocprof initialization when ROCTRACER_FALLBACK is enabled.
+
+Impact:
+ROCtracer module launches use the captured kernel name. This patch mirrors the existing third-party ZIP changes.
+---
+ libkineto/src/RocLogger.h              |  4 +++-
+ libkineto/src/RoctracerActivityApi.cpp |  1 +
+ libkineto/src/RoctracerActivity_inl.h  |  5 ++---
+ libkineto/src/RoctracerLogger.cpp      | 10 ++++++++--
+ libkineto/src/init.cpp                 |  6 ++++--
+ 5 files changed, 18 insertions(+), 8 deletions(-)
+
+diff --git a/libkineto/src/RocLogger.h b/libkineto/src/RocLogger.h
+index a59ffad..f7f2e74 100644
+--- a/libkineto/src/RocLogger.h
++++ b/libkineto/src/RocLogger.h
+@@ -123,6 +123,7 @@ struct rocprofKernelRow : public rocprofRow {
+                    unsigned int wz,
+                    size_t gss,
+                    hipStream_t stream,
++                   const std::string& kernelName_,
+                    rocprof_activity_types type = ROCTRACER_ACTIVITY_KERNEL)
+       : rocprofRow(id, domain, cid, pid, tid, begin, end, type),
+         functionAddr(faddr),
+@@ -134,7 +135,7 @@ struct rocprofKernelRow : public rocprofRow {
+         workgroupY(wy),
+         workgroupZ(wz),
+         groupSegmentSize(gss),
+-        stream(stream) {}
++        stream(stream), kernelName(kernelName_) {}
+   const void* functionAddr;
+   hipFunction_t function;
+   unsigned int gridX;
+@@ -145,6 +146,7 @@ struct rocprofKernelRow : public rocprofRow {
+   unsigned int workgroupZ;
+   size_t groupSegmentSize;
+   hipStream_t stream;
++  std::string kernelName;
+ };
+
+ struct rocprofCopyRow : public rocprofRow {
+diff --git a/libkineto/src/RoctracerActivityApi.cpp b/libkineto/src/RoctracerActivityApi.cpp
+index 709a89d..7b1b5ad 100644
+--- a/libkineto/src/RoctracerActivityApi.cpp
++++ b/libkineto/src/RoctracerActivityApi.cpp
+@@ -55,6 +55,7 @@ void RoctracerActivityApi::popCorrelationID(CorrelationFlowType type) {
+ }
+
+ void RoctracerActivityApi::setMaxBufferSize(int64_t size) {
++  (void)size;
+   // FIXME: implement?
+   // maxGpuBufferCount_ = 1 + size / kBufSize;
+ }
+diff --git a/libkineto/src/RoctracerActivity_inl.h b/libkineto/src/RoctracerActivity_inl.h
+index 6f1e752..9fb01c8 100644
+--- a/libkineto/src/RoctracerActivity_inl.h
++++ b/libkineto/src/RoctracerActivity_inl.h
+@@ -161,11 +161,10 @@ inline const std::string RuntimeActivity<rocprofKernelRow>::metadataJson() const
+         R"JSON(
+     "kernel": "{}", )JSON",
+         demangle(hipKernelNameRefByPtr(raw().functionAddr, raw().stream)));
+-  } else if ((raw().function != nullptr)) {
++  } else if ((raw().function != nullptr)&&!raw().kernelName.empty()) {
+     kernel = fmt::format(
+         R"JSON(
+-    "kernel": "{}", )JSON",
+-        demangle(hipKernelNameRef(raw().function)));
++    "kernel": "{}", )JSON", raw().kernelName);
+   }
+   // cache grid and block so we can pass it into async activity (GPU track)
+   correlationToGrid[raw().id] = fmt::format(
+diff --git a/libkineto/src/RoctracerLogger.cpp b/libkineto/src/RoctracerLogger.cpp
+index 6f8c960..3da5886 100644
+--- a/libkineto/src/RoctracerLogger.cpp
++++ b/libkineto/src/RoctracerLogger.cpp
+@@ -103,6 +103,7 @@ void RoctracerLogger::api_callback(
+     uint32_t cid,
+     const void* callback_data,
+     void* arg) {
++  (void)arg;
+   RoctracerLogger* dis = &singleton();
+
+   if (domain == ACTIVITY_DOMAIN_HIP_API && dis->loggedIds_.contains(cid)) {
+@@ -127,6 +128,7 @@ void RoctracerLogger::api_callback(
+         {
+           s_flush.reportCorrelation(data->correlation_id);
+           auto& args = data->args.hipLaunchKernel;
++          std::string kernelName = "";
+           rocprofKernelRow* row = new rocprofKernelRow(
+               data->correlation_id,
+               domain,
+@@ -144,7 +146,8 @@ void RoctracerLogger::api_callback(
+               args.dimBlocks.y,
+               args.dimBlocks.z,
+               args.sharedMemBytes,
+-              args.stream);
++              args.stream,
++              kernelName);
+           insert_row_to_buffer(row);
+         } break;
+         case HIP_API_ID_hipHccModuleLaunchKernel:
+@@ -152,6 +155,7 @@ void RoctracerLogger::api_callback(
+         case HIP_API_ID_hipExtModuleLaunchKernel: {
+           s_flush.reportCorrelation(data->correlation_id);
+           auto& args = data->args.hipModuleLaunchKernel;
++          std::string kernelName = demangle(hipKernelNameRef(args.f));
+           rocprofKernelRow* row = new rocprofKernelRow(
+               data->correlation_id,
+               domain,
+@@ -169,7 +173,8 @@ void RoctracerLogger::api_callback(
+               args.blockDimY,
+               args.blockDimZ,
+               args.sharedMemBytes,
+-              args.stream);
++              args.stream,
++              kernelName);
+           insert_row_to_buffer(row);
+         } break;
+         case HIP_API_ID_hipLaunchCooperativeKernelMultiDevice:
+@@ -292,6 +297,7 @@ void RoctracerLogger::activity_callback(
+     const char* begin,
+     const char* end,
+     void* arg) {
++  (void)arg;
+   // Log latest completed correlation id.  Used to ensure we have flushed all
+   // data on stop
+   std::unique_lock<std::mutex> lock(s_flush.mutex_);
+diff --git a/libkineto/src/init.cpp b/libkineto/src/init.cpp
+index 08c5f4c..fabfc02 100644
+--- a/libkineto/src/init.cpp
++++ b/libkineto/src/init.cpp
+@@ -23,7 +23,8 @@
+ #include "CuptiRangeProfiler.h"
+ #include "EventProfilerController.h"
+ #endif
+-#ifdef HAS_ROCTRACER
++//#ifdef HAS_ROCTRACER
++#if defined(HAS_ROCTRACER) && !defined(ROCTRACER_FALLBACK)
+ #include "RocprofLogger.h"
+ #endif
+ #ifdef HAS_XPUPTI
+@@ -171,7 +172,8 @@ void libkineto_init(bool cpuOnly, [[maybe_unused]] bool logOnError) {
+   }
+ #endif // HAS_CUPTI
+
+-#ifdef HAS_ROCTRACER
++//#ifdef HAS_ROCTRACER
++#if defined(HAS_ROCTRACER) && !defined(ROCTRACER_FALLBACK)
+   if (!cpuOnly) {
+     RocprofLogger::ensureRegistered();
+   }

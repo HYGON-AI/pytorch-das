@@ -1680,9 +1680,9 @@ def add_triton(install_requires, extras_require) -> None:
         triton_text_file = "triton.txt"
         triton_package_name = "pytorch-triton"
     triton_pin_file = os.path.join(
-        cwd, ".ci", "docker", "ci_commit_pins", triton_text_file
+        CWD, ".ci", "docker", "ci_commit_pins", triton_text_file
     )
-    triton_version_file = os.path.join(cwd, ".ci", "docker", "triton_version.txt")
+    triton_version_file = os.path.join(CWD, ".ci", "docker", "triton_version.txt")
 
     if os.path.exists(triton_pin_file) and os.path.exists(triton_version_file):
         with open(triton_pin_file) as f:
@@ -1728,7 +1728,7 @@ def main() -> None:
         )
 
     install_requires = [
-        "cloudpickle",
+        "cloudpickle==3.1.2",
         "filelock",
         "typing-extensions>=4.10.0",
         "setuptools<82",

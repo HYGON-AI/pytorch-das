@@ -35,13 +35,13 @@ Developer tools which you might find useful:
   (See also [generated_dirs.txt](generated_dirs.txt) which
   specifies the list of directories with generated files.)
 
-Important if you want to run on AMD GPU:
+Important if you want to run on AMD/HCU GPU:
 
-* [amd_build](amd_build) - HIPify scripts, for transpiling CUDA
+* [hcu_build](hcu_build) - HIPify scripts, for transpiling CUDA
   into AMD HIP.  Right now, PyTorch and Caffe2 share logic for how to
   do this transpilation, but have separate entry-points for transpiling
   either PyTorch or Caffe2 code.
-  * [build_amd.py](amd_build/build_amd.py) - Top-level entry
+  * [build_hcu.py](hcu_build/build_hcu.py) - Top-level entry
     point for HIPifying our codebase.
 
 Tools which are only situationally useful:
