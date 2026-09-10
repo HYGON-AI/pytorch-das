@@ -19,6 +19,7 @@
 #include <ATen/ops/zeros.h>
 
 #include <ATen/core/Tensor.h>
+#include <ATen/TensorUtils.h>
 #include <ATen/hip/HIPGraphsUtils.cuh>
 
 #ifndef AT_PER_OPERATOR_HEADERS
@@ -39,9 +40,279 @@
 #include <c10/util/CallOnce.h>
 
 #include <ATen/native/transformers/hip/cutlassfa_adapter.h>
+#include <limits>
 
 namespace pytorch_flash {
 
+
+bool has_cutlass_attnmask_api() {
+    static const bool available = [] {
+        try {
+            return sdp::cutlassfa_adapter::CUTLASSFA::get_instance().has_attnmask_api();
+        } catch (const std::exception&) {
+            return false;
+        }
+    }();
+    return available;
+}
+
+bool has_cutlass_varlen_attnmask_api() {
+    static const bool available = [] {
+        try {
+            return sdp::cutlassfa_adapter::CUTLASSFA::get_instance()
+                .has_varlen_attnmask_api();
+        } catch (const std::exception&) {
+            return false;
+        }
+    }();
+    return available;
+}
+
+void check_attnmask_inputs(
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    const at::Tensor& mask) {
+    constexpr auto* c = "masked Flash attention";
+    const at::TensorArg q{query, "query", 1}, k{key, "key", 2},
+        v{value, "value", 3}, m{mask, "attn_mask", 4};
+    TORCH_CHECK(
+        !query.is_nested() && !key.is_nested() && !value.is_nested() &&
+        !mask.is_nested(), "Masked Flash attention requires dense inputs");
+    at::checkLayout(c, {query, key, value, mask}, at::kStrided);
+    for (const auto& t : {q, k, v, m}) {
+        at::checkDim(c, t, 4);
+    }
+    TORCH_CHECK(query.is_cuda(), "Masked Flash attention requires GPU inputs");
+    at::checkDeviceType(c, {key, value, mask}, query.device().type());
+    at::checkAllSameGPU(c, {q, k, v, m});
+    at::checkScalarTypes(c, q, {at::kHalf, at::kBFloat16});
+    at::checkScalarType(c, m, at::kBool);
+    const auto batch = query.size(0);
+    const auto heads = query.size(1);
+    const auto kv_heads = key.size(1);
+    const auto length_q = query.size(2);
+    const auto length_k = key.size(2);
+    const auto dim = query.size(3);
+    TORCH_CHECK(
+        batch > 0 && heads > 0 && kv_heads > 0 && length_q > 0 && length_k > 0 &&
+        key.size(0) == batch && value.size(0) == batch &&
+        value.size(1) == kv_heads && heads % kv_heads == 0 &&
+        value.size(2) == length_k &&
+        (dim == 64 || dim == 128) && key.size(3) == dim && value.size(3) == dim,
+        "Masked Flash attention requires compatible batch/heads/lengths and head_dim 64 or 128");
+    at::checkSize(c, m, {batch, heads, length_q, length_k});
+    at::checkContiguous(c, m);
+}
+
+void check_varlen_attnmask_inputs(
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    const at::Tensor& mask,
+    const at::Tensor& cumulative_sequence_length_q,
+    const at::Tensor& cumulative_sequence_length_k,
+    int64_t max_seqlen_q,
+    int64_t max_seqlen_k) {
+    constexpr auto* c = "varlen masked Flash attention";
+    const at::TensorArg q{query, "query", 1}, k{key, "key", 2},
+        v{value, "value", 3}, m{mask, "attn_mask", 4},
+        cu_q{cumulative_sequence_length_q, "cumulative_sequence_length_q", 5},
+        cu_k{cumulative_sequence_length_k, "cumulative_sequence_length_k", 6};
+    at::checkLayout(c, {query, key, value, mask,
+        cumulative_sequence_length_q, cumulative_sequence_length_k}, at::kStrided);
+    for (const auto& t : {q, k, v}) {
+        at::checkDim(c, t, 3);
+    }
+    at::checkDim(c, m, 4);
+    at::checkDim(c, cu_q, 1);
+    at::checkDim(c, cu_k, 1);
+    TORCH_CHECK(query.is_cuda(), "Varlen masked Flash attention requires GPU inputs");
+    at::checkDeviceType(c, {key, value, mask,
+        cumulative_sequence_length_q, cumulative_sequence_length_k},
+        query.device().type());
+    at::checkAllSameGPU(c, {q, k, v, m, cu_q, cu_k});
+    at::checkScalarTypes(c, q, {at::kHalf, at::kBFloat16});
+    at::checkScalarType(c, m, at::kBool);
+    at::checkScalarType(c, cu_q, at::kInt);
+    at::checkScalarType(c, cu_k, at::kInt);
+    const auto heads = query.size(1);
+    const auto kv_heads = key.size(1);
+    const auto dim = query.size(2);
+    const auto batch = cumulative_sequence_length_q.numel() - 1;
+    TORCH_CHECK(
+        query.size(0) > 0 && key.size(0) > 0 && heads > 0 && kv_heads > 0 &&
+        value.size(0) == key.size(0) && value.size(1) == kv_heads &&
+        heads % kv_heads == 0 && (dim == 64 || dim == 128) &&
+        key.size(2) == dim && value.size(2) == dim,
+        "Varlen masked Flash attention requires compatible packed lengths, "
+        "heads, and head_dim 64 or 128");
+    TORCH_CHECK(batch > 0 && max_seqlen_q > 0 && max_seqlen_k > 0,
+        "Varlen masked Flash attention requires a nonempty batch and positive max lengths");
+    at::checkSize(c, cu_k, {batch + 1});
+    at::checkSize(c, m, {batch, heads, max_seqlen_q, max_seqlen_k});
+    at::checkAllContiguous(c, {m, cu_q, cu_k});
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> mha_fwd_attnmask_cutlass(
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    const at::Tensor& mask,
+    double dropout_p,
+    bool is_causal,
+    float scale) {
+    TORCH_CHECK(has_cutlass_attnmask_api(), "Compatible Cutlass FA mask API is unavailable");
+    auto q = query;
+    std::optional<at::Tensor> out = at::empty(q.sizes(), q.options());
+    std::optional<at::Tensor> alibi;
+    const std::optional<at::Tensor> aux;
+    auto& fa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
+    auto result = fa.mha_fwd_attnmask(
+        q, key, value, mask, out, alibi, dropout_p, scale, is_causal, -1, -1, 0.0f,
+        -std::numeric_limits<float>::infinity(), false, std::nullopt, false, aux, aux);
+    TORCH_CHECK(result.size() == 8, "Unexpected Cutlass FA mask forward return count");
+    return {result[0], result[5], result[7]};
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> mha_bwd_attnmask_cutlass(
+    const at::Tensor& grad_out,
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    const at::Tensor& mask,
+    const at::Tensor& out,
+    const at::Tensor& logsumexp,
+    const at::Tensor& rng_state,
+    double dropout_p,
+    bool is_causal,
+    float scale) {
+    TORCH_CHECK(has_cutlass_attnmask_api(), "Compatible Cutlass FA mask API is unavailable");
+    std::optional<at::Tensor> dq = at::empty(query.sizes(), query.options());
+    std::optional<at::Tensor> dk = at::empty(key.sizes(), key.options());
+    std::optional<at::Tensor> dv = at::empty(value.sizes(), value.options());
+    std::optional<at::Tensor> alibi;
+    std::optional<at::Tensor> state = rng_state;
+    const auto& ctx = at::globalContext();
+    const bool deterministic = ctx.deterministicAlgorithms();
+    auto& fa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
+    auto result = fa.mha_bwd_attnmask(
+        grad_out, query, key, value, out, logsumexp, mask, dq, dk, dv, alibi,
+        dropout_p, scale, is_causal, -1, -1, 0.0f, deterministic, std::nullopt, state, false);
+    TORCH_CHECK(result.size() == 4, "Unexpected Cutlass FA mask backward return count");
+    return {result[0], result[1], result[2]};
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor>
+mha_varlen_fwd_attnmask_cutlass(
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    const at::Tensor& mask,
+    const at::Tensor& cumulative_sequence_length_q,
+    const at::Tensor& cumulative_sequence_length_k,
+    int64_t max_seqlen_q,
+    int64_t max_seqlen_k,
+    double dropout_p,
+    bool is_causal,
+    float scale) {
+    TORCH_CHECK(
+        has_cutlass_varlen_attnmask_api(),
+        "Compatible Cutlass FA varlen mask API is unavailable");
+    auto q = query;
+    std::optional<at::Tensor> out = at::empty(q.sizes(), q.options());
+    std::optional<at::Tensor> seqused_k;
+    std::optional<at::Tensor> alibi;
+    const std::optional<at::Tensor> aux;
+    auto& fa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
+    auto result = fa.mha_varlen_fwd_attnmask(
+        q,
+        key,
+        value,
+        mask,
+        out,
+        cumulative_sequence_length_q,
+        cumulative_sequence_length_k,
+        seqused_k,
+        alibi,
+        static_cast<int>(max_seqlen_q),
+        static_cast<int>(max_seqlen_k),
+        dropout_p,
+        scale,
+        false,
+        is_causal,
+        -1,
+        -1,
+        0.0f,
+        -std::numeric_limits<float>::infinity(),
+        false,
+        std::nullopt,
+        aux);
+    TORCH_CHECK(
+        result.size() == 8,
+        "Unexpected Cutlass FA varlen mask forward return count");
+    return {result[0], result[5], result[7]};
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor>
+mha_varlen_bwd_attnmask_cutlass(
+    const at::Tensor& grad_out,
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    const at::Tensor& mask,
+    const at::Tensor& out,
+    const at::Tensor& logsumexp,
+    const at::Tensor& rng_state,
+    const at::Tensor& cumulative_sequence_length_q,
+    const at::Tensor& cumulative_sequence_length_k,
+    int64_t max_seqlen_q,
+    int64_t max_seqlen_k,
+    double dropout_p,
+    bool is_causal,
+    float scale) {
+    TORCH_CHECK(
+        has_cutlass_varlen_attnmask_api(),
+        "Compatible Cutlass FA varlen mask API is unavailable");
+    std::optional<at::Tensor> dq = at::empty(query.sizes(), query.options());
+    std::optional<at::Tensor> dk = at::empty(key.sizes(), key.options());
+    std::optional<at::Tensor> dv = at::empty(value.sizes(), value.options());
+    std::optional<at::Tensor> alibi;
+    std::optional<at::Tensor> state = rng_state;
+    const auto& ctx = at::globalContext();
+    const bool deterministic = ctx.deterministicAlgorithms();
+    auto& fa = sdp::cutlassfa_adapter::CUTLASSFA::get_instance();
+    auto result = fa.mha_varlen_bwd_attnmask(
+        grad_out,
+        query,
+        key,
+        value,
+        out,
+        logsumexp,
+        mask,
+        dq,
+        dk,
+        dv,
+        cumulative_sequence_length_q,
+        cumulative_sequence_length_k,
+        alibi,
+        static_cast<int>(max_seqlen_q),
+        static_cast<int>(max_seqlen_k),
+        dropout_p,
+        scale,
+        false,
+        is_causal,
+        -1,
+        -1,
+        0.0f,
+        deterministic,
+        std::nullopt,
+        state);
+    TORCH_CHECK(
+        result.size() == 4,
+        "Unexpected Cutlass FA varlen mask backward return count");
+    return {result[0], result[1], result[2]};
+}
 
 #define CHECK_DEVICE(x) TORCH_CHECK(x.is_cuda(), #x " must be on CUDA")
 #define CHECK_SHAPE(x, ...) TORCH_CHECK(x.sizes() == torch::IntArrayRef({__VA_ARGS__}), #x " must have shape (" #__VA_ARGS__ ")")
@@ -248,4 +519,3 @@ mha_varlen_bwd_cutlass(const at::Tensor &dout,  // total_q x num_heads, x head_s
     return { dq, dk, dv, softmax_d};
 }
 }
-

@@ -44,6 +44,8 @@
 #include <ATen/ops/_scaled_dot_product_efficient_attention_native.h>
 #include <ATen/ops/_scaled_dot_product_flash_attention.h>
 #include <ATen/ops/_scaled_dot_product_flash_attention_native.h>
+#include <ATen/ops/_scaled_dot_product_flash_attention_masked_native.h>
+#include <ATen/ops/_scaled_dot_product_flash_attention_varlen_masked_native.h>
 #include <ATen/ops/_softmax.h>
 #include <ATen/ops/_transform_bias_rescale_qkv.h>
 #include <ATen/ops/_triton_multi_head_attention_native.h>
@@ -955,6 +957,75 @@ std::tuple<Tensor, Tensor> native_multi_head_attention_cuda(
   }
   return std::make_tuple(std::move(proj), std::move(qkt));
 }
+std::tuple<Tensor, Tensor, Tensor> _scaled_dot_product_flash_attention_masked_cuda(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const Tensor& attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale) {
+#if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION)
+  pytorch_flash::check_attnmask_inputs(query, key, value, attn_mask);
+  TORCH_CHECK(dropout_p >= 0.0 && dropout_p < 1.0,
+      "Masked Flash attention requires 0 <= dropout_p < 1");
+  at::cuda::CUDAGuard device_guard(query.device());
+  const float softmax_scale = sdp::calculate_scale(query, scale).expect_float();
+  auto [output, logsumexp, rng_state] = pytorch_flash::mha_fwd_attnmask_cutlass(
+      query.transpose(1, 2), key.transpose(1, 2), value.transpose(1, 2),
+      attn_mask, dropout_p, is_causal, softmax_scale);
+  return {output.transpose(1, 2), logsumexp, rng_state};
+#else
+  TORCH_CHECK(false, "Masked Flash attention requires the ROCm Cutlass FA backend");
+  return {};
+#endif
+}
+
+std::tuple<Tensor, Tensor, Tensor>
+_scaled_dot_product_flash_attention_varlen_masked_cuda(
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const Tensor& attn_mask,
+    const Tensor& cumulative_sequence_length_q,
+    const Tensor& cumulative_sequence_length_k,
+    int64_t max_seqlen_q,
+    int64_t max_seqlen_k,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale) {
+#if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION)
+  pytorch_flash::check_varlen_attnmask_inputs(
+      query,
+      key,
+      value,
+      attn_mask,
+      cumulative_sequence_length_q,
+      cumulative_sequence_length_k,
+      max_seqlen_q,
+      max_seqlen_k);
+  TORCH_CHECK(dropout_p >= 0.0 && dropout_p < 1.0,
+      "Masked Flash attention requires 0 <= dropout_p < 1");
+  at::cuda::CUDAGuard device_guard(query.device());
+  const float softmax_scale = sdp::calculate_scale(query, scale).expect_float();
+  return pytorch_flash::mha_varlen_fwd_attnmask_cutlass(
+      query,
+      key,
+      value,
+      attn_mask,
+      cumulative_sequence_length_q,
+      cumulative_sequence_length_k,
+      max_seqlen_q,
+      max_seqlen_k,
+      dropout_p, is_causal, softmax_scale);
+#else
+  TORCH_CHECK(
+      false,
+      "Varlen masked Flash attention requires the ROCm Cutlass FA backend");
+  return {};
+#endif
+}
+
 std::tuple<Tensor, Tensor, Tensor, Tensor, c10::SymInt, c10::SymInt, Tensor, Tensor, Tensor> _scaled_dot_product_flash_attention_cuda(
     const Tensor& query,
     const Tensor& key,
