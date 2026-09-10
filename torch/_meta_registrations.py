@@ -6103,6 +6103,161 @@ def meta_scatter_(self, dim, index, src_or_value, reduce=None):
     return self
 
 
+@register_meta(aten._scaled_dot_product_flash_attention_masked.default)
+def meta__scaled_dot_product_flash_attention_masked(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    attn_mask: Tensor,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    *,
+    scale: float | None = None,
+):
+    torch._check(0.0 <= dropout_p < 1.0)
+    torch._check(all(t.dim() == 4 for t in (query, key, value, attn_mask)))
+    torch._check(all(t.layout == torch.strided for t in (query, key, value, attn_mask)))
+    torch._check(attn_mask.dtype == torch.bool)
+    torch._check(query.dtype in (torch.float16, torch.bfloat16))
+    torch._check(key.dtype == query.dtype and value.dtype == query.dtype)
+    torch._check(all(t.device == query.device for t in (key, value, attn_mask)))
+    torch._check(query.size(3) == 64 or query.size(3) == 128)
+    torch._check(key.size(3) == query.size(3) and value.size(3) == query.size(3))
+    torch._check(query.size(0) > 0 and query.size(1) > 0 and key.size(1) > 0)
+    torch._check(key.size(0) == query.size(0) and value.size(0) == query.size(0))
+    torch._check(key.size(1) == value.size(1))
+    torch._check(query.size(1) % key.size(1) == 0)
+    torch._check(query.size(2) > 0 and key.size(2) > 0)
+    torch._check(key.size(2) == value.size(2))
+    torch._check(all(t.stride(-1) == 1 for t in (query, key, value)))
+    torch._check(attn_mask.is_contiguous())
+    expected_mask = (query.size(0), query.size(1), query.size(2), key.size(2))
+    for actual, expected in zip(attn_mask.shape, expected_mask):
+        torch._check(actual == expected)
+    output = torch.empty_permuted(
+        query.shape, (0, 2, 1, 3), dtype=query.dtype, device=query.device
+    )
+    logsumexp = torch.empty(
+        query.shape[:3], dtype=torch.float32, device=query.device
+    )
+    rng_state = torch.empty((2,), dtype=torch.int64, device=query.device)
+    return output, logsumexp, rng_state
+
+
+@register_meta(aten._scaled_dot_product_flash_attention_masked_backward.default)
+def meta__scaled_dot_product_flash_attention_masked_backward(
+    grad_out: Tensor,
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    attn_mask: Tensor,
+    out: Tensor,
+    logsumexp: Tensor,
+    rng_state: Tensor,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    *,
+    scale: float | None = None,
+):
+    torch._check(0.0 <= dropout_p < 1.0)
+    return tuple(
+        torch.empty_permuted(
+            t.shape, (0, 2, 1, 3), dtype=t.dtype, device=t.device
+        )
+        for t in (query, key, value)
+    )
+
+
+@register_meta(aten._scaled_dot_product_flash_attention_varlen_masked.default)
+def meta__scaled_dot_product_flash_attention_varlen_masked(
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    attn_mask: Tensor,
+    cumulative_sequence_length_q: Tensor,
+    cumulative_sequence_length_k: Tensor,
+    max_seqlen_q: int,
+    max_seqlen_k: int,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    *,
+    scale: float | None = None,
+):
+    torch._check(0.0 <= dropout_p < 1.0)
+    torch._check(query.dim() == 3 and key.dim() == 3 and value.dim() == 3)
+    torch._check(attn_mask.dim() == 4)
+    torch._check(
+        cumulative_sequence_length_q.dim() == 1
+        and cumulative_sequence_length_k.dim() == 1
+    )
+    tensors = (
+        query,
+        key,
+        value,
+        attn_mask,
+        cumulative_sequence_length_q,
+        cumulative_sequence_length_k,
+    )
+    torch._check(all(t.layout == torch.strided for t in tensors))
+    torch._check(all(t.device == query.device for t in tensors[1:]))
+    torch._check(query.dtype in (torch.float16, torch.bfloat16))
+    torch._check(key.dtype == query.dtype and value.dtype == query.dtype)
+    torch._check(attn_mask.dtype == torch.bool)
+    torch._check(cumulative_sequence_length_q.dtype == torch.int32)
+    torch._check(cumulative_sequence_length_k.dtype == torch.int32)
+    torch._check(query.size(0) > 0 and key.size(0) > 0)
+    torch._check(value.size(0) == key.size(0))
+    torch._check(query.size(1) > 0 and key.size(1) > 0)
+    torch._check(value.size(1) == key.size(1))
+    torch._check(query.size(1) % key.size(1) == 0)
+    torch._check(query.size(2) == 64 or query.size(2) == 128)
+    torch._check(key.size(2) == query.size(2) and value.size(2) == query.size(2))
+    torch._check(all(t.stride(-1) == 1 for t in (query, key, value)))
+    torch._check(cumulative_sequence_length_q.is_contiguous())
+    torch._check(cumulative_sequence_length_k.is_contiguous())
+    torch._check(attn_mask.is_contiguous())
+    batch = cumulative_sequence_length_q.numel() - 1
+    torch._check(batch > 0)
+    torch._check(cumulative_sequence_length_k.numel() == batch + 1)
+    torch._check(max_seqlen_q > 0 and max_seqlen_k > 0)
+    expected_mask = (batch, query.size(1), max_seqlen_q, max_seqlen_k)
+    for actual, expected in zip(attn_mask.shape, expected_mask):
+        torch._check(actual == expected)
+    output = torch.empty(query.shape, dtype=query.dtype, device=query.device)
+    logsumexp = torch.empty(
+        (query.size(1), query.size(0)), dtype=torch.float32, device=query.device
+    )
+    rng_state = torch.empty((2,), dtype=torch.int64, device=query.device)
+    return output, logsumexp, rng_state
+
+
+@register_meta(
+    aten._scaled_dot_product_flash_attention_varlen_masked_backward.default
+)
+def meta__scaled_dot_product_flash_attention_varlen_masked_backward(
+    grad_out: Tensor,
+    query: Tensor,
+    key: Tensor,
+    value: Tensor,
+    attn_mask: Tensor,
+    out: Tensor,
+    logsumexp: Tensor,
+    rng_state: Tensor,
+    cumulative_sequence_length_q: Tensor,
+    cumulative_sequence_length_k: Tensor,
+    max_seqlen_q: int,
+    max_seqlen_k: int,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    *,
+    scale: float | None = None,
+):
+    torch._check(0.0 <= dropout_p < 1.0)
+    return tuple(
+        torch.empty(t.shape, dtype=t.dtype, device=t.device)
+        for t in (query, key, value)
+    )
+
 @register_meta([aten._scaled_dot_product_flash_attention.default])
 def meta__scaled_dot_product_flash_attention(
     query: Tensor,
