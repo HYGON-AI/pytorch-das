@@ -5,6 +5,7 @@
 
 #include <ATen/core/Tensor.h>
 #include <ATen/TensorOperators.h>
+#include <ATen/TensorUtils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
@@ -35,6 +36,8 @@
 #include <ATen/ops/_efficient_attention_backward.h>
 #include <ATen/ops/_efficient_attention_backward_native.h>
 #include <ATen/ops/_scaled_dot_product_flash_attention_backward_native.h>
+#include <ATen/ops/_scaled_dot_product_flash_attention_masked_backward_native.h>
+#include <ATen/ops/_scaled_dot_product_flash_attention_varlen_masked_backward_native.h>
 #endif
 
 #ifdef USE_FLASH_ATTENTION
@@ -67,6 +70,128 @@
 #endif
 
 namespace at::native {
+
+#if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION)
+namespace {
+
+void check_masked_flash_backward_inputs(
+    const Tensor& query,
+    const Tensor& grad_out,
+    const Tensor& out,
+    const Tensor& logsumexp,
+    const Tensor& rng_state) {
+  constexpr auto* c = "masked Flash attention backward";
+  const TensorArg q{query, "query", 2}, grad{grad_out, "grad_out", 1},
+      output{out, "out", 6}, lse{logsumexp, "logsumexp", 7},
+      rng{rng_state, "rng_state", 8};
+  checkDeviceType(c, {grad_out, out, logsumexp, rng_state}, query.device().type());
+  checkAllSameGPU(c, {q, grad, output, lse, rng});
+  checkAllSameType(c, {q, grad, output});
+  checkAllSameSize(c, {q, grad, output});
+  checkScalarType(c, lse, at::kFloat);
+  if (query.dim() == 4) {
+    checkSize(c, lse, {query.size(0), query.size(1), query.size(2)});
+  } else {
+    checkSize(c, lse, {query.size(1), query.size(0)});
+  }
+  checkScalarType(c, rng, at::kLong);
+  checkSize(c, rng, {2});
+  checkAllContiguous(c, {lse, rng});
+}
+
+} // namespace
+#endif
+
+std::tuple<Tensor, Tensor, Tensor> _scaled_dot_product_flash_attention_masked_backward_cuda(
+    const Tensor& grad_out,
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const Tensor& attn_mask,
+    const Tensor& out,
+    const Tensor& logsumexp,
+    const Tensor& rng_state,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale) {
+#if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION)
+  if (!grad_out.defined()) {
+    return {};
+  }
+  pytorch_flash::check_attnmask_inputs(query, key, value, attn_mask);
+  check_masked_flash_backward_inputs(query, grad_out, out, logsumexp, rng_state);
+  TORCH_CHECK(dropout_p >= 0.0 && dropout_p < 1.0,
+      "Masked Flash attention requires 0 <= dropout_p < 1");
+  at::cuda::CUDAGuard device_guard(query.device());
+  const float softmax_scale = sdp::calculate_scale(query, scale).expect_float();
+  auto [dq, dk, dv] = pytorch_flash::mha_bwd_attnmask_cutlass(
+      grad_out.transpose(1, 2).contiguous(),
+      query.transpose(1, 2), key.transpose(1, 2), value.transpose(1, 2),
+      attn_mask, out.transpose(1, 2).contiguous(), logsumexp, rng_state,
+      dropout_p, is_causal, softmax_scale);
+  return {dq.transpose(1, 2), dk.transpose(1, 2), dv.transpose(1, 2)};
+#else
+  TORCH_CHECK(false, "Masked Flash attention requires the ROCm Cutlass FA backend");
+  return {};
+#endif
+}
+
+std::tuple<Tensor, Tensor, Tensor>
+_scaled_dot_product_flash_attention_varlen_masked_backward_cuda(
+    const Tensor& grad_out,
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const Tensor& attn_mask,
+    const Tensor& out,
+    const Tensor& logsumexp,
+    const Tensor& rng_state,
+    const Tensor& cumulative_sequence_length_q,
+    const Tensor& cumulative_sequence_length_k,
+    int64_t max_seqlen_q,
+    int64_t max_seqlen_k,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale) {
+#if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION)
+  if (!grad_out.defined()) {
+    return {};
+  }
+  pytorch_flash::check_varlen_attnmask_inputs(
+      query,
+      key,
+      value,
+      attn_mask,
+      cumulative_sequence_length_q,
+      cumulative_sequence_length_k,
+      max_seqlen_q,
+      max_seqlen_k);
+  check_masked_flash_backward_inputs(query, grad_out, out, logsumexp, rng_state);
+  TORCH_CHECK(dropout_p >= 0.0 && dropout_p < 1.0,
+      "Masked Flash attention requires 0 <= dropout_p < 1");
+  at::cuda::CUDAGuard device_guard(query.device());
+  const float softmax_scale = sdp::calculate_scale(query, scale).expect_float();
+  return pytorch_flash::mha_varlen_bwd_attnmask_cutlass(
+      grad_out.contiguous(),
+      query,
+      key,
+      value,
+      attn_mask,
+      out.contiguous(),
+      logsumexp,
+      rng_state,
+      cumulative_sequence_length_q,
+      cumulative_sequence_length_k,
+      max_seqlen_q,
+      max_seqlen_k,
+      dropout_p, is_causal, softmax_scale);
+#else
+  TORCH_CHECK(
+      false,
+      "Varlen masked Flash attention requires the ROCm Cutlass FA backend");
+  return {};
+#endif
+}
 
 std::tuple<Tensor, Tensor, Tensor> _flash_attention_backward(
     const Tensor& grad_out,
