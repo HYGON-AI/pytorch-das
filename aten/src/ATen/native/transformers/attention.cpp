@@ -39,6 +39,7 @@
 #include <ATen/ops/_scaled_dot_product_attention_math_native.h>
 #include <ATen/ops/_scaled_dot_product_efficient_attention.h>
 #include <ATen/ops/_scaled_dot_product_flash_attention.h>
+#include <ATen/ops/_scaled_dot_product_flash_attention_masked.h>
 #include <ATen/ops/_scaled_dot_product_flash_attention_backward_native.h>
 #include <ATen/ops/_scaled_dot_product_flash_attention_native.h>
 #include <ATen/ops/_scaled_dot_product_cudnn_attention.h>
@@ -827,6 +828,13 @@ Tensor scaled_dot_product_attention(
   }
   const auto query_device_type = query_.device().type();
   const auto backend = static_cast<SDPBackend>(choice_int);
+#ifdef USE_ROCM
+  if (backend == SDPBackend::flash_attention &&
+      query_device_type == DeviceType::CUDA && attn_mask_.has_value()) {
+    return std::get<0>(at::_scaled_dot_product_flash_attention_masked(
+        query_, key, value, *attn_mask_, dropout_p, is_causal, scale));
+  }
+#endif
   auto attn_mask = convert_boolean_attn_mask(attn_mask_, query_.dtype());
   switch (backend) {
     case SDPBackend::cudnn_attention: {
