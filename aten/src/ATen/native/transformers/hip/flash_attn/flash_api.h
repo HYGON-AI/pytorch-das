@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <tuple>
 
 #include <ATen/Context.h>
 #include <ATen/core/Tensor.h>
@@ -56,6 +57,16 @@ mha_fwd_cutlass(
     const bool return_softmax,
     std::optional<at::Generator> gen_);
 
+// Mask wrappers use FA-native layouts (BSHD for dense, THD for varlen).
+TORCH_API std::tuple<at::Tensor, at::Tensor, at::Tensor> mha_fwd_attnmask_cutlass(
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    const at::Tensor& mask,
+    double dropout_p,
+    bool is_causal,
+    float scale);
+
 std::tuple<
     at::Tensor,
     at::Tensor,
@@ -94,6 +105,20 @@ mha_varlen_fwd_cutlass(
     const bool return_softmax,
     std::optional<at::Generator> gen_);
 
+TORCH_API std::tuple<at::Tensor, at::Tensor, at::Tensor>
+mha_varlen_fwd_attnmask_cutlass(
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    const at::Tensor& mask,
+    const at::Tensor& cumulative_sequence_length_q,
+    const at::Tensor& cumulative_sequence_length_k,
+    int64_t max_seqlen_q,
+    int64_t max_seqlen_k,
+    double dropout_p,
+    bool is_causal,
+    float scale);
+
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> mha_bwd_cutlass(
     const at::Tensor& dout, // batch_size x seqlen_q x num_heads, x head_size_og
     const at::Tensor& q, // batch_size x seqlen_q x num_heads x head_size
@@ -118,6 +143,19 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> mha_bwd_cutlass(
     const bool deterministic,
     const at::Tensor philox_seed,
     const at::Tensor philox_offset);
+
+TORCH_API std::tuple<at::Tensor, at::Tensor, at::Tensor> mha_bwd_attnmask_cutlass(
+    const at::Tensor& grad_out,
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    const at::Tensor& mask,
+    const at::Tensor& out,
+    const at::Tensor& logsumexp,
+    const at::Tensor& rng_state,
+    double dropout_p,
+    bool is_causal,
+    float scale);
 
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> mha_varlen_bwd_cutlass(
@@ -151,6 +189,44 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> mha_varlen_bwd_cutlas
     const bool deterministic,
     const at::Tensor philox_seed,
     const at::Tensor philox_offset);
+
+TORCH_API std::tuple<at::Tensor, at::Tensor, at::Tensor>
+mha_varlen_bwd_attnmask_cutlass(
+    const at::Tensor& grad_out,
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    const at::Tensor& mask,
+    const at::Tensor& out,
+    const at::Tensor& logsumexp,
+    const at::Tensor& rng_state,
+    const at::Tensor& cumulative_sequence_length_q,
+    const at::Tensor& cumulative_sequence_length_k,
+    int64_t max_seqlen_q,
+    int64_t max_seqlen_k,
+    double dropout_p,
+    bool is_causal,
+    float scale);
+
+TORCH_API bool has_cutlass_attnmask_api();
+
+TORCH_API bool has_cutlass_varlen_attnmask_api();
+
+TORCH_API void check_attnmask_inputs(
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    const at::Tensor& mask);
+
+TORCH_API void check_varlen_attnmask_inputs(
+    const at::Tensor& query,
+    const at::Tensor& key,
+    const at::Tensor& value,
+    const at::Tensor& mask,
+    const at::Tensor& cumulative_sequence_length_q,
+    const at::Tensor& cumulative_sequence_length_k,
+    int64_t max_seqlen_q,
+    int64_t max_seqlen_k);
 
 // AOTriton Implementation
 TORCH_API
