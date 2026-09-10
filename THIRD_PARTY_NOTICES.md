@@ -10,7 +10,7 @@ corresponding files.
 | --- | --- | --- | --- | --- | --- |
 | CPython 3.13 test sources | https://github.com/python/cpython | CPython 3.13 sources; individual files retain their exact source tags, primarily `v3.13.5` and `v3.13.12` | Python Software Foundation License Version 2 | `test/dynamo/cpython/3_13/` | PyTorch Dynamo test integration; source version is recorded per file and the original LICENSE is retained. |
 | packaging.version | https://github.com/pypa/packaging | `23.2.0`; vendored by PyTorch commit `2aa486de9b3f38d28ee2db9c15220a4f0919522d` | Apache-2.0 OR BSD-2-Clause | `torch/_vendor/packaging/` | PyTorch vendored subset; no Hygon copyright header added. |
-| cloudpickle | https://github.com/cloudpipe/cloudpickle | `3.1.2` (release version selected by the project) | BSD-3-Clause | Python dependency declared by `requirements.txt` and `setup.py` | Added by internal commit `5baeadcd7138`; used by the Dynamo compile worker. |
+| cloudpickle | https://github.com/cloudpipe/cloudpickle | `3.1.2` (release version selected by the project) | BSD-3-Clause | Python dependency declared by `requirements.txt` and `setup.py` | Added as a required dependency for the Dynamo compile worker. |
 
 ## Release notes
 
