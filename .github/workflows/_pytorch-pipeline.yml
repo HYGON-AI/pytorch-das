@@ -42,6 +42,8 @@ concurrency:
 env:
   DTK_PKG_URL: "http://10.16.1.201:8000/dtk-pkg/dtk26.04/DTK-26.04-rc4-centos8-x86_64.tar.gz"
   DTK_PKG_NAME: "DTK-26.04-rc4-centos8-x86_64.tar.gz"
+  MAGMA_URL: "http://42.228.13.241:18000/thirdparty/pytorch/magma-install.tar.gz"
+  MAGMA_SHA256: "facbada3e2e8d366a1931627521e16484328abbec91c997500506dc51d59d2d8"
   BUILD_IMAGE_PY310: "42.228.13.241:5000/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.10-mkl2024.2.0.664"
   BUILD_IMAGE_PY312: "42.228.13.241:5000/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.12-mkl2024.2.0.664"
   BUILD_PIP_INDEX_URL: "http://10.16.1.201:9929/nightly/dtk2604/+simple/"
@@ -130,6 +132,26 @@ jobs:
               echo "ERROR: ${image} provides Python ${actual_python}; expected ${expected_python}" >&2
               return 1
             }
+            docker exec --env DTK_PKG_URL "${container}" bash -lc '
+              set -euo pipefail
+              if [[ -f /opt/dtk/env.sh && -f /opt/dtk/.info/rocm_version ]] && \
+                 [[ "$(tr -d "[:space:]" < /opt/dtk/.info/rocm_version)" == 26.04* ]]; then
+                exit 0
+              fi
+              dtk_stage="$(mktemp -d /tmp/pytorch-dtk.XXXXXX)"
+              trap '\''rm -rf -- "${dtk_stage}"'\'' EXIT
+              mkdir -p "${dtk_stage}/extract"
+              wget --quiet --show-progress --tries=3 --timeout=120 \
+                --output-document="${dtk_stage}/dtk.tar.gz" -- "${DTK_PKG_URL}"
+              tar -xzf "${dtk_stage}/dtk.tar.gz" -C "${dtk_stage}/extract"
+              version_file="$(find "${dtk_stage}/extract" -type f -path "*/.info/rocm_version" -print -quit)"
+              [[ -n "${version_file}" ]]
+              dtk_source="${version_file%/.info/rocm_version}"
+              [[ "$(tr -d "[:space:]" < "${version_file}")" == 26.04* ]]
+              rm -rf -- /opt/dtk
+              mkdir -p /opt/dtk
+              cp -a "${dtk_source}/." /opt/dtk/
+            '
             docker exec "${container}" mkdir -p /pytorch
             test -d .git
             tar \
@@ -139,6 +161,7 @@ jobs:
               --exclude='./build' \
               --exclude='./dist' \
               -cf - . | docker exec -i "${container}" tar -C /pytorch -xf -
+            docker exec "${container}" git config --global --add safe.directory /pytorch
             docker exec "${container}" git -C /pytorch config remote.origin.url "${SOURCE_REPO_URL}"
             test "$(docker exec "${container}" git -C /pytorch rev-parse HEAD)" = "${SOURCE_SHA}"
           }
@@ -147,12 +170,14 @@ jobs:
             local container="$1" python_tag="$2"
             set -o pipefail
             docker exec \
-              --env DTK_PKG_URL \
               --env BUILD_PIP_INDEX_URL \
               --env BUILD_PIP_TRUSTED_HOST \
+              --env MAGMA_URL \
+              --env MAGMA_SHA256 \
               --env AMDGPU_TARGETS \
               --env MAX_JOBS="$(nproc --ignore=2)" \
-              "${container}" bash /pytorch/.ci/pytorch/torch-ci/build-hcu.sh \
+              "${container}" bash -lc \
+                'cd /pytorch && bash scripts/build_hcu.sh && bash scripts/build_hcu_manylinux.sh' \
               2>&1 | tee "${LOCAL_RUN_ROOT}/logs/build-${python_tag}.log"
             docker cp "${container}:/pytorch/dist/." "${LOCAL_RUN_ROOT}/dist/${python_tag}/"
             mapfile -t wheels < <(find "${LOCAL_RUN_ROOT}/dist/${python_tag}" -maxdepth 1 -name '*.whl' -type f)

@@ -6,11 +6,15 @@
 ### 将 scripts/build_hcu.sh 生成的 wheel 修复为 manylinux wheel。
 ### 运行前须安装 DTK，并确保当前 Python 环境已安装对应的 torch。
 
-set -e
+set -Eeuo pipefail
 
-export PYTORCH_ROOT="${PYTORCH_ROOT:-/workspace/pytorch}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+export PYTORCH_ROOT="${PYTORCH_ROOT:-${REPO_ROOT}}"
 export DTK_ROOT="${DTK_ROOT:-/opt/dtk}"
-export MANYLINUX_OUTPUT_DIR="${MANYLINUX_OUTPUT_DIR:-${PYTORCH_ROOT}}"
+export MANYLINUX_OUTPUT_DIR="${MANYLINUX_OUTPUT_DIR:-${PYTORCH_ROOT}/dist}"
+export BUILD_PIP_INDEX_URL="${BUILD_PIP_INDEX_URL:-http://10.16.1.201:9929/nightly/dtk2604/+simple/}"
+export BUILD_PIP_TRUSTED_HOST="${BUILD_PIP_TRUSTED_HOST:-10.16.1.201}"
 
 if [ ! -f "${DTK_ROOT}/env.sh" ]; then
     echo "ERROR: DTK is not installed at ${DTK_ROOT}" >&2
@@ -22,7 +26,9 @@ if [ ! -d "${PYTORCH_ROOT}" ]; then
     exit 1
 fi
 
+set +u
 source "${DTK_ROOT}/env.sh"
+set -u
 cd "${PYTORCH_ROOT}"
 
 if [ -d /opt/intel/mkl/lib/intel64_lin ]; then
@@ -42,14 +48,24 @@ fi
 export TORCH_LOCATION
 export LD_LIBRARY_PATH="${TORCH_LOCATION}/torch/lib:${MKL_LIB_DIR}:${LD_LIBRARY_PATH:-}"
 
-python3 -m pip install patchelf auditwheel
-PLATFORM=$(ldd --version | awk '{print $NF}' | head -n1 | awk -F "." '{print "manylinux_"$1"_"$2"_x86_64"}')
+python3 -m pip install \
+    --index-url "${BUILD_PIP_INDEX_URL}" \
+    --trusted-host "${BUILD_PIP_TRUSTED_HOST}" \
+    --default-timeout=1000 \
+    patchelf auditwheel
+GLIBC_VERSION="$(ldd --version | head -n 1 | grep -oE '[0-9]+\.[0-9]+' | tail -n 1)"
+if [ -z "${GLIBC_VERSION}" ]; then
+    echo "ERROR: unable to determine glibc version" >&2
+    exit 1
+fi
+PLATFORM="manylinux_${GLIBC_VERSION/./_}_x86_64"
 export PLATFORM
 
 shopt -s nullglob
-WHEELS=("${PYTORCH_ROOT}"/dist/torch*.whl)
-if [ "${#WHEELS[@]}" -eq 0 ]; then
-    echo "ERROR: cannot find torch wheel under ${PYTORCH_ROOT}/dist" >&2
+WHEELS=("${PYTORCH_ROOT}"/dist/*-linux_x86_64.whl)
+shopt -u nullglob
+if [ "${#WHEELS[@]}" -ne 1 ]; then
+    echo "ERROR: expected one Linux wheel under ${PYTORCH_ROOT}/dist, found ${#WHEELS[@]}" >&2
     echo "Run scripts/build_hcu.sh first." >&2
     exit 1
 fi
@@ -117,3 +133,11 @@ auditwheel repair --plat "${PLATFORM}" --strip \
     --exclude libnuma.so.1 \
     -w "${MANYLINUX_OUTPUT_DIR}" \
     "${WHEELS[@]}"
+
+shopt -s nullglob
+MANYLINUX_WHEELS=("${MANYLINUX_OUTPUT_DIR}"/*manylinux*.whl)
+shopt -u nullglob
+if [ "${#MANYLINUX_WHEELS[@]}" -ne 1 ]; then
+    echo "ERROR: expected one manylinux wheel, found ${#MANYLINUX_WHEELS[@]}" >&2
+    exit 1
+fi

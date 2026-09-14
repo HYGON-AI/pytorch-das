@@ -6,12 +6,15 @@
 ### PyTorch HCU/DTK 编译流程
 ### 说明：
 ### 1. 运行本脚本前须安装 DTK，默认路径为 /opt/dtk。
-### 2. 代码仓库地址、分支以及 MAGMA 下载地址在下方变量区按需配置。
+### 2. 默认使用脚本所在仓库的当前 checkout；代码仓库地址和分支仅在需要自行拉取时配置。
 ### 3. 本脚本依赖编译镜像自带 GCC 工具链，无需额外激活。
 ### 4. 三方库通过 git submodule 拉取，并使用 tools/third_party/apply_patches.sh 应用仓库补丁。
 ### 5. MAGMA 默认启用；如需跳过（编译参数 USE_MAGMA=0），请追加参数 --no-magma。
 
-set -e
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 ### 使用方式
 ### 默认编译（启用 MAGMA）：
@@ -37,24 +40,33 @@ done
 ### 从代码仓库拉取 PyTorch 代码分支（按需配置）
 export PYTORCH_REPO_URL="${PYTORCH_REPO_URL:-}"
 export PYTORCH_BRANCH="${PYTORCH_BRANCH:-}"
-export PYTORCH_ROOT="${PYTORCH_ROOT:-/workspace/pytorch}"
+export PYTORCH_ROOT="${PYTORCH_ROOT:-${REPO_ROOT}}"
 
 ### 设置已安装 DTK 路径和 MAGMA 下载地址（按需配置）
 export DTK_ROOT="${DTK_ROOT:-/opt/dtk}"
 export MAGMA_URL="${MAGMA_URL:-}"
+export MAGMA_SHA256="${MAGMA_SHA256:-facbada3e2e8d366a1931627521e16484328abbec91c997500506dc51d59d2d8}"
+export BUILD_PIP_INDEX_URL="${BUILD_PIP_INDEX_URL:-http://10.16.1.201:9929/nightly/dtk2604/+simple/}"
+export BUILD_PIP_TRUSTED_HOST="${BUILD_PIP_TRUSTED_HOST:-10.16.1.201}"
 
-if [ -z "${PYTORCH_REPO_URL}" ] || [ -z "${PYTORCH_BRANCH}" ]; then
-    echo "ERROR: PYTORCH_REPO_URL and PYTORCH_BRANCH must be set" >&2
-    exit 1
-fi
 if [ ! -f "${DTK_ROOT}/env.sh" ]; then
     echo "ERROR: DTK is not installed at ${DTK_ROOT}" >&2
     echo "Install DTK first, or set DTK_ROOT to the DTK installation directory." >&2
     exit 1
 fi
 
-### 设置 workspace
-if [ -d "${PYTORCH_ROOT}/.git" ]; then
+### 设置 workspace。CI 默认直接使用已经 checkout/合并完成的源码。
+if [ -n "${PYTORCH_REPO_URL}" ] || [ -n "${PYTORCH_BRANCH}" ]; then
+    if [ -z "${PYTORCH_REPO_URL}" ] || [ -z "${PYTORCH_BRANCH}" ]; then
+        echo "ERROR: PYTORCH_REPO_URL and PYTORCH_BRANCH must be set together" >&2
+        exit 1
+    fi
+elif [ ! -d "${PYTORCH_ROOT}/.git" ]; then
+    echo "ERROR: existing PyTorch checkout not found at ${PYTORCH_ROOT}" >&2
+    exit 1
+fi
+
+if [ -n "${PYTORCH_REPO_URL}" ] && [ -d "${PYTORCH_ROOT}/.git" ]; then
     echo ">>>>>>>>>>USE EXISTING PYTORCH SOURCE<<<<<<<<<<"
     cd "${PYTORCH_ROOT}"
     git remote set-url origin "${PYTORCH_REPO_URL}"
@@ -65,10 +77,13 @@ if [ -d "${PYTORCH_ROOT}/.git" ]; then
     else
         git checkout -b "${PYTORCH_BRANCH}" "origin/${PYTORCH_BRANCH}"
     fi
-else
+elif [ -n "${PYTORCH_REPO_URL}" ]; then
     echo ">>>>>>>>>>CLONE PYTORCH SOURCE<<<<<<<<<<"
     mkdir -p "$(dirname "${PYTORCH_ROOT}")"
     git clone --branch "${PYTORCH_BRANCH}" "${PYTORCH_REPO_URL}" "${PYTORCH_ROOT}"
+    cd "${PYTORCH_ROOT}"
+else
+    echo ">>>>>>>>>>USE CURRENT PYTORCH CHECKOUT<<<<<<<<<<"
     cd "${PYTORCH_ROOT}"
 fi
 WORK_SPACE=$(pwd)
@@ -113,14 +128,15 @@ copy_mkl_lib_pair() {
 
 ### 导入 DTK 内置环境变量
 echo ">>>>>>>>>>LOAD INSTALLED DTK<<<<<<<<<<"
+set +u
 source "${DTK_ROOT}/env.sh"
+set -u
 
 ### 设置 PyTorch 编译所需的 DTK/ROCm 环境
 export ROCM_PATH="${DTK_ROOT}"
 export HIP_PATH="${ROCM_PATH}/hip"
-export TARGETS="gfx906;gfx926;gfx928;gfx936;gfx938"
-export AMDGPU_TARGETS="${TARGETS}"
-export PYTHON_VERSION=3.10.12
+export AMDGPU_TARGETS="${AMDGPU_TARGETS:-gfx906;gfx926;gfx928;gfx936;gfx938}"
+export PYTHON_VERSION="$(python3 -c 'import platform; print(platform.python_version())')"
 export PATH="${ROCM_PATH}/bin:${ROCM_PATH}/llvm/bin:${ROCM_PATH}/hcc/bin:${ROCM_PATH}/hip/bin:${ROCM_PATH}/miopen/bin:${PATH}"
 export LD_LIBRARY_PATH="${ROCM_PATH}/lib:${ROCM_PATH}/lib64:${ROCM_PATH}/hip/lib:${ROCM_PATH}/llvm/lib:${ROCM_PATH}/opencl/lib/x86_64:${ROCM_PATH}/miopen/lib:${ROCM_PATH}/rocblas/lib:${ROCM_PATH}/magma/lib:${MKL_LIB_DIR}:${LD_LIBRARY_PATH:-}"
 export MIOPEN_SYSTEM_DB_PATH="${ROCM_PATH}/miopen/share/miopen/db/"
@@ -134,10 +150,12 @@ if [ "${MAGMA_ENABLED}" = "1" ]; then
     fi
     echo ">>>>>>>>>>LOAD MAGMA<<<<<<<<<<"
     cd "${ROCM_PATH}"
-    wget "${MAGMA_URL}"
+    wget --quiet --show-progress --tries=3 --timeout=120 \
+        --output-document=magma-install.tar.gz -- "${MAGMA_URL}"
+    echo "${MAGMA_SHA256}  magma-install.tar.gz" | sha256sum --check --strict
     rm -rf magma
-    tar -zxf magma*.tar.gz
-    rm -f magma*.tar.gz
+    tar -zxf magma-install.tar.gz
+    rm -f magma-install.tar.gz
     if [ ! -d magma ]; then
         MAGMA_EXTRACT_DIR=$(find . -maxdepth 1 -type d -name 'magma*' ! -name magma | sort | tail -n 1)
         if [ -z "${MAGMA_EXTRACT_DIR}" ]; then
@@ -177,27 +195,29 @@ bash tools/third_party/apply_patches.sh
 ### 返回 PyTorch 目录下
 cd "${WORK_SPACE}"
 
+pip_install_build() {
+    python3 -m pip install \
+        --index-url "${BUILD_PIP_INDEX_URL}" \
+        --trusted-host "${BUILD_PIP_TRUSTED_HOST}" \
+        --default-timeout=1000 \
+        "$@"
+}
+
 ### 升级 pip
-python3 -m pip install --upgrade pip \
-    -i https://mirrors.huaweicloud.com/artifactory/pypi-public/simple \
-    --default-timeout=1000
+pip_install_build --upgrade pip
 
 ### 安装 .ci/docker/requirements-ci.txt 文件中的依赖
-pip3 install -r .ci/docker/requirements-ci.txt \
-    -i https://mirrors.huaweicloud.com/artifactory/pypi-public/simple \
-    --default-timeout=1000
+pip_install_build -r .ci/docker/requirements-ci.txt
 
 ### 安装 requirements.txt 文件中的依赖
-pip3 install -r requirements.txt \
-    -i https://mirrors.huaweicloud.com/artifactory/pypi-public/simple \
-    --default-timeout=1000
+pip_install_build -r requirements.txt
 
 ### 安装其余依赖
-pip3 install xdoctest==1.1.3 \
+pip_install_build xdoctest==1.1.3 \
     pytest==8.1.1 \
     pytest-timeout \
     Pillow==10.0.1 \
-    numpy==1.24.3 \
+    'numpy<2' \
     mypy==1.8.0 \
     jmespath==1.0.1 \
     Jinja2==3.1.3 \
@@ -206,22 +226,19 @@ pip3 install xdoctest==1.1.3 \
     numba==0.60.0 \
     sympy==1.13.3 \
     MonkeyType \
-    -i https://mirrors.huaweicloud.com/artifactory/pypi-public/simple \
-    --default-timeout=1000
+    build
 
 ### 根据 torch 版本判断
 IFS='.' read -r MAJOR_ MINOR_ _ < version.txt
 if (( MAJOR_ < 2 || (MAJOR_ == 2 && MINOR_ < 4) )); then
-    pip3 install sympy==1.12.1 \
-        -i https://mirrors.huaweicloud.com/artifactory/pypi-public/simple \
-        --default-timeout=1000
+    pip_install_build sympy==1.12.1
 fi
 
 ### 导入环境变量
 echo ">>>>>>>export envs >>>>>>>"
 export LD_LIBRARY_PATH=${ROCM_PATH}/rocblas/lib:$LD_LIBRARY_PATH
-export C_INCLUDE_PATH=${ROCM_PATH}/rocrand/include:$C_INCLUDE_PATH
-export CPLUS_INCLUDE_PATH=${ROCM_PATH}/rocrand/include:$CPLUS_INCLUDE_PATH
+export C_INCLUDE_PATH="${ROCM_PATH}/rocrand/include:${C_INCLUDE_PATH:-}"
+export CPLUS_INCLUDE_PATH="${ROCM_PATH}/rocrand/include:${CPLUS_INCLUDE_PATH:-}"
 if [ "${MAGMA_ENABLED}" = "1" ]; then
     export LD_LIBRARY_PATH=${ROCM_PATH}/magma/lib:$LD_LIBRARY_PATH
 fi
@@ -252,6 +269,7 @@ fi
 ### 开始编译
 cd "${WORK_SPACE}"
 echo ">>>>>>>compile start>>>>>>>"
+rm -rf -- build dist ./*.egg-info torch.egg-info
 if [ "${MAGMA_ENABLED}" = "1" ]; then
     MAGMA_OPT=ON
 else
@@ -262,7 +280,7 @@ USE_AOTRITON_FA=0 \
 USE_MEM_EFF_ATTENTION=0 \
 USE_FLASH_ATTENTION=1 \
 USE_FBGEMM=ON \
-USE_MKLDNN=0 \
+USE_MKLDNN=1 \
 USE_CUDA=0 \
 USE_KINETO=1 \
 USE_MKL=ON \
@@ -290,9 +308,13 @@ USE_ROCM_CK_SDPA=0 \
 USE_CUFILE=0 \
 USE_NINJA=ON \
 PYTORCH_ROCM_ARCH=${AMDGPU_TARGETS} \
-python3 setup.py install --user bdist_wheel
+python3 -m build --wheel --no-isolation
 
-### 编译后出包到 pytorch/dist 文件夹下
-cd "${WORK_SPACE}"
-echo ">>>>>>>>>>wheel<<<<<<<<<<"
-USE_NCCL=0 python3 -m pip wheel . -w ./dist --no-deps --no-build-isolation
+shopt -s nullglob
+WHEELS=("${DISTDIR}"/*-linux_x86_64.whl)
+shopt -u nullglob
+if [ "${#WHEELS[@]}" -ne 1 ]; then
+    echo "ERROR: expected one Linux wheel under ${DISTDIR}, found ${#WHEELS[@]}" >&2
+    exit 1
+fi
+python3 -m pip install --no-deps --force-reinstall "${WHEELS[0]}"
