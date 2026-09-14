@@ -1,0 +1,25 @@
+name: PyTorch 2.12 nightly test
+run-name: PyTorch 2.12 nightly full tests - dev
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub cron is UTC: Beijing 02:00 every Monday, Wednesday and Friday.
+    - cron: "0 18 * * 0,2,4"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pytorch-2.12-nightly-dev
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    name: build dev and run hcu-torch-ci full tests
+    uses: ./.github/workflows/_pytorch-pipeline.yml
+    with:
+      suite: full
+      source_ref: 2.12.0-dev
+      merge_pr: false
+      publish: false

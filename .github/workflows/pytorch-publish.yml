@@ -1,0 +1,26 @@
+name: PyTorch 2.12 publish
+run-name: PyTorch 2.12 publish - ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - 2.12.0-dev
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pytorch-2.12-publish-dev
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    name: build, test merged dev commit and publish wheels
+    uses: ./.github/workflows/_pytorch-pipeline.yml
+    with:
+      suite: pr
+      source_ref: ${{ github.sha }}
+      merge_pr: false
+      publish: true
+    secrets:
+      PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}

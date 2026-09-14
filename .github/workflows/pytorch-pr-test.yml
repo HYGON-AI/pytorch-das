@@ -1,0 +1,32 @@
+name: PyTorch 2.12 PR test
+run-name: "PyTorch 2.12 test - ${{ github.event_name == 'pull_request' && format('#{0}', github.event.pull_request.number) || github.ref_name }}"
+
+on:
+  pull_request:
+    branches:
+      - 2.12.0-dev
+    types: [opened, synchronize, reopened, ready_for_review]
+  # TEMPORARY: remove this push trigger before merging the CI changes.
+  push:
+    branches:
+      - ljz/pytorch-2.12-ci
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pytorch-2.12-pr-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    name: build, basic test and torch.nn test
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    uses: ./.github/workflows/_pytorch-pipeline.yml
+    with:
+      suite: pr
+      source_ref: ${{ github.sha }}
+      merge_pr: ${{ github.event_name == 'pull_request' }}
+      pr_base_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+      pr_head_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
+      publish: false
