@@ -111,133 +111,13 @@ jobs:
         env:
           SOURCE_REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
           SOURCE_SHA: ${{ steps.context.outputs.source_sha }}
-        run: |
-          set -euo pipefail
-          start_container() {
-            local container="$1" image="$2" expected_python="$3"
-            local actual_python
-            docker rm -f "${container}" >/dev/null 2>&1 || true
-            docker pull "${image}"
-            docker run --detach \
-              --name "${container}" \
-              --label "org.pytorch.hcu.run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
-              --network host --ipc host --init --shm-size=64g \
-              --ulimit stack=10485760:83886080 --ulimit core=0 \
-              --device=/dev/kfd --device=/dev/dri --group-add video \
-              --security-opt seccomp=unconfined --cap-add SYS_PTRACE \
-              --volume /opt/hyhal:/opt/hyhal:ro \
-              "${image}" tail -f /dev/null
-            actual_python="$(docker exec "${container}" python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-            [[ "${actual_python}" == "${expected_python}" ]] || {
-              echo "ERROR: ${image} provides Python ${actual_python}; expected ${expected_python}" >&2
-              return 1
-            }
-            docker exec --env DTK_PKG_URL "${container}" bash -lc '
-              set -euo pipefail
-              if [[ -f /opt/dtk/env.sh && -f /opt/dtk/.info/rocm_version ]] && \
-                 [[ "$(tr -d "[:space:]" < /opt/dtk/.info/rocm_version)" == 26.04* ]]; then
-                exit 0
-              fi
-              dtk_stage="$(mktemp -d /tmp/pytorch-dtk.XXXXXX)"
-              trap '\''rm -rf -- "${dtk_stage}"'\'' EXIT
-              mkdir -p "${dtk_stage}/extract"
-              wget --quiet --show-progress --tries=3 --timeout=120 \
-                --output-document="${dtk_stage}/dtk.tar.gz" -- "${DTK_PKG_URL}"
-              tar -xzf "${dtk_stage}/dtk.tar.gz" -C "${dtk_stage}/extract"
-              version_file="$(find "${dtk_stage}/extract" -type f -path "*/.info/rocm_version" -print -quit)"
-              [[ -n "${version_file}" ]]
-              dtk_source="${version_file%/.info/rocm_version}"
-              [[ "$(tr -d "[:space:]" < "${version_file}")" == 26.04* ]]
-              rm -rf -- /opt/dtk
-              mkdir -p /opt/dtk
-              cp -a "${dtk_source}/." /opt/dtk/
-            '
-            docker exec "${container}" mkdir -p /pytorch
-            test -d .git
-            tar \
-              --exclude='./.git/config' \
-              --exclude='./.git/config.worktree' \
-              --exclude='./.git/hooks' \
-              --exclude='./build' \
-              --exclude='./dist' \
-              -cf - . | docker exec -i "${container}" tar -C /pytorch -xf -
-            docker exec "${container}" git config --global --add safe.directory /pytorch
-            docker exec "${container}" git -C /pytorch config remote.origin.url "${SOURCE_REPO_URL}"
-            test "$(docker exec "${container}" git -C /pytorch rev-parse HEAD)" = "${SOURCE_SHA}"
-          }
-
-          build_wheels() {
-            local container="$1" python_tag="$2"
-            set -o pipefail
-            docker exec \
-              --env BUILD_PIP_INDEX_URL \
-              --env BUILD_PIP_TRUSTED_HOST \
-              --env MAGMA_URL \
-              --env MAGMA_SHA256 \
-              --env AMDGPU_TARGETS \
-              --env MAX_JOBS="$(nproc --ignore=2)" \
-              "${container}" bash -lc \
-                'cd /pytorch && bash scripts/build_hcu.sh && bash scripts/build_hcu_manylinux.sh' \
-              2>&1 | tee "${LOCAL_RUN_ROOT}/logs/build-${python_tag}.log"
-            docker cp "${container}:/pytorch/dist/." "${LOCAL_RUN_ROOT}/dist/${python_tag}/"
-            mapfile -t wheels < <(find "${LOCAL_RUN_ROOT}/dist/${python_tag}" -maxdepth 1 -name '*.whl' -type f)
-            [[ "${#wheels[@]}" -eq 2 ]]
-            for wheel in "${wheels[@]}"; do
-              [[ "$(basename "${wheel}")" == *"cp${python_tag#py}-cp${python_tag#py}"* ]]
-            done
-            ls -lh "${wheels[@]}"
-          }
-
-          start_container "${CONTAINER_NAME_PY310}" "${BUILD_IMAGE_PY310}" "3.10"
-          build_wheels "${CONTAINER_NAME_PY310}" py310
-          start_container "${CONTAINER_NAME_PY312}" "${BUILD_IMAGE_PY312}" "3.12"
-          build_wheels "${CONTAINER_NAME_PY312}" py312
-          docker rm -f "${CONTAINER_NAME_PY312}" >/dev/null
+        run: bash scripts/ci_hcu_pipeline.sh build
 
       - name: Run hcu-torch-ci
         id: tests
         if: ${{ always() && steps.build.outcome == 'success' }}
         shell: bash
-        run: |
-          set -euo pipefail
-          docker exec \
-            --env BUILD_PIP_INDEX_URL \
-            --env BUILD_PIP_TRUSTED_HOST \
-            --env HCU_CI_INDEX_URL \
-            "${CONTAINER_NAME_PY310}" bash -lc '
-              python3 -m pip install --no-cache-dir --upgrade --force-reinstall \
-                --index-url "${HCU_CI_INDEX_URL}" \
-                --extra-index-url "${BUILD_PIP_INDEX_URL}" \
-                --trusted-host "${BUILD_PIP_TRUSTED_HOST}" hcu-torch-ci
-              hcu-torch-ci --help >/dev/null
-            '
-
-          run_test() {
-            local mode="$1" devices="$2" policy="$3"
-            set -o pipefail
-            docker exec "${CONTAINER_NAME_PY310}" bash -lc '
-              set -euo pipefail
-              set +u; source /opt/dtk/env.sh; set -u
-              cd /pytorch
-              shopt -s nullglob; wheel=(dist/*manylinux*.whl); shopt -u nullglob
-              [[ "${#wheel[@]}" -eq 1 ]]
-              hcu-torch-ci run --mode "$1" --repo /pytorch \
-                --torch-wheel "${wheel[0]}" --devices "$2" \
-                --report-dir "/pytorch/test-reports/$1" --policy "$3"
-            ' _ "${mode}" "${devices}" "${policy}" 2>&1 | tee "${LOCAL_RUN_ROOT}/logs/test-${mode}.log"
-          }
-
-          case "${{ inputs.suite }}" in
-            pr)
-              test_rc=0
-              run_test mr '0,1,2,3,4,5,6,7' strict || test_rc=1
-              run_test nn '0' strict || test_rc=1
-              exit "${test_rc}"
-              ;;
-            full)
-              run_test full '0,1,2,3,4,5,6,7' report-only
-              ;;
-          esac
+        run: bash scripts/ci_hcu_pipeline.sh test "${{ inputs.suite }}"
 
       - name: Upload wheels after merged-branch tests pass
         if: ${{ inputs.publish && steps.build.outcome == 'success' && steps.tests.outcome == 'success' }}
@@ -246,75 +126,14 @@ jobs:
           DEVPI_URL: "http://10.16.1.201:9929"
           PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
           SOURCE_SHA: ${{ steps.context.outputs.source_sha }}
-        run: |
-          set -euo pipefail
-          test -n "${PYPI_PASSWORD}"
-          mapfile -t publish_wheels < <(find "${LOCAL_RUN_ROOT}/dist" -mindepth 2 -maxdepth 2 -type f -name '*manylinux*.whl' -print)
-          [[ "${#publish_wheels[@]}" -eq 2 ]]
-          docker exec "${CONTAINER_NAME_PY310}" rm -rf /pytorch/publish-dist /pytorch/output
-          docker exec "${CONTAINER_NAME_PY310}" mkdir -p /pytorch/publish-dist
-          for wheel in "${publish_wheels[@]}"; do
-            docker cp "${wheel}" "${CONTAINER_NAME_PY310}:/pytorch/publish-dist/"
-          done
-          printf '%s\n' "${PYPI_PASSWORD}" | docker exec -i \
-            --env BUILD_PIP_INDEX_URL \
-            --env BUILD_PIP_TRUSTED_HOST \
-            --env DEVPI_URL \
-            --env DTK_PKG_NAME \
-            --env SOURCE_SHA \
-            "${CONTAINER_NAME_PY310}" bash -lc '
-              set -euo pipefail
-              IFS= read -r password
-              python3 -m pip install \
-                --no-cache-dir \
-                --upgrade \
-                --index-url "${BUILD_PIP_INDEX_URL}" \
-                --trusted-host "${BUILD_PIP_TRUSTED_HOST}" \
-                CIUpload
-              python3 -c "import importlib.metadata; print(\"CIUpload:\", importlib.metadata.version(\"CIUpload\"))"
-              cd /pytorch
-              shopt -s nullglob
-              wheels=(publish-dist/*manylinux*.whl)
-              shopt -u nullglob
-              [[ "${#wheels[@]}" -eq 2 ]]
-              dtk_version="$(tr -d ".[:space:]" < /opt/dtk/.info/rocm_version)"
-              CIUpload REPAIR \
-                --dtk_version "${dtk_version}" \
-                --git_commit "${SOURCE_SHA:0:6}" \
-                --outputdir output \
-                -f "${wheels[@]}"
-              shopt -s nullglob
-              repaired=(output/*manylinux*.whl)
-              shopt -u nullglob
-              [[ "${#repaired[@]}" -eq 2 ]]
-              CIUpload NIGHTLY \
-                --devpi_url "${DEVPI_URL}" \
-                --password "${password}" \
-                --dtk_pkg_name "${DTK_PKG_NAME}" \
-                --record \
-                --repo /pytorch \
-                -f "${repaired[@]}"
-            '
+        run: bash scripts/ci_hcu_pipeline.sh publish
 
       - name: Save test reports locally
         if: always()
         shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          set +e
-          if docker ps -a --format '{{.Names}}' | grep -Fxq "${CONTAINER_NAME_PY310}"; then
-            docker cp "${CONTAINER_NAME_PY310}:/pytorch/test-reports/." "${LOCAL_RUN_ROOT}/reports/" 2>/dev/null || true
-          fi
-          find "${LOCAL_RUN_ROOT}" -maxdepth 5 -type f -ls 2>/dev/null || true
-          while IFS= read -r summary; do
-            cat "${summary}" >> "${GITHUB_STEP_SUMMARY}"
-            printf '\n' >> "${GITHUB_STEP_SUMMARY}"
-          done < <(find "${LOCAL_RUN_ROOT}/reports" -type f -name summary.md -print 2>/dev/null | sort)
+        run: bash scripts/ci_hcu_pipeline.sh collect
 
       - name: Cleanup container
         if: always()
         shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          docker rm -f "${CONTAINER_NAME_PY310}" >/dev/null 2>&1 || true
-          docker rm -f "${CONTAINER_NAME_PY312}" >/dev/null 2>&1 || true
+        run: bash scripts/ci_hcu_pipeline.sh cleanup

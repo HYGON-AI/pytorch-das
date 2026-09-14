@@ -9,7 +9,7 @@
 ### 2. 默认使用脚本所在仓库的当前 checkout；代码仓库地址和分支仅在需要自行拉取时配置。
 ### 3. 本脚本依赖编译镜像自带 GCC 工具链，无需额外激活。
 ### 4. 三方库通过 git submodule 拉取，并使用 tools/third_party/apply_patches.sh 应用仓库补丁。
-### 5. MAGMA 默认启用；如需跳过（编译参数 USE_MAGMA=0），请追加参数 --no-magma。
+### 5. MAGMA 和 manylinux 出包默认启用；如需跳过 MAGMA（USE_MAGMA=0），请追加参数 --no-magma。
 
 set -Eeuo pipefail
 
@@ -21,8 +21,6 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 ###   bash scripts/build_hcu.sh
 ### 关闭 MAGMA（跳过下载，USE_MAGMA=0）：
 ###   bash scripts/build_hcu.sh --no-magma
-### manylinux 出包请在编译完成后单独执行：
-###   bash scripts/build_hcu_manylinux.sh
 
 MAGMA_ENABLED=1
 for arg in "$@"; do
@@ -42,9 +40,9 @@ export PYTORCH_REPO_URL="${PYTORCH_REPO_URL:-}"
 export PYTORCH_BRANCH="${PYTORCH_BRANCH:-}"
 export PYTORCH_ROOT="${PYTORCH_ROOT:-${REPO_ROOT}}"
 
-### 设置已安装 DTK 路径和 MAGMA 下载地址（按需配置）
+### 设置已安装 DTK 路径和 MAGMA 下载地址
 export DTK_ROOT="${DTK_ROOT:-/opt/dtk}"
-export MAGMA_URL="${MAGMA_URL:-}"
+export MAGMA_URL="${MAGMA_URL:-http://42.228.13.241:18000/thirdparty/pytorch/magma-install.tar.gz}"
 export MAGMA_SHA256="${MAGMA_SHA256:-facbada3e2e8d366a1931627521e16484328abbec91c997500506dc51d59d2d8}"
 export BUILD_PIP_INDEX_URL="${BUILD_PIP_INDEX_URL:-http://10.16.1.201:9929/nightly/dtk2604/+simple/}"
 export BUILD_PIP_TRUSTED_HOST="${BUILD_PIP_TRUSTED_HOST:-10.16.1.201}"
@@ -217,7 +215,6 @@ pip_install_build xdoctest==1.1.3 \
     pytest==8.1.1 \
     pytest-timeout \
     Pillow==10.0.1 \
-    'numpy<2' \
     mypy==1.8.0 \
     jmespath==1.0.1 \
     Jinja2==3.1.3 \
@@ -318,3 +315,6 @@ if [ "${#WHEELS[@]}" -ne 1 ]; then
     exit 1
 fi
 python3 -m pip install --no-deps --force-reinstall "${WHEELS[0]}"
+
+### 修复并生成 manylinux wheel
+bash "${SCRIPT_DIR}/build_hcu_manylinux.sh"
