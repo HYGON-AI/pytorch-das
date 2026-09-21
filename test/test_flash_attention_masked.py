@@ -56,6 +56,12 @@ class TestFlashAttentionMasked(unittest.TestCase):
                 raise unittest.SkipTest(str(error)) from error
             raise
 
+        from flash_attn.version import version as flash_attn_version
+
+        cls.supports_mask_dropout = tuple(
+            int(part) for part in flash_attn_version.split(".")[:3]
+        ) >= (2, 8, 4)
+
     @staticmethod
     def _tolerances(dtype):
         if dtype is torch.bfloat16:
@@ -243,6 +249,8 @@ class TestFlashAttentionMasked(unittest.TestCase):
                     torch.testing.assert_close(grad, grad_ref, **tolerances)
 
     def _assert_dropout_replay(self, varlen):
+        if not self.supports_mask_dropout:
+            self.skipTest("masked dropout requires flash-attn >= 2.8.4")
         torch.manual_seed(2026)
         dropout_p = 0.5
         sequence_length = 16
@@ -342,6 +350,59 @@ class TestFlashAttentionMasked(unittest.TestCase):
 
     def test_varlen_dropout_forward_backward_replay(self):
         self._assert_dropout_replay(varlen=True)
+
+    def test_masked_dropout_version_gate(self):
+        q = torch.randn(1, 1, 8, 64, device="cuda", dtype=torch.bfloat16)
+        mask = torch.ones(1, 1, 8, 8, device="cuda", dtype=torch.bool)
+        cu_seqlens = torch.tensor([0, 8], device="cuda", dtype=torch.int32)
+        packed_q = q.squeeze(0).transpose(0, 1).contiguous()
+        dropout_p = 0.1
+
+        params = torch.backends.cuda.SDPAParams(
+            q, q, q, mask, dropout_p, False, False
+        )
+        self.assertEqual(
+            torch.backends.cuda.can_use_flash_attention(params),
+            self.supports_mask_dropout,
+        )
+
+        def dense():
+            return torch.ops.aten._scaled_dot_product_flash_attention_masked(
+                q, q, q, mask, dropout_p, False
+            )[0]
+
+        def varlen():
+            return torch.ops.aten._scaled_dot_product_flash_attention_varlen_masked(
+                packed_q,
+                packed_q,
+                packed_q,
+                mask,
+                cu_seqlens,
+                cu_seqlens,
+                8,
+                8,
+                dropout_p,
+                False,
+            )[0]
+
+        if self.supports_mask_dropout:
+            self.assertTrue(bool(torch.isfinite(dense()).all()))
+            self.assertTrue(bool(torch.isfinite(varlen()).all()))
+        else:
+            with self.assertRaisesRegex(RuntimeError, "requires flash-attn >= 2.8.4"):
+                dense()
+            with self.assertRaisesRegex(RuntimeError, "requires flash-attn >= 2.8.4"):
+                varlen()
+            with sdpa_kernel(backends=[SDPBackend.FLASH_ATTENTION, SDPBackend.MATH]):
+                fallback = F.scaled_dot_product_attention(
+                    q, q, q, attn_mask=mask, dropout_p=dropout_p
+                )
+            self.assertTrue(bool(torch.isfinite(fallback).all()))
+            with sdpa_kernel(backends=[SDPBackend.FLASH_ATTENTION]):
+                with self.assertRaisesRegex(RuntimeError, "No available kernel"):
+                    F.scaled_dot_product_attention(
+                        q, q, q, attn_mask=mask, dropout_p=dropout_p
+                    )
 
     def test_meta_and_autocast(self):
         batch, heads, sequence_length, head_dim = 1, 1, 8, 64
