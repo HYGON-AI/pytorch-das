@@ -68,6 +68,24 @@ bool has_cutlass_varlen_attnmask_api() {
     return available;
 }
 
+bool supports_cutlass_attnmask_dropout() {
+    static const bool supported = [] {
+        try {
+            return sdp::cutlassfa_adapter::CUTLASSFA::get_instance()
+                .supports_attnmask_dropout();
+        } catch (const std::exception&) {
+            return false;
+        }
+    }();
+    return supported;
+}
+
+void check_cutlass_attnmask_dropout(double dropout_p) {
+    TORCH_CHECK(
+        dropout_p == 0.0 || supports_cutlass_attnmask_dropout(),
+        "Masked Flash attention with dropout_p > 0 requires flash-attn >= 2.8.4");
+}
+
 void check_attnmask_inputs(
     const at::Tensor& query,
     const at::Tensor& key,
@@ -163,6 +181,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> mha_fwd_attnmask_cutlass(
     bool is_causal,
     float scale) {
     TORCH_CHECK(has_cutlass_attnmask_api(), "Compatible Cutlass FA mask API is unavailable");
+    check_cutlass_attnmask_dropout(dropout_p);
     auto q = query;
     std::optional<at::Tensor> out = at::empty(q.sizes(), q.options());
     std::optional<at::Tensor> alibi;
@@ -188,6 +207,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> mha_bwd_attnmask_cutlass(
     bool is_causal,
     float scale) {
     TORCH_CHECK(has_cutlass_attnmask_api(), "Compatible Cutlass FA mask API is unavailable");
+    check_cutlass_attnmask_dropout(dropout_p);
     std::optional<at::Tensor> dq = at::empty(query.sizes(), query.options());
     std::optional<at::Tensor> dk = at::empty(key.sizes(), key.options());
     std::optional<at::Tensor> dv = at::empty(value.sizes(), value.options());
@@ -219,6 +239,7 @@ mha_varlen_fwd_attnmask_cutlass(
     TORCH_CHECK(
         has_cutlass_varlen_attnmask_api(),
         "Compatible Cutlass FA varlen mask API is unavailable");
+    check_cutlass_attnmask_dropout(dropout_p);
     auto q = query;
     std::optional<at::Tensor> out = at::empty(q.sizes(), q.options());
     std::optional<at::Tensor> seqused_k;
@@ -274,6 +295,7 @@ mha_varlen_bwd_attnmask_cutlass(
     TORCH_CHECK(
         has_cutlass_varlen_attnmask_api(),
         "Compatible Cutlass FA varlen mask API is unavailable");
+    check_cutlass_attnmask_dropout(dropout_p);
     std::optional<at::Tensor> dq = at::empty(query.sizes(), query.options());
     std::optional<at::Tensor> dk = at::empty(key.sizes(), key.options());
     std::optional<at::Tensor> dv = at::empty(value.sizes(), value.options());

@@ -212,6 +212,8 @@ TORCH_API bool has_cutlass_attnmask_api();
 
 TORCH_API bool has_cutlass_varlen_attnmask_api();
 
+TORCH_API bool supports_cutlass_attnmask_dropout();
+
 TORCH_API void check_attnmask_inputs(
     const at::Tensor& query,
     const at::Tensor& key,
