@@ -6,8 +6,10 @@
 #define CUTLASSFA_ADAPTER_H
 
 #ifdef USE_ROCM
+#include <cstdio>
 #include <dlfcn.h>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <fnmatch.h>
 #include <vector>
@@ -153,6 +155,31 @@ std::string get_so_path() {
   return fa_so_p;
 }
 
+bool supports_mask_dropout(const fs::path& fa_so_path) {
+  const auto version_path =
+      fa_so_path.parent_path() / "flash_attn" / "version.py";
+  std::ifstream version_file(version_path);
+  std::string line;
+
+  while (std::getline(version_file, line)) {
+    int major = 0;
+    int minor = 0;
+    int patch = 0;
+    if (std::sscanf(
+            line.c_str(),
+            "version = '%d.%d.%d'",
+            &major,
+            &minor,
+            &patch) == 3) {
+      return major > 2 ||
+          (major == 2 &&
+           (minor > 8 || (minor == 8 && patch >= 4)));
+    }
+  }
+
+  return false;
+}
+
 namespace sdp {
 
 namespace cutlassfa_adapter {
@@ -174,6 +201,8 @@ public:
     CUTLASSFA() {
 
       auto fa_so_p = get_so_path();
+      mask_dropout_supported_ =
+          supports_mask_dropout(fs::path(fa_so_p));
       handle = dlopen(fa_so_p.c_str(), RTLD_LAZY);
       if(!handle){
         TORCH_CHECK(false, "Not load library for Cutlass Fa so");
@@ -222,6 +251,10 @@ public:
       return mha_varlen_fwd_attnmask && mha_varlen_bwd_attnmask;
     }
 
+    bool supports_attnmask_dropout() const {
+      return mask_dropout_supported_;
+    }
+
     static CUTLASSFA &get_instance(){
       static CUTLASSFA instance;
       return instance;
@@ -260,6 +293,7 @@ private:
     }
 
     void* handle;
+    bool mask_dropout_supported_ = false;
     static bool is_new;
     ~CUTLASSFA(){
         dlclose(handle);
