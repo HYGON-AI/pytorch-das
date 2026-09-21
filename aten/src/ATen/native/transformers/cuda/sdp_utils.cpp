@@ -972,6 +972,8 @@ bool check_flash_attention_mask(sdp_params const& params, bool debug) {
       mask.is_contiguous() && mask.device() == q.device() &&
       k.device() == q.device() && v.device() == q.device() &&
       params.dropout >= 0.0 && params.dropout < 1.0 &&
+      (params.dropout == 0.0 ||
+       pytorch_flash::supports_cutlass_attnmask_dropout()) &&
       q.sym_size(0) > 0 && q.sym_size(1) > 0 &&
       k.sym_size(1) > 0 && v.sym_size(1) > 0 &&
       k.sym_size(2) == v.sym_size(2) &&
@@ -987,7 +989,8 @@ bool check_flash_attention_mask(sdp_params const& params, bool debug) {
     TORCH_WARN(
         "Masked Flash attention requires a compatible Cutlass FA mask API, "
         "fp16/bf16 head_dim 64 or 128, a contiguous bool mask [B,Hq,Lq,Lk], "
-        "0 <= dropout_p < 1. Explicit mask and causal are intersected by FA.");
+        "0 <= dropout_p < 1, and flash-attn >= 2.8.4 when dropout_p > 0. "
+        "Explicit mask and causal are intersected by FA.");
   }
   return false;
 #else
