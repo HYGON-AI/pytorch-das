@@ -5,9 +5,10 @@ import unittest
 import torch
 import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
+from torch.testing._internal.common_utils import TestCase, run_tests
 
 
-class TestFlashAttentionMasked(unittest.TestCase):
+class TestFlashAttentionMasked(TestCase):
     """Regression coverage for the ROCm Cutlass masked FlashAttention APIs."""
 
     @classmethod
@@ -518,6 +519,71 @@ class TestFlashAttentionMasked(unittest.TestCase):
             )
         self.assertEqual(varlen_output.dtype, torch.bfloat16)
 
+    def test_invalid_qkv_dtype_and_stride_rejected_by_eager_and_fake(self):
+        from torch._subclasses.fake_tensor import FakeTensorMode
+
+        for varlen in (False, True):
+            for invalid in (
+                "key_dtype",
+                "value_dtype",
+                "query_stride",
+                "key_stride",
+                "value_stride",
+            ):
+                with self.subTest(varlen=varlen, invalid=invalid):
+                    shape = (4, 1, 64) if varlen else (1, 1, 4, 64)
+                    q, k, v = (
+                        torch.empty(shape, device="cuda", dtype=torch.float16)
+                        for _ in range(3)
+                    )
+                    mask = torch.ones(
+                        (1, 1, 4, 4), device="cuda", dtype=torch.bool
+                    )
+                    qkv = [q, k, v]
+                    name, kind = invalid.split("_")
+                    index = {"query": 0, "key": 1, "value": 2}[name]
+                    if kind == "dtype":
+                        qkv[index] = qkv[index].to(torch.bfloat16)
+                    else:
+                        storage = torch.empty(
+                            (*shape[:-1], shape[-1] * 2),
+                            device="cuda",
+                            dtype=qkv[index].dtype,
+                        )
+                        qkv[index] = storage[..., ::2]
+                    self.assertEqual(
+                        qkv[index].stride(-1), 2 if kind == "stride" else 1
+                    )
+
+                    if varlen:
+                        cu_seqlens = torch.tensor(
+                            [0, 4], device="cuda", dtype=torch.int32
+                        )
+                        args = (*qkv, mask, cu_seqlens, cu_seqlens, 4, 4)
+                        op = (
+                            torch.ops.aten._scaled_dot_product_flash_attention_varlen_masked
+                        )
+                    else:
+                        args = (*qkv, mask)
+                        op = torch.ops.aten._scaled_dot_product_flash_attention_masked
+
+                    expected_error = (
+                        "while checking arguments for .*masked Flash attention"
+                        if kind == "dtype"
+                        else "requires Q/K/V last dimension stride to be 1"
+                    )
+                    with self.assertRaisesRegex(RuntimeError, expected_error):
+                        op(*args)
+                    with FakeTensorMode() as mode:
+                        fake_args = tuple(
+                            mode.from_tensor(arg)
+                            if isinstance(arg, torch.Tensor)
+                            else arg
+                            for arg in args
+                        )
+                        with self.assertRaises(RuntimeError):
+                            op(*fake_args)
+
     @unittest.skipUnless(hasattr(torch, "compile"), "torch.compile is unavailable")
     def test_inductor(self):
         batch, heads, sequence_length, head_dim = 1, 1, 8, 64
@@ -594,4 +660,4 @@ class TestFlashAttentionMasked(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    run_tests()
