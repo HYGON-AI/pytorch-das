@@ -105,7 +105,13 @@ void check_attnmask_inputs(
     at::checkDeviceType(c, {key, value, mask}, query.device().type());
     at::checkAllSameGPU(c, {q, k, v, m});
     at::checkScalarTypes(c, q, {at::kHalf, at::kBFloat16});
+    // Direct ATen calls bypass the SDPA selector; match the Meta input contract.
+    at::checkScalarType(c, k, query.scalar_type());
+    at::checkScalarType(c, v, query.scalar_type());
     at::checkScalarType(c, m, at::kBool);
+    TORCH_CHECK(
+        query.stride(-1) == 1 && key.stride(-1) == 1 && value.stride(-1) == 1,
+        "Masked Flash attention requires Q/K/V last dimension stride to be 1");
     const auto batch = query.size(0);
     const auto heads = query.size(1);
     const auto kv_heads = key.size(1);
@@ -151,9 +157,15 @@ void check_varlen_attnmask_inputs(
         query.device().type());
     at::checkAllSameGPU(c, {q, k, v, m, cu_q, cu_k});
     at::checkScalarTypes(c, q, {at::kHalf, at::kBFloat16});
+    // Varlen's direct ATen entry also has no SDPA selector before the FA ABI.
+    at::checkScalarType(c, k, query.scalar_type());
+    at::checkScalarType(c, v, query.scalar_type());
     at::checkScalarType(c, m, at::kBool);
     at::checkScalarType(c, cu_q, at::kInt);
     at::checkScalarType(c, cu_k, at::kInt);
+    TORCH_CHECK(
+        query.stride(-1) == 1 && key.stride(-1) == 1 && value.stride(-1) == 1,
+        "Varlen masked Flash attention requires Q/K/V last dimension stride to be 1");
     const auto heads = query.size(1);
     const auto kv_heads = key.size(1);
     const auto dim = query.size(2);
