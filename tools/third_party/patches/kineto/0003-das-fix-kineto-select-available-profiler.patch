@@ -1,0 +1,57 @@
+Date: Wed, 23 Sep 2026 19:18:58 +0800
+Subject: [PATCH 3/3] [das] fix(kineto): select profiler backend by SDK availability
+
+Why:
+Kineto selects rocprofiler-sdk from the ROCm version even when the SDK is absent, causing CMake configuration to fail.
+
+What:
+Detect the SDK library and headers, fall back to Roctracer when absent, and fail clearly if neither backend library is available.
+
+Impact:
+SDK-free builds can use Roctracer while SDK-equipped builds retain the SDK path.
+---
+ libkineto/CMakeLists.txt | 23 ++++++++++++++++-------
+ 1 file changed, 16 insertions(+), 7 deletions(-)
+
+diff --git a/libkineto/CMakeLists.txt b/libkineto/CMakeLists.txt
+--- a/libkineto/CMakeLists.txt
++++ b/libkineto/CMakeLists.txt
+@@ -117,10 +117,16 @@
+-# Use rocprofiler-sdk for rocm version 6.4 forward
+-  if ((${ROCM_VERSION_DEV_MAJOR} GREATER_EQUAL 7) OR (${ROCM_VERSION_DEV_MAJOR} GREATER_EQUAL 6 AND ${ROCM_VERSION_DEV_MINOR} GREATER_EQUAL 4))
++  find_library(ROCPROFILER_SDK_LIBRARY NAMES rocprofiler-sdk
++    PATHS ${ROCM_SOURCE_DIR}/lib ${ROCM_SOURCE_DIR}/lib64 NO_DEFAULT_PATH)
++  find_path(ROCPROFILER_SDK_INCLUDE_DIR NAMES rocprofiler-sdk/rocprofiler.h
++    PATHS ${ROCM_INCLUDE_DIRS} NO_DEFAULT_PATH)
++  if(ROCPROFILER_SDK_LIBRARY AND ROCPROFILER_SDK_INCLUDE_DIR
++      AND EXISTS "${ROCPROFILER_SDK_INCLUDE_DIR}/rocprofiler-sdk/cxx/name_info.hpp")
+     set(USE_ROCPROFILER_SDK ON)
++  else()
++    set(USE_ROCPROFILER_SDK OFF)
+   endif()
+   if (${USE_ROCPROFILER_SDK})
+     message(STATUS "Building with: rocprofiler-sdk")
+   else()
+     message(STATUS "Building with: libroctracer")
+   endif()
+ endif()
+@@ -294,11 +300,14 @@
+ # Link backend libraries - mutually exclusive (only one backend active)
+ if(NOT LIBKINETO_NOROCTRACER)
+-if (${USE_ROCPROFILER_SDK})
+-  find_library(ROCPROF_LIBRARY NAMES librocprofiler-sdk.so HINTS
+-    ${ROCM_SOURCE_DIR}/lib)
++if(USE_ROCPROFILER_SDK)
++  set(ROCPROF_LIBRARY "${ROCPROFILER_SDK_LIBRARY}")
+ else()
+-  find_library(ROCPROF_LIBRARY NAMES libroctracer64.so HINTS
+-    ${ROCM_SOURCE_DIR}/lib)
++  find_library(ROCTRACER_LIBRARY NAMES roctracer64
++    PATHS ${ROCM_SOURCE_DIR}/lib ${ROCM_SOURCE_DIR}/lib64 NO_DEFAULT_PATH)
++  set(ROCPROF_LIBRARY "${ROCTRACER_LIBRARY}")
+ endif()
++  if(NOT ROCPROF_LIBRARY)
++    message(FATAL_ERROR "Kineto requires rocprofiler-sdk or libroctracer64 under ${ROCM_SOURCE_DIR}")
++  endif()
+   target_link_libraries(kineto "${ROCPROF_LIBRARY}")
+   target_link_libraries(kineto_base PUBLIC "${ROCPROF_LIBRARY}")

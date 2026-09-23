@@ -1,2 +1,3 @@
 0001-das-fix-kineto-stabilize-roctracer-fallback.patch
 0002-das-feat-kineto-add-begin-end-trace-slices.patch
+0003-das-fix-kineto-select-available-profiler.patch
