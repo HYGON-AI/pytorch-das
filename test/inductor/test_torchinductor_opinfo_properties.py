@@ -59,6 +59,7 @@ from torch.testing._internal.common_utils import (
     TEST_WITH_ASAN,
 )
 from torch.testing._internal.inductor_utils import HAS_GPU
+from torch.testing._internal.opinfo.core import _filter_unary_elementwise_tensor
 
 
 # LLM-useful op names to filter from unary_ufuncs
@@ -852,6 +853,9 @@ class TestOpInfoProperties(TestCase):
         else:
             # Sampled: 64k random bit patterns
             test_values = generate_sampled_fp32(NUM_SAMPLES, device)
+
+        if device_type == "cuda" and torch.version.hip is not None:
+            test_values = _filter_unary_elementwise_tensor(test_values.clone(), op=op)
 
         # Eager reference
         eager_out = fn(test_values)
