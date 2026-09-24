@@ -144,6 +144,17 @@ decomps_to_exclude: list[torch._ops.OpOverload | torch._ops.OpOverloadPacket] = 
 
 remove_decompositions(decompositions, decomps_to_exclude)
 
+decompositions.update(
+    decomp.get_decompositions(
+        [
+            aten.upsample_bilinear2d.default,
+            aten.upsample_trilinear3d.default,
+            aten.upsample_linear1d_backward.default,
+            aten.upsample_bilinear2d_backward.default,
+            aten.upsample_trilinear3d_backward.default,
+        ]
+    )
+)
 
 def register_decomposition(
     ops: _GenericOperator | list[_GenericOperator],
