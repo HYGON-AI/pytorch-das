@@ -1,0 +1,276 @@
+name: PyTorch pipeline
+
+on:
+  workflow_call:
+    inputs:
+      suite:
+        required: true
+        type: string
+      source_ref:
+        required: true
+        type: string
+      dtk_variants:
+        required: true
+        type: string
+      merge_pr:
+        required: false
+        default: false
+        type: boolean
+      pr_base_sha:
+        required: false
+        default: ""
+        type: string
+      pr_head_sha:
+        required: false
+        default: ""
+        type: string
+      publish:
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      PYPI_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+    working-directory: source
+
+concurrency:
+  group: pytorch-hcu-ci
+  cancel-in-progress: false
+
+env:
+  RESOURCE_SERVER_URL: "${{ vars.RESOURCE_SERVER_URL }}"
+  BUILD_IMAGE_PY310: "${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.10-mkl2024.2.0.664"
+  BUILD_IMAGE_PY312: "${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.12-mkl2024.2.0.664"
+  BUILD_PIP_INDEX_URL: "${{ vars.PYPI_URL }}/nightly/dtk2604/+simple/"
+  HCU_CI_INDEX_URL: "${{ vars.PYPI_URL }}/open/deps/+simple/"
+  SOURCE_REPO_URL: "${{ github.server_url }}/${{ github.repository }}.git"
+  LOCAL_RUN_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}"
+
+jobs:
+  preflight:
+    name: preflight
+    if: >-
+      ${{
+        github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
+    runs-on: bw1100
+    outputs:
+      should_run: ${{ steps.context.outputs.should_run }}
+    steps:
+      - name: Checkout source for preflight
+        uses: actions/checkout@v4
+        with:
+          path: source
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref }}
+
+      - name: Prepare shared run directory
+        id: context
+        run: |
+          set -euo pipefail
+          case "${{ inputs.suite }}" in
+            pr|full) ;;
+            *) echo "ERROR: unsupported suite: ${{ inputs.suite }}" >&2; exit 1 ;;
+          esac
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]] && \
+             [[ -z "$(git log --since='7 days ago' -1 --format=%H)" ]]; then
+            echo "should_run=false" >> "${GITHUB_OUTPUT}"
+            echo "### Weekly full test skipped" >> "${GITHUB_STEP_SUMMARY}"
+            echo "No commits in the last seven days." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          echo "should_run=true" >> "${GITHUB_OUTPUT}"
+
+  build_dtk2604:
+    name: build (dtk2604, py${{ matrix.python-version }})
+    needs: preflight
+    if: needs.preflight.outputs.should_run == 'true'
+    runs-on: bw1100
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    env:
+      DTK_PKG_URL: "${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/dtk26.04/DTK-26.04-rc4-centos8-x86_64.tar.gz"
+      DTK_PKG_NAME: "DTK-26.04-rc4-centos8-x86_64.tar.gz"
+      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}/dtk2604"
+      CONTAINER_NAME_PY310: "pytorch-build-dtk2604-py310-${{ github.run_id }}-${{ github.run_attempt }}"
+      CONTAINER_NAME_PY312: "pytorch-build-dtk2604-py312-${{ github.run_id }}-${{ github.run_attempt }}"
+    steps:
+      - name: Checkout PyTorch source
+        uses: actions/checkout@v4
+        with:
+          path: source
+          fetch-depth: 0
+          ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
+      - name: Merge PR into target branch locally
+        if: inputs.merge_pr
+        env:
+          PR_BASE_SHA: ${{ inputs.pr_base_sha }}
+          PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
+          git checkout --detach "${PR_BASE_SHA}"
+          git -c user.name=github-actions -c user.email=ci@github \
+            merge --no-ff --no-edit "${PR_HEAD_SHA}"
+      - name: Set source commit
+        run: echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "${GITHUB_ENV}"
+      - name: Build wheel
+        run: bash scripts/ci_hcu_pipeline.sh build "${{ matrix.python-version }}"
+      - name: Cleanup build container
+        if: always()
+        run: bash scripts/ci_hcu_pipeline.sh cleanup
+
+  build_dtk2610:
+    name: build (dtk2610, py${{ matrix.python-version }})
+    needs: preflight
+    # Temporarily disabled while DTK 26.10 CI is being stabilized.
+    if: ${{ false }}
+    runs-on: bw1100
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    env:
+      DTK_PKG_URL: "${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/dtk26.10/DTK-26.10-CentOS8.5-x86_64.tar.gz"
+      DTK_PKG_NAME: "DTK-26.10-CentOS8.5-x86_64.tar.gz"
+      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}/dtk2610"
+      CONTAINER_NAME_PY310: "pytorch-build-dtk2610-py310-${{ github.run_id }}-${{ github.run_attempt }}"
+      CONTAINER_NAME_PY312: "pytorch-build-dtk2610-py312-${{ github.run_id }}-${{ github.run_attempt }}"
+    steps:
+      - name: Checkout PyTorch source
+        uses: actions/checkout@v4
+        with:
+          path: source
+          fetch-depth: 0
+          ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
+      - name: Merge PR into target branch locally
+        if: inputs.merge_pr
+        env:
+          PR_BASE_SHA: ${{ inputs.pr_base_sha }}
+          PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
+          git checkout --detach "${PR_BASE_SHA}"
+          git -c user.name=github-actions -c user.email=ci@github \
+            merge --no-ff --no-edit "${PR_HEAD_SHA}"
+      - name: Set source commit
+        run: echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "${GITHUB_ENV}"
+      - name: Build wheel
+        run: bash scripts/ci_hcu_pipeline.sh build "${{ matrix.python-version }}"
+      - name: Cleanup build container
+        if: always()
+        run: bash scripts/ci_hcu_pipeline.sh cleanup
+
+  test:
+    name: ${{ inputs.suite }} test (${{ matrix.target.name }}, ${{ matrix.mode }})
+    needs: [preflight, build_dtk2604]
+    if: >-
+      ${{
+        always() &&
+        needs.preflight.outputs.should_run == 'true' &&
+        needs.build_dtk2604.result == 'success'
+      }}
+    runs-on: ${{ matrix.target.runner }}
+    timeout-minutes: >-
+      ${{
+        matrix.mode == 'full' && 7200 ||
+        matrix.mode == 'mr' && 1440 ||
+        360
+      }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        target:
+          - name: nmz
+            runner: bw1100
+          - name: bw
+            runner: bw1000
+        mode: ${{ fromJSON(inputs.suite == 'full' && '["full"]' || '["mr", "nn"]') }}
+    env:
+      DTK_PKG_URL: "${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/dtk26.04/DTK-26.04-rc4-centos8-x86_64.tar.gz"
+      DTK_PKG_NAME: "DTK-26.04-rc4-centos8-x86_64.tar.gz"
+      BUILD_ARTIFACT_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}/dtk2604"
+      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}/dtk2604/test-${{ matrix.target.name }}-${{ matrix.mode }}"
+      CONTAINER_NAME: "pytorch-test-${{ matrix.target.name }}-${{ matrix.mode }}-${{ github.run_id }}-${{ github.run_attempt }}"
+      TEST_DEVICES: ${{ matrix.mode == 'nn' && '0' || '0,1,2,3,4,5,6,7' }}
+      TEST_POLICY: ${{ matrix.mode == 'full' && 'report-only' || 'strict' }}
+    steps:
+      - name: Checkout PyTorch source
+        uses: actions/checkout@v4
+        with:
+          path: source
+          fetch-depth: 0
+          ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
+      - name: Merge PR into target branch locally
+        if: inputs.merge_pr
+        env:
+          PR_BASE_SHA: ${{ inputs.pr_base_sha }}
+          PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
+          git checkout --detach "${PR_BASE_SHA}"
+          git -c user.name=github-actions -c user.email=ci@github \
+            merge --no-ff --no-edit "${PR_HEAD_SHA}"
+      - name: Set source commit
+        run: echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "${GITHUB_ENV}"
+      - name: Run hcu-torch-ci
+        run: >-
+          bash scripts/ci_hcu_pipeline.sh test "${{ matrix.mode }}"
+          "${TEST_DEVICES}" "${TEST_POLICY}"
+      - name: Save test reports locally
+        if: always()
+        run: bash scripts/ci_hcu_pipeline.sh collect
+      - name: Cleanup test container
+        if: always()
+        run: bash scripts/ci_hcu_pipeline.sh cleanup
+
+  publish:
+    name: publish (${{ matrix.dtk.id }})
+    needs: [preflight, build_dtk2604, test]
+    if: >-
+      ${{
+        always() && inputs.publish && inputs.suite == 'pr' &&
+        needs.preflight.outputs.should_run == 'true' &&
+        needs.build_dtk2604.result == 'success' &&
+        needs.test.result == 'success'
+      }}
+    runs-on: bw1100
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        dtk: ${{ fromJSON(inputs.dtk_variants) }}
+    env:
+      DTK_PKG_URL: "${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/${{ matrix.dtk.directory }}/${{ matrix.dtk.package }}"
+      DTK_PKG_NAME: "${{ matrix.dtk.package }}"
+      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}/${{ matrix.dtk.id }}"
+      CONTAINER_NAME: "pytorch-publish-${{ matrix.dtk.id }}-${{ github.run_id }}-${{ github.run_attempt }}"
+      DEVPI_URL: "${{ vars.PYPI_URL }}"
+      PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+    steps:
+      - name: Checkout PyTorch source
+        uses: actions/checkout@v4
+        with:
+          path: source
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref }}
+      - name: Set source commit
+        run: echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "${GITHUB_ENV}"
+      - name: Repair and upload wheels
+        run: bash scripts/ci_hcu_pipeline.sh publish
+      - name: Cleanup publish container
+        if: always()
+        run: bash scripts/ci_hcu_pipeline.sh cleanup
