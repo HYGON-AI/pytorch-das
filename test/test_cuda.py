@@ -5337,6 +5337,8 @@ print(value, end="")
     def test_nvml_get_handler(self):
         if not torch.version.hip:
             self.assertTrue(torch.cuda._get_pynvml_handler() is not None)
+        elif torch.cuda._HAS_HCUSMI:
+            self.assertTrue(torch.cuda._get_hcusmi_handler() is not None)
         else:
             self.assertTrue(torch.cuda._get_amdsmi_handler() is not None)
 
@@ -5427,6 +5429,10 @@ print(value, end="")
     def test_hcusmi_clock_speed(self):
         self.assertTrue(torch.cuda.clock_rate() >= 0)
 
+    @unittest.skipIf(
+        TEST_WITH_ROCM and torch.cuda._HAS_HCUSMI,
+        "HCuSMI is available; use HCU test",
+    )
     @unittest.skipIf(not TEST_PYNVML, "pynvml/amdsmi is not available")
     @unittest.skipIf(not TEST_WITH_ROCM, "amdsmi specific test")
     def test_raw_amdsmi_device_count(self):
@@ -5451,6 +5457,10 @@ print(value, end="")
         raw_device_cnt = len(hcusmi.hcusmi_get_processor_handles())
         self.assertEqual(torch.cuda._raw_device_count_hcusmi(), raw_device_cnt)
 
+    @unittest.skipIf(
+        TEST_WITH_ROCM and torch.cuda._HAS_HCUSMI,
+        "HCuSMI is available; use HCU test",
+    )
     @unittest.skipIf(not TEST_PYNVML, "pynvml/amdsmi is not available")
     @unittest.skipIf(not TEST_WITH_ROCM, "amdsmi specific test")
     def test_raw_amdsmi_device_uuids(self):
