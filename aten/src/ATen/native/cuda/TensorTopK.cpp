@@ -1,6 +1,8 @@
 #define TORCH_ASSERT_ONLY_METHOD_OPERATORS
 #include <ATen/native/cuda/TensorTopK.h>
 
+#include <c10/util/env.h>
+
 #include <ATen/Context.h>
 #include <ATen/core/Tensor.h>
 #include <ATen/TensorMeta.h>
@@ -19,6 +21,29 @@
 #endif
 
 namespace at::native {
+
+#if defined(USE_ROCM)
+namespace {
+
+// Opt-in reproducibility switch for ROCm top-k.
+//
+// The ROCm top-k gather path reserves output slots for elements that tie on the
+// k-th value through atomics (see `reserveWarpSpace` in TensorTopK.cu), so which
+// of the equally-scored candidates end up in the result depends on warp
+// scheduling and may differ between two invocations with the very same input.
+// The default keeps that (faster) path.  Setting this environment variable to 1
+// makes ROCm top-k go through a full stable sort instead, which resolves ties by
+// input index and therefore returns identical indices on every invocation.
+// (torch.use_deterministic_algorithms(True) has the same effect, see
+// Note [Enabling Deterministic Operations].)
+constexpr const char* kRocmTopKStableEnvVar = "PYTORCH_ROCM_TOPK_STABLE";
+
+bool rocm_topk_stable_enabled() {
+  return c10::utils::check_env(kRocmTopKStableEnvVar).value_or(false);
+}
+
+} // namespace
+#endif // defined(USE_ROCM)
 
 void topk_out_with_sort(
   const Tensor& self,
@@ -89,9 +114,12 @@ TORCH_IMPL_FUNC(topk_out_cuda)
   const bool deterministic = at::globalContext().deterministicAlgorithms();
 
 #if defined(USE_ROCM)
-  if (deterministic) {
-    // The ROCm top-k gather path can reserve tie slots through atomics.
-    // Use stable full sort in deterministic mode to guarantee index tie-breaking.
+  // The ROCm top-k gather path can reserve tie slots through atomics.
+  // Use stable full sort to guarantee index tie-breaking when the user asks for
+  // it either explicitly (PYTORCH_ROCM_TOPK_STABLE=1) or through the
+  // deterministic-algorithms switch.
+  const bool stable = rocm_topk_stable_enabled() || deterministic;
+  if (stable) {
     topk_out_with_sort(self, k, dim, largest, values, indices, /*stable=*/true);
     return;
   }
