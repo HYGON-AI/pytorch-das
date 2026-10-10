@@ -147,6 +147,7 @@ if [ "${MAGMA_ENABLED}" = "1" ] && [ -z "${MAGMA_URL}" ]; then
                 exit 1
             fi
             MAGMA_URL="${RESOURCE_SERVER_URL}/thirdparty/pytorch/magma-install.tar.gz"
+            MAGMA_SHA256="${MAGMA_SHA256:-facbada3e2e8d366a1931627521e16484328abbec91c997500506dc51d59d2d8}"
             ;;
     esac
 fi
