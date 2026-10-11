@@ -110,30 +110,34 @@ TORCH_IMPL_FUNC(topk_out_cuda)
   checkAllSameGPU(__func__, {topK_arg, indices_arg, input_arg});
 
   dim = at::maybe_wrap_dim(dim, self);
-  // See Note [Enabling Deterministic Operations]
-  const bool deterministic = at::globalContext().deterministicAlgorithms();
-
-#if defined(USE_ROCM)
-  // The ROCm top-k gather path can reserve tie slots through atomics.
-  // Use stable full sort to guarantee index tie-breaking when the user asks for
-  // it either explicitly (PYTORCH_ROCM_TOPK_STABLE=1) or through the
-  // deterministic-algorithms switch.
-  const bool stable = rocm_topk_stable_enabled() || deterministic;
-  if (stable) {
-    topk_out_with_sort(self, k, dim, largest, values, indices, /*stable=*/true);
-    return;
-  }
-#endif
-
-  if (should_use_sort(self, dim)) {
-    topk_out_with_sort(self, k, dim, largest, values, indices, deterministic);
-    return;
-  }
 
   // If k is 0 the result is an empty tensor, so we don't need to launch a kernel.
+  // Kept first so that no code path below pays for a full sort of an empty
+  // result.
   if (k == 0) {
     return;
   }
+
+  // See Note [Enabling Deterministic Operations]
+  bool stable = at::globalContext().deterministicAlgorithms();
+#if defined(USE_ROCM)
+  // The ROCm top-k gather path can reserve tie slots through atomics.
+  // PYTORCH_ROCM_TOPK_STABLE=1 lets the user ask for the stable path without
+  // enabling deterministic mode globally; see rocm_topk_stable_enabled() above.
+  stable |= rocm_topk_stable_enabled();
+#endif
+
+  if (should_use_sort(self, dim)) {
+    topk_out_with_sort(self, k, dim, largest, values, indices, stable);
+    return;
+  }
+
+#if defined(USE_ROCM)
+  if (stable) {
+    topk_out_with_sort(self, k, dim, largest, values, indices, stable);
+    return;
+  }
+#endif
 
   launch_gather_topk_kernel(self, k, dim, largest, values, indices);
 
@@ -144,7 +148,7 @@ TORCH_IMPL_FUNC(topk_out_cuda)
       // This avoids any memory allocations and performs all sorting
       // work inplace along the slice
 
-      sortKeyValueInplace(values, indices, dim, largest, deterministic);
+      sortKeyValueInplace(values, indices, dim, largest, stable);
     } else {
       // Depend upon the backup sort that returns indices, which we
       // can use in conjunction with gather to produce the original
@@ -157,7 +161,7 @@ TORCH_IMPL_FUNC(topk_out_cuda)
 
       Tensor sortedIndices = at::empty_like(indices);
       Tensor sortedValues = at::empty_like(values);
-      at::cuda::sort_outf(values, deterministic, dim, largest, sortedValues, sortedIndices);
+      at::cuda::sort_outf(values, stable, dim, largest, sortedValues, sortedIndices);
       indices.copy_(indices.gather(dim, sortedIndices));
       values.copy_(sortedValues);
     }
