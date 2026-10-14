@@ -11,10 +11,10 @@ on:
       - 2.12.0-dev
   workflow_dispatch:
   schedule:
-    # GitHub cron is UTC: Beijing 00:00 every Monday and Thursday.
+    # GitHub cron is UTC: Beijing 00:00 every Saturday.
     # The reusable workflow skips the full test when the branch has had no
     # commits during the previous seven days.
-    - cron: "0 16 * * 0,3"
+    - cron: "0 16 * * 5"
 
 permissions:
   contents: read
