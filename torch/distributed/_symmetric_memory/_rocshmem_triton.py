@@ -57,6 +57,7 @@ class RocshmemLibFinder:
         rocshmem_home = os.environ.get("ROCSHMEM_HOME")
         search_paths = [
             os.path.join(rocshmem_home, "lib64") if rocshmem_home else None,
+            os.path.join(rocshmem_home, "lib") if rocshmem_home else None,
             "/opt/rocmshmem/lib64",
             os.path.join(sysconfig.get_path("purelib"), "amd", "rocshmem", "lib"),
             "/opt/rocm/lib",
@@ -76,7 +77,7 @@ class RocshmemLibFinder:
             return lib_path
 
         lib_path = None
-        for path in search_paths:
+        for path in filter(None, search_paths):
             candidate = os.path.join(path, lib_name)
             if os.path.exists(candidate):
                 lib_path = candidate
