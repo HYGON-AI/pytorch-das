@@ -50,7 +50,6 @@ jobs:
             const labels = pullRequest.labels.map(item => item.name);
             const resetActions = new Set([
               "opened",
-              "synchronize",
               "reopened",
               "ready_for_review",
             ]);
@@ -79,6 +78,21 @@ jobs:
               return;
             }
 
+            if (action === "synchronize") {
+              if (!labels.includes(label)) {
+                core.setFailed(
+                  `HCU CI is locked for ${pullRequest.head.sha}. ` +
+                  `A trusted maintainer must apply the ${label} label.`
+                );
+                return;
+              }
+              core.info(
+                `HCU CI remains authorized for ${pullRequest.head.sha}.`
+              );
+              core.setOutput("authorized", "true");
+              return;
+            }
+
             if (action === "labeled" && context.payload.label?.name !== label) {
               core.info(`Ignoring unrelated label: ${context.payload.label?.name}.`);
               return;
@@ -97,6 +111,18 @@ jobs:
             const permission = response.data.permission;
             const trusted = new Set(["write", "maintain", "admin"]);
             if (!trusted.has(permission)) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pullRequest.number,
+                  name: label,
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              }
               core.setFailed(
                 `${context.actor} cannot authorize HCU CI (permission: ${permission}).`
               );

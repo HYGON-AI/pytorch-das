@@ -57,6 +57,8 @@ fi
 PLATFORM="manylinux_${GLIBC_VERSION/./_}_x86_64"
 export PLATFORM
 
+DTK_BUILD_VERSION="$(tr -d '.[:space:]' < "${DTK_ROOT}/.info/rocm_version" 2>/dev/null || true)"
+
 shopt -s nullglob
 WHEELS=("${PYTORCH_ROOT}"/dist/*-linux_x86_64.whl)
 shopt -u nullglob
@@ -67,66 +69,130 @@ if [ "${#WHEELS[@]}" -ne 1 ]; then
 fi
 mkdir -p "${MANYLINUX_OUTPUT_DIR}"
 
+case "${DTK_BUILD_VERSION}" in
+    2610*)
+        selected_auditwheel_excludes=(
+            'libgalaxyhip.so*'
+            'libMIOpen.so*'
+            'librccl.so*'
+            'libhipblas.so*'
+            'libhipblaslt.so*'
+            'libhipfft.so*'
+            'libhiprand.so*'
+            'libhiprtc.so*'
+            'libhipsolver.so*'
+            'libhipsparse.so*'
+            'libhipnn.so*'
+            'libhipprof*'
+            'librocblas.so*'
+            'librocsolver.so*'
+            'librocfft.so*'
+            'librocrand.so*'
+            'librocsparse.so*'
+            'librocm_smi64.so*'
+            'libroctracer64.so*'
+            'libroctx64.so*'
+            'librocfft-device-*.so*'
+            'libhsa-runtime64.so*'
+            'libamdhip64.so*'
+            'libamd_comgr.so*'
+            'libhsakmt.so*'
+            'libgflags*'
+            'libglog*'
+            'libc10.so*'
+            'libc10_hip.so*'
+            'libtorch_cpu.so*'
+            'libtorch_hip.so*'
+            'libtorch_python.so*'
+            'libtorch.so*'
+            'libtorchaudio*'
+            '_torchaudio*'
+            'libavcodec*'
+            'libavdevice*'
+            'libavfilter*'
+            'libavformat*'
+            'libavutil*'
+            'libsox*'
+            'libomp.so*'
+            'libnuma.so*'
+            'libibverbs*'
+            'libnl*'
+            'libmpi*'
+            'libpmix*'
+        )
+        ;;
+    *)
+        selected_auditwheel_excludes=(
+            libgalaxyhip.so.5
+            libMIOpen.so.1
+            librccl.so.1
+            libhipblas.so.0
+            libhipfft.so
+            libhiprand.so.1
+            libhipsolver.so.0
+            libhipsparse.so.0
+            libhipnn.so
+            librocblas.so.0
+            librocsolver.so.0
+            librocfft.so.0
+            librocrand.so.1
+            librocsparse.so.0
+            librocm_smi64.so.2
+            librocfft-device-0.so.0
+            librocfft-device-1.so.0
+            librocfft-device-2.so.0
+            librocfft-device-3.so.0
+            libhipblaslt.so.0
+            libhipblas.so.2
+            libhipfft.so.0
+            libhipsparse.so.1
+            librocblas.so.4
+            librocsparse.so.1
+            libc10.so
+            libc10_hip.so
+            libtorch_cpu.so
+            libtorch_hip.so
+            libtorch_python.so
+            libtorch.so
+            libtorchaudio_ffmpeg4.so
+            libtorchaudio_ffmpeg5.so
+            libtorchaudio_ffmpeg6.so
+            libtorchaudio.so
+            libtorchaudio_sox.so
+            _torchaudio_ffmpeg4.so
+            _torchaudio_ffmpeg5.so
+            _torchaudio_ffmpeg6.so
+            _torchaudio.so
+            _torchaudio_sox.so
+            libavcodec.so.58
+            libavcodec.so.59
+            libavcodec.so.60
+            libavdevice.so.58
+            libavdevice.so.59
+            libavdevice.so.60
+            libavfilter.so.7
+            libavfilter.so.8
+            libavfilter.so.9
+            libavformat.so.58
+            libavformat.so.59
+            libavformat.so.60
+            libavutil.so.56
+            libavutil.so.57
+            libavutil.so.58
+            libsox.so
+            libomp.so
+            libnuma.so.1
+        )
+        ;;
+esac
+
+auditwheel_excludes=()
+for library in "${selected_auditwheel_excludes[@]}"; do
+    auditwheel_excludes+=(--exclude "${library}")
+done
+echo "========== auditwheel exclusions selected for DTK ${DTK_BUILD_VERSION:-unknown} =========="
 auditwheel repair --plat "${PLATFORM}" --strip \
-    --exclude libgalaxyhip.so.5 \
-    --exclude libMIOpen.so.1 \
-    --exclude librccl.so.1 \
-    --exclude libhipblas.so.0 \
-    --exclude libhipfft.so \
-    --exclude libhiprand.so.1 \
-    --exclude libhipsolver.so.0 \
-    --exclude libhipsparse.so.0 \
-    --exclude libhipnn.so \
-    --exclude librocblas.so.0 \
-    --exclude librocsolver.so.0 \
-    --exclude librocfft.so.0 \
-    --exclude librocrand.so.1 \
-    --exclude librocsparse.so.0 \
-    --exclude librocm_smi64.so.2 \
-    --exclude librocfft-device-0.so.0 \
-    --exclude librocfft-device-1.so.0 \
-    --exclude librocfft-device-2.so.0 \
-    --exclude librocfft-device-3.so.0 \
-    --exclude libc10.so \
-    --exclude libc10_hip.so \
-    --exclude libtorch_cpu.so \
-    --exclude libtorch_hip.so \
-    --exclude libtorch_python.so \
-    --exclude libtorch.so \
-    --exclude libtorchaudio_ffmpeg4.so \
-    --exclude libtorchaudio_ffmpeg5.so \
-    --exclude libtorchaudio_ffmpeg6.so \
-    --exclude libtorchaudio.so \
-    --exclude libtorchaudio_sox.so \
-    --exclude _torchaudio_ffmpeg4.so \
-    --exclude _torchaudio_ffmpeg5.so \
-    --exclude _torchaudio_ffmpeg6.so \
-    --exclude _torchaudio.so \
-    --exclude _torchaudio_sox.so \
-    --exclude libavcodec.so.58 \
-    --exclude libavcodec.so.59 \
-    --exclude libavcodec.so.60 \
-    --exclude libavdevice.so.58 \
-    --exclude libavdevice.so.59 \
-    --exclude libavdevice.so.60 \
-    --exclude libavfilter.so.7 \
-    --exclude libavfilter.so.8 \
-    --exclude libavfilter.so.9 \
-    --exclude libavformat.so.58 \
-    --exclude libavformat.so.59 \
-    --exclude libavformat.so.60 \
-    --exclude libavutil.so.56 \
-    --exclude libavutil.so.57 \
-    --exclude libavutil.so.58 \
-    --exclude libsox.so \
-    --exclude libomp.so \
-    --exclude libhipblaslt.so.0 \
-    --exclude libhipblas.so.2 \
-    --exclude libhipfft.so.0 \
-    --exclude libhipsparse.so.1 \
-    --exclude librocblas.so.4 \
-    --exclude librocsparse.so.1 \
-    --exclude libnuma.so.1 \
+    "${auditwheel_excludes[@]}" \
     -w "${MANYLINUX_OUTPUT_DIR}" \
     "${WHEELS[@]}"
 
