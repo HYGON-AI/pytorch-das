@@ -243,11 +243,9 @@ class TestCKBackend(TestCase):
             torch.testing.assert_close(Y_compiled, Y_eager, equal_nan=True)
 
     # regression in ROCm 7.2, Mismatched elements, significantly
-    @skipIfRocmArch(MI350_ARCH)
     @unittest.skipIf(not torch.version.hip, "ROCM only")
     @unittest.mock.patch.dict(os.environ, _test_env)
     @parametrize("max_autotune_gemm_backends", ("CK", "ATen,Triton,CK"))
-    @skipIfRocm(msg="Numerical accuracy errors in CK backend on gfx950 as of 06/03/26")
     @parametrize(
         "x_shape", ([4096, 2048], [2048], [4096, 1])
     )  # NOTE: the first two shapes create "Tensor-likes are not close" errors

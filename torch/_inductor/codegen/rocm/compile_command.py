@@ -108,15 +108,14 @@ def _rocm_compiler_options() -> list[str]:
 def rocm_compiler() -> str | None:
     if is_linux():
         if config.rocm.rocm_home:
-            return os.path.realpath(
-                os.path.join(config.rocm.rocm_home, "llvm", "bin", "clang")
-            )
+            aicc = os.path.join(config.rocm.rocm_home, "bin", "aicc")
+            clang = os.path.join(config.rocm.rocm_home, "llvm", "bin", "clang")
+            return os.path.realpath(aicc) if os.path.exists(aicc) else os.path.realpath(clang)
         try:
             from torch.utils import cpp_extension
-
-            return os.path.realpath(
-                cpp_extension._join_rocm_home("llvm", "bin", "clang")
-            )
+            aicc = cpp_extension._join_rocm_home("bin", "aicc")
+            clang = cpp_extension._join_rocm_home("llvm", "bin", "clang")
+            return os.path.realpath(aicc) if os.path.exists(aicc) else os.path.realpath(clang)
         except OSError:
             # neither config.rocm.rocm_home nor env variable ROCM_HOME are set
             return "clang"
