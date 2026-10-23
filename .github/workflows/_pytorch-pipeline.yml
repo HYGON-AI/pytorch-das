@@ -57,7 +57,7 @@ jobs:
       should_run: ${{ steps.context.outputs.should_run }}
     steps:
       - name: Checkout source for preflight
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source
           fetch-depth: 0
@@ -97,7 +97,7 @@ jobs:
       CONTAINER_NAME_PY312: "pytorch-build-dtk2604-py312-${{ github.run_id }}-${{ github.run_attempt }}"
     steps:
       - name: Checkout PyTorch source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source
           fetch-depth: 0
@@ -138,7 +138,7 @@ jobs:
       CONTAINER_NAME_PY312: "pytorch-build-dtk2610-py312-${{ github.run_id }}-${{ github.run_attempt }}"
     steps:
       - name: Checkout PyTorch source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source
           fetch-depth: 0
@@ -199,7 +199,7 @@ jobs:
       TEST_POLICY: ${{ matrix.mode == 'full' && 'report-only' || 'strict' }}
     steps:
       - name: Checkout PyTorch source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source
           fetch-depth: 0
@@ -252,7 +252,7 @@ jobs:
       PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
     steps:
       - name: Checkout PyTorch source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source
           fetch-depth: 0
