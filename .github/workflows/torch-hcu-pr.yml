@@ -1,5 +1,5 @@
-name: PyTorch CI
-run-name: "PyTorch - ${{ github.event_name }} - ${{ github.event.pull_request.number || github.ref_name || 'nightly' }}"
+name: torch-hcu-pr
+run-name: "torch-hcu-pr - ${{ github.event_name }} - ${{ github.event.pull_request.number || github.ref_name }}"
 
 on:
   pull_request_target:
@@ -9,12 +9,6 @@ on:
   push:
     branches:
       - 2.12.0-dev
-  workflow_dispatch:
-  schedule:
-    # GitHub cron is UTC: Beijing 00:00 every Saturday.
-    # The reusable workflow skips the full test when the branch has had no
-    # commits during the previous seven days.
-    - cron: "0 16 * * 5"
 
 permissions:
   contents: read
@@ -146,8 +140,8 @@ jobs:
       }}
     uses: ./.github/workflows/_pytorch-pipeline.yml
     with:
-      suite: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'pr' }}
-      source_ref: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '2.12.0-dev' || (github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha) }}
+      suite: pr
+      source_ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
       # DTK 26.10 is temporarily disabled; run the pipeline with DTK 26.04 only.
       dtk_variants: >-
         [
