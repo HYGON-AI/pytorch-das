@@ -6,6 +6,9 @@
 #include <ATen/native/LinearAlgebraUtils.h>
 #include <ATen/SparseCsrTensorUtils.h>
 #include <ATen/native/mkl/SparseBlasImpl.h>
+#if AT_USE_HSPARSE()
+#include <hml_sparse.h>
+#endif
 
 #include <c10/core/ScalarType.h>
 #include <c10/util/MaybeOwned.h>
@@ -164,17 +167,25 @@ void mkl_result_copy_(const Tensor& input, sparse_matrix_t mkl_desc) {
   * `C` - [in] Dense Tensor storing matrix of size m x n.
           [out] result of the operation.
 */
+#if AT_USE_HSPARSE()
+#include <ATen/native/hml/HMLSparseBlasImpl.inc>
+#endif
+
+
 void addmm_dense_result(
     const Tensor& A,
     const Tensor& B,
     const Scalar& beta,
     const Scalar& alpha,
     const Tensor& C) {
-#if !AT_USE_MKL_SPARSE()
+#if !(AT_USE_MKL_SPARSE() || AT_USE_HSPARSE())
   TORCH_CHECK(
       false,
       "Calling addmm on a sparse CPU tensor requires Linux platform. ",
       "Please use PyTorch built with MKL on Linux.");
+#else
+#if AT_USE_HSPARSE()
+  hml::addmm_dense_result(A, B, beta, alpha, C);
 #else
   c10::MaybeOwned<Tensor> C_ = prepare_dense_matrix_for_mkl(C);
   IntArrayRef C_strides = C_->strides();
@@ -222,6 +233,7 @@ void addmm_dense_result(
     C.copy_(*C_);
   }
 #endif
+#endif
 }
 
 /*
@@ -240,11 +252,14 @@ void addmm_sparse_input_dense_result(
     const Scalar& beta,
     const Scalar& alpha,
     const Tensor& C) {
-#if !AT_USE_MKL_SPARSE()
+#if !(AT_USE_MKL_SPARSE() || AT_USE_HSPARSE())
   TORCH_CHECK(
       false,
       "Calling addmm on a sparse CPU tensor requires Linux platform. ",
       "Please use PyTorch built with MKL on Linux.");
+#else
+#if AT_USE_HSPARSE()
+  hml::addmm_sparse_input_dense_result(A, B, beta, alpha, C);
 #else
   // MKL function computes C <- A*B
   // So we need a temporary matrix to store the result
@@ -273,6 +288,7 @@ void addmm_sparse_input_dense_result(
     C.mul_(beta);
   }
   C.add_(C_, alpha);
+#endif
 #endif
 }
 
@@ -509,17 +525,23 @@ void addmm_out_sparse_csr(
   * `result` - [in] Tensor storing dense vector y of size m.
                [out] result of the operation.
 */
+
+
+
 void addmv_out_sparse_csr(
   const Tensor& mat,
   const Tensor& vec,
   const Scalar& beta,
   const Scalar& alpha,
   const Tensor& result) {
-#if !AT_USE_MKL_SPARSE()
+#if !(AT_USE_MKL_SPARSE() || AT_USE_HSPARSE())
   TORCH_CHECK(
     false,
     "Calling addmv on a sparse CPU tensor requires Linux platform. ",
     "Please use PyTorch built with MKL on Linux.");
+#else
+#if AT_USE_HSPARSE()
+  hml::addmv_out_sparse_csr(mat, vec, beta, alpha, result);
 #else
   c10::MaybeOwned<Tensor> result_ = prepare_dense_vector_for_mkl(result);
   c10::MaybeOwned<Tensor> vec_ = prepare_dense_vector_for_mkl(vec);
@@ -550,6 +572,7 @@ void addmv_out_sparse_csr(
     result.copy_(*result_);
   }
 #endif
+#endif
 }
 
 void add_out_sparse_csr(
@@ -558,10 +581,14 @@ void add_out_sparse_csr(
     const Scalar& alpha,
     const Tensor& result) {
 #if !AT_USE_MKL_SPARSE()
+#if AT_USE_HSPARSE()
+  hml::add_out_sparse_csr(mat1, mat2, alpha, result);
+#else
   TORCH_CHECK(
       false,
       "Calling add on a sparse CPU tensor requires Linux platform. ",
       "Please use PyTorch built with MKL on Linux.");
+#endif
 #else
 
   // MKL doesn't work with empty matrices
@@ -618,6 +645,7 @@ void add_out_sparse_csr(
 #endif
 }
 
+
 void triangular_solve_out_sparse_csr(
     const Tensor& A_,
     const Tensor& B,
@@ -625,11 +653,16 @@ void triangular_solve_out_sparse_csr(
     bool upper,
     bool transpose,
     bool unitriangular) {
-#if !AT_USE_MKL_SPARSE()
+#if !(AT_USE_MKL_SPARSE() || AT_USE_HSPARSE())
   TORCH_CHECK(
       false,
       "Calling triangular_solve on a sparse CPU tensor requires Linux platform. ",
       "Please use PyTorch built with MKL on Linux.");
+#else
+
+
+#if AT_USE_HSPARSE()
+  hml::triangular_solve_out_sparse_csr(A_, B, X, upper, transpose, unitriangular);
 #else
   if (B.numel() == 0 || X.numel() == 0 || A_._nnz() == 0) {
     // If A has no nnz, then A is singular and we can't solve.
@@ -720,6 +753,7 @@ void triangular_solve_out_sparse_csr(
   if (!X.is_same(*X_)) {
     X.copy_(*X_);
   }
+#endif
 #endif
 }
 

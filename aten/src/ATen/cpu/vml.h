@@ -167,4 +167,9 @@ IMPLEMENT_VML_MKL(log2, Log2)
 #endif
 
 } // namespace
+
+#if AT_HML_ENABLED()
+#include <ATen/cpu/hml/vml_hml.h>
+#endif
+
 } // namespace at::vml

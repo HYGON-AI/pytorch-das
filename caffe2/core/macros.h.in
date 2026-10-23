@@ -62,6 +62,8 @@
   {"USE_LITE_PROTO", "${CAFFE2_USE_LITE_PROTO}"}, \
   {"USE_MKL", "${CAFFE2_USE_MKL}"}, \
   {"USE_MKLDNN", "${USE_MKLDNN}"}, \
+  {"USE_HML", "${USE_HML}"}, \
+  {"USE_HDNN", "${USE_HDNN}"}, \
   {"USE_NVTX", "${CAFFE2_USE_NVTX}"}, \
   {"USE_ITT", "${CAFFE2_USE_ITT}"}, \
   {"USE_ROCM_KERNEL_ASSERT", "${USE_ROCM_KERNEL_ASSERT}"}, \
