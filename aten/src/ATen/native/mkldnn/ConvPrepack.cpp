@@ -193,6 +193,11 @@ Tensor run(ContextConv& context, const Tensor& input) {
   auto output = at::empty(
       output_sizes,
       input.options().memory_format(input.suggest_memory_format()));
+#ifdef USE_HDNN
+  if (output.numel() == 0) {
+    return output;
+  }
+#endif
 
   bool is_channels_last =
       input.suggest_memory_format() == at::MemoryFormat::ChannelsLast;

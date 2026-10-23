@@ -1606,7 +1606,10 @@ class TestSparseCSR(TestCase):
     @parametrize("block_size", [2, 3])
     @parametrize("index_dtype", [torch.int32, torch.int64])
     @parametrize("noncontiguous", [True, False])
-    @skipCPUIfNoMklSparse
+    # BSR addmm is not wired to HSPARSE yet (the non-MKL branch rejects it with
+    # "addmm: computation on CPU is not implemented ... without MKL"), so this
+    # test stays MKL-only instead of following the HSPARSE gate.
+    @unittest.skipIf(no_mkl_sparse, "test_block_addmm requires MKL")
     @unittest.skipIf(not TEST_SCIPY, "SciPy not found")
     @skipIfTorchDynamo("raises 'sparse matrix length is ambiguous; use getnnz()'")
     @dtypes(*floating_and_complex_types())
