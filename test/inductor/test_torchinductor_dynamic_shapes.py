@@ -961,6 +961,37 @@ class TestInductorDynamic(TestCase):
 
         self.assertEqual(FRAME_COMPILE_COUNTER[0], 1)
 
+    def test_upsample_bilinear2d_backward_dynamic_no_recompile(self, device):
+        def fn(grad_output, input_tensor):
+            return torch.ops.aten.upsample_bilinear2d_backward.default(
+                grad_output,
+                [3, 4],
+                input_tensor.shape,
+                False,
+                None,
+                None,
+            )
+
+        torch._dynamo.reset()
+        compile_counter = CompileCounterWithBackend("inductor")
+        compiled_fn = torch.compile(
+            fn,
+            backend=compile_counter,
+            dynamic=True,
+            fullgraph=True,
+        )
+
+        for input_shape in ((2, 3, 5, 7), (2, 3, 5, 8)):
+            input_tensor = torch.randn(input_shape, device=device)
+            grad_output = torch.randn(
+                (input_shape[0], input_shape[1], 3, 4), device=device
+            )
+            expected = fn(grad_output, input_tensor)
+            actual = compiled_fn(grad_output, input_tensor)
+            self.assertEqual(actual, expected, atol=1e-5, rtol=1e-5)
+
+        self.assertEqual(compile_counter.frame_count, 1)
+
     @parametrize(
         "op",
         [

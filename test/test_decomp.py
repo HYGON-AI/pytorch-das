@@ -1202,6 +1202,169 @@ class DecompOneOffTests(TestCase):
 
     @onlyNativeDeviceTypes
     @skipIfCrossRef
+    def test_upsample_linear_vec(self, device):
+        cases = [
+            (
+                aten.upsample_linear1d.vec,
+                aten.upsample_linear1d.default,
+                (2, 3, 5),
+                [3],
+                None,
+                False,
+                [3],
+                (None,),
+            ),
+            (
+                aten.upsample_linear1d.vec,
+                aten.upsample_linear1d.default,
+                (2, 3, 5),
+                None,
+                [1.7],
+                False,
+                [8],
+                (1.7,),
+            ),
+            (
+                aten.upsample_bilinear2d.vec,
+                aten.upsample_bilinear2d.default,
+                (2, 3, 5, 7),
+                [3, 9],
+                None,
+                True,
+                [3, 9],
+                (None, None),
+            ),
+            (
+                aten.upsample_bilinear2d.vec,
+                aten.upsample_bilinear2d.default,
+                (2, 3, 5, 7),
+                None,
+                [1.7, 0.6],
+                False,
+                [8, 4],
+                (1.7, 0.6),
+            ),
+            (
+                aten.upsample_trilinear3d.vec,
+                aten.upsample_trilinear3d.default,
+                (2, 3, 4, 5, 6),
+                [6, 3, 3],
+                None,
+                False,
+                [6, 3, 3],
+                (None, None, None),
+            ),
+            (
+                aten.upsample_trilinear3d.vec,
+                aten.upsample_trilinear3d.default,
+                (2, 3, 4, 5, 6),
+                None,
+                [1.7, 0.6, 0.6],
+                False,
+                [6, 3, 3],
+                (1.7, 0.6, 0.6),
+            ),
+        ]
+
+        for dtype in (torch.float32, torch.bfloat16):
+            atol, rtol = (1e-5, 1e-5) if dtype == torch.float32 else (1e-2, 2e-2)
+            for (
+                vec_op,
+                default_op,
+                input_size,
+                output_size,
+                scale_factors,
+                align_corners,
+                expected_output_size,
+                scales,
+            ) in cases:
+                input_tensor = torch.randn(input_size, dtype=dtype, device=device)
+                expected = default_op(
+                    input_tensor,
+                    expected_output_size,
+                    align_corners,
+                    *scales,
+                )
+                with enable_python_dispatcher():
+                    actual = vec_op(
+                        input_tensor,
+                        output_size,
+                        align_corners,
+                        scale_factors,
+                    )
+                self.assertEqual(actual, expected, atol=atol, rtol=rtol)
+
+    @onlyNativeDeviceTypes
+    @skipIfCrossRef
+    def test_upsample_linear_backward(self, device):
+        cases = [
+            (
+                aten.upsample_linear1d_backward.default,
+                (2, 3, 5),
+                (3,),
+                True,
+                (None,),
+            ),
+            (
+                aten.upsample_linear1d_backward.default,
+                (2, 3, 5),
+                (8,),
+                False,
+                (1.7,),
+            ),
+            (
+                aten.upsample_bilinear2d_backward.default,
+                (2, 3, 5, 7),
+                (3, 9),
+                False,
+                (None, None),
+            ),
+            (
+                aten.upsample_bilinear2d_backward.default,
+                (2, 3, 5, 7),
+                (8, 4),
+                False,
+                (1.7, 0.6),
+            ),
+            (
+                aten.upsample_trilinear3d_backward.default,
+                (2, 3, 4, 5, 6),
+                (6, 3, 3),
+                True,
+                (None, None, None),
+            ),
+            (
+                aten.upsample_trilinear3d_backward.default,
+                (2, 3, 4, 5, 6),
+                (6, 3, 3),
+                False,
+                (1.7, 0.6, 0.6),
+            ),
+        ]
+
+        for dtype in (torch.float32, torch.bfloat16):
+            atol, rtol = (1e-5, 1e-5) if dtype == torch.float32 else (1e-2, 2e-2)
+            for op, input_size, output_size, align_corners, scales in cases:
+                self.assertIn(op, torch._inductor.decomposition.decompositions)
+                grad_output = torch.randn(
+                    (input_size[0], input_size[1], *output_size),
+                    dtype=dtype,
+                    device=device,
+                )
+                args = (
+                    grad_output,
+                    list(output_size),
+                    list(input_size),
+                    align_corners,
+                    *scales,
+                )
+                ref = op(*args)
+                decomp = get_decompositions([op])[op]
+                actual = decomp(*args)
+                self.assertEqual(actual, ref, atol=atol, rtol=rtol)
+
+    @onlyNativeDeviceTypes
+    @skipIfCrossRef
     def test_threshold_backward_dtype(self, device):
         grad = torch.randint(10, (4,), device=device)
         input_tensor = torch.randint(10, (4,), device=device)
