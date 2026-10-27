@@ -209,14 +209,122 @@ __global__ void CatArrayBatchedCopy_contig(
     IndexType tid = blockIdx.x * blockDim.x + threadIdx.x;
     IndexType nElements = inputs.nElements[blockIdx.y];
 
-    if(tid >= nElements) return;
-
     const T* data = inputs.input[blockIdx.y];
     IndexType offset = inputs.offset[blockIdx.y];
     IndexType dimSize = inputs.dimSize[blockIdx.y];
     IndexType dataOffset = offset * dimStride;
 
     IndexType stride = gridDim.x * blockDim.x;
+
+    if constexpr (sizeof(T) == 2 || (sizeof(T) > 2 && sizeof(T) <= 8)) {
+      constexpr int kVecBytes = ALIGNED_VEC_LOAD_BYTES_16;
+      constexpr int kILP = kVecBytes / sizeof(T);
+
+      if (concatDim == Dims - 1 &&
+          dimSize > 0 &&
+          dimSize % kILP == 0 &&
+          os.tensorSize[concatDim] % kILP == 0 &&
+          offset % kILP == 0 &&
+          reinterpret_cast<uintptr_t>(data) % kVecBytes == 0 &&
+          reinterpret_cast<uintptr_t>(output) % kVecBytes == 0) {
+        constexpr IndexType kWarpSize = 32;
+        const IndexType lane = threadIdx.x & (kWarpSize - 1);
+        const IndexType warp =
+            (blockIdx.x * blockDim.x + threadIdx.x) / kWarpSize;
+        const IndexType warpStride = (stride >= kWarpSize) ? (stride / kWarpSize) : 1;
+        const IndexType inputRowVec = dimSize / kILP;
+        const IndexType outputRowVec = os.tensorSize[concatDim] / kILP;
+        const IndexType outputOffsetVec = offset / kILP;
+        const IndexType nRows = nElements / dimSize;
+        const bool inputRowVecDividesWarp =
+            inputRowVec <= kWarpSize && kWarpSize % inputRowVec == 0;
+        const IndexType rowsPerWarp = inputRowVecDividesWarp ?
+            kWarpSize / inputRowVec : 1;
+        const bool inputRowVecPow2 = (inputRowVec & (inputRowVec - 1)) == 0;
+        const char* inputChar = reinterpret_cast<const char*>(data);
+        auto* outputChar = reinterpret_cast<char*>(output);
+
+        bool canFuseInputs = gridDim.y > 1;
+        for (IndexType inputIdx = 0; inputIdx < gridDim.y; ++inputIdx) {
+          canFuseInputs &=
+              inputs.dimSize[inputIdx] == dimSize &&
+              inputs.nElements[inputIdx] == nElements &&
+              inputs.offset[inputIdx] == inputIdx * dimSize &&
+              reinterpret_cast<uintptr_t>(inputs.input[inputIdx]) % kVecBytes == 0;
+        }
+        const IndexType fusedInputRowVecCandidate = inputRowVec * gridDim.y;
+        canFuseInputs &=
+            fusedInputRowVecCandidate <= kWarpSize &&
+            kWarpSize % fusedInputRowVecCandidate == 0;
+
+        if (canFuseInputs && blockIdx.y == 0) {
+          const IndexType fusedInputRowVec = inputRowVec * gridDim.y;
+          const IndexType fusedRowsPerWarp = kWarpSize / fusedInputRowVec;
+          const bool fusedRowVecPow2 =
+              (fusedInputRowVec & (fusedInputRowVec - 1)) == 0;
+
+          for (IndexType rowGroup = warp; rowGroup * fusedRowsPerWarp < nRows;
+               rowGroup += warpStride) {
+            const IndexType rowInGroup = lane / fusedInputRowVec;
+            const IndexType fusedInner = fusedRowVecPow2 ?
+                lane & (fusedInputRowVec - 1) :
+                lane - rowInGroup * fusedInputRowVec;
+            const IndexType row = rowGroup * fusedRowsPerWarp + rowInGroup;
+            if (row < nRows) {
+              const IndexType inputIdx = fusedInner / inputRowVec;
+              const IndexType inner = fusedInner - inputIdx * inputRowVec;
+              const char* fusedInputChar =
+                  reinterpret_cast<const char*>(inputs.input[inputIdx]);
+              const IndexType inputVecOffset = row * inputRowVec + inner;
+              const IndexType outputVecOffset =
+                  row * outputRowVec + fusedInner;
+              auto vec = at::native::memory::ld_vec<kVecBytes>(
+                  fusedInputChar + inputVecOffset * kVecBytes);
+              at::native::memory::st_vec<kVecBytes>(
+                  outputChar + outputVecOffset * kVecBytes, vec);
+            }
+          }
+          return;
+        }
+
+        if (canFuseInputs) {
+          return;
+        }
+
+        for (IndexType rowGroup = warp; rowGroup * rowsPerWarp < nRows;
+             rowGroup += warpStride) {
+          if (inputRowVecDividesWarp) {
+            const IndexType rowInGroup = lane / inputRowVec;
+            const IndexType inner = inputRowVecPow2 ?
+                lane & (inputRowVec - 1) : lane - rowInGroup * inputRowVec;
+            const IndexType row = rowGroup * rowsPerWarp + rowInGroup;
+            if (row < nRows) {
+              const IndexType inputVecOffset = row * inputRowVec + inner;
+              const IndexType outputVecOffset =
+                  row * outputRowVec + outputOffsetVec + inner;
+              auto vec = at::native::memory::ld_vec<kVecBytes>(
+                  inputChar + inputVecOffset * kVecBytes);
+              at::native::memory::st_vec<kVecBytes>(
+                  outputChar + outputVecOffset * kVecBytes, vec);
+            }
+          } else {
+            const IndexType row = rowGroup;
+            const IndexType inputBase = row * inputRowVec;
+            const IndexType outputBase = row * outputRowVec + outputOffsetVec;
+            for (IndexType inner = lane; inner < inputRowVec;
+                 inner += kWarpSize) {
+              auto vec = at::native::memory::ld_vec<kVecBytes>(
+                  inputChar + (inputBase + inner) * kVecBytes);
+              at::native::memory::st_vec<kVecBytes>(
+                  outputChar + (outputBase + inner) * kVecBytes, vec);
+            }
+          }
+        }
+        return;
+      }
+    }
+
+    if(tid >= nElements) return;
 
     while( tid < nElements){
       IndexType elementOffset = CatArrIndexToOffset<IndexType, Dims>::compute(
