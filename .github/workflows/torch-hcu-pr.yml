@@ -1,5 +1,5 @@
-name: PyTorch CI
-run-name: "PyTorch - ${{ github.event_name }} - ${{ github.event.pull_request.number || github.ref_name || 'nightly' }}"
+name: torch-hcu-pr
+run-name: "torch-hcu-pr - ${{ github.event_name }} - ${{ github.event.pull_request.number || github.ref_name }}"
 
 on:
   pull_request_target:
@@ -9,12 +9,6 @@ on:
   push:
     branches:
       - 2.12.0-dev
-  workflow_dispatch:
-  schedule:
-    # GitHub cron is UTC: Beijing 00:00 every Saturday.
-    # The reusable workflow skips the full test when the branch has had no
-    # commits during the previous seven days.
-    - cron: "0 16 * * 5"
 
 permissions:
   contents: read
@@ -41,7 +35,7 @@ jobs:
     steps:
       - name: Verify ready-hcu authorization
         id: authorization
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const label = "ready-hcu";
@@ -50,7 +44,6 @@ jobs:
             const labels = pullRequest.labels.map(item => item.name);
             const resetActions = new Set([
               "opened",
-              "synchronize",
               "reopened",
               "ready_for_review",
             ]);
@@ -79,6 +72,21 @@ jobs:
               return;
             }
 
+            if (action === "synchronize") {
+              if (!labels.includes(label)) {
+                core.setFailed(
+                  `HCU CI is locked for ${pullRequest.head.sha}. ` +
+                  `A trusted maintainer must apply the ${label} label.`
+                );
+                return;
+              }
+              core.info(
+                `HCU CI remains authorized for ${pullRequest.head.sha}.`
+              );
+              core.setOutput("authorized", "true");
+              return;
+            }
+
             if (action === "labeled" && context.payload.label?.name !== label) {
               core.info(`Ignoring unrelated label: ${context.payload.label?.name}.`);
               return;
@@ -97,6 +105,18 @@ jobs:
             const permission = response.data.permission;
             const trusted = new Set(["write", "maintain", "admin"]);
             if (!trusted.has(permission)) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pullRequest.number,
+                  name: label,
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              }
               core.setFailed(
                 `${context.actor} cannot authorize HCU CI (permission: ${permission}).`
               );
@@ -120,8 +140,8 @@ jobs:
       }}
     uses: ./.github/workflows/_pytorch-pipeline.yml
     with:
-      suite: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'pr' }}
-      source_ref: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '2.12.0-dev' || (github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha) }}
+      suite: pr
+      source_ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
       # DTK 26.10 is temporarily disabled; run the pipeline with DTK 26.04 only.
       dtk_variants: >-
         [

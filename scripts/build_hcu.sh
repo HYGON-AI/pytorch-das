@@ -140,8 +140,8 @@ if [ "${MAGMA_ENABLED}" = "1" ] && [ -z "${MAGMA_URL}" ]; then
                 echo "ERROR: RESOURCE_SERVER_URL is required for DTK ${DTK_BUILD_VERSION}" >&2
                 exit 1
             fi
-            MAGMA_URL="${RESOURCE_SERVER_URL}/thirdparty/pytorch/magma_v2.8.0-hip_DTK26.10/MAGMA-v2.8.0_hip.dtk2610-15Sep2026.tar.gz"
-            MAGMA_SHA256="${MAGMA_SHA256:-9c02fe4947949918e8f5531dfb8b12fc498ae484a76e0eeda0df8d4cb72b9250}"
+            MAGMA_URL="${RESOURCE_SERVER_URL}/thirdparty/pytorch/magma_v2.8.0-hip_DTK26.10/MAGMA-v2.8.0_hip.dtk26.10-16Oct2026.tar.gz"
+            MAGMA_SHA256="${MAGMA_SHA256:-ebd3f355981ee9f7b5405ab53a826c85741ff076821372e3eba6324e09dfd9f5}"
             ;;
         *)
             if [ -z "${RESOURCE_SERVER_URL}" ]; then
