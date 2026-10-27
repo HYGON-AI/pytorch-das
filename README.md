@@ -21,7 +21,7 @@ Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 
 ## 修改范围
 
-本仓库中 Hygon 的修改旨在使 PyTorch 适配海光软件与硬件环境，包括但不限于 HCU 后端集成、构建与打包调整、算子与内核适配，以及相关文档和元数据更新。
+本仓库中 Hygon 的修改旨在使 PyTorch 适配海光软件与硬件环境，包括但不限于 HCU 后端集成、构建与打包调整、算子与内核适配，以及相关文档和元数据更新, 同时提供Hygon CPU端HML数学库与HDNN加速库支持。
 
 除源码文件或第三方声明中另有说明外，源自上游 PyTorch 的文件仍受上游 PyTorch 许可条款约束。
 
@@ -50,6 +50,7 @@ PyTorch 是一个基于 Python 的开源机器学习框架，以其强大的 GPU
 - HCU 驱动程序
 - DTK
 - Docker 引擎
+- [C86-HPCKit 软件包](https://download.sourcefind.cn:65024/8/main/c86-devkit/latest)
 
 ## 使用命令安装 PyTorch
 

@@ -665,6 +665,12 @@ Tensor& addmm_out_sparse_compressed_cpu(
   }
 #endif
 
+#if AT_USE_HSPARSE()
+  if (mat1.layout() == kSparseCsr && mat2.layout() == kSparseCsr) {
+    sparse::impl::mkl::addmm_out_sparse_csr(mat1, mat2, beta, alpha, result);
+    return result;
+  }
+#endif
 #if !AT_USE_MKL_SPARSE()
   // The custom impl addmm_out_sparse_csr_native_cpu only supports CSR @
   // strided -> strided

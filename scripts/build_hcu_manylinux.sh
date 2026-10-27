@@ -3,8 +3,12 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 
-### 将 scripts/build_hcu.sh 生成的 wheel 修复为 manylinux wheel。
+### 将 scripts/build_hcu*.sh 生成的 wheel 修复为 manylinux wheel。
 ### 运行前须安装 DTK，并确保当前 Python 环境已安装对应的 torch。
+###
+### EXTRA_EXCLUDES：额外的 auditwheel --exclude 库名（空格分隔）。用于非 MKL 构建
+### （例如 USE_HML=ON）声明"由目标机提供"的第三方库，如：
+###   EXTRA_EXCLUDES="libhblas.so.1 libhsparse.so.1 libhvml.so.1 libfftw3.so libdnnl.so.3" ###     bash scripts/build_hcu_manylinux.sh
 
 set -Eeuo pipefail
 
@@ -29,13 +33,14 @@ source "${DTK_ROOT}/env.sh"
 set -u
 cd "${PYTORCH_ROOT}"
 
+MKL_LIB_DIR=""
 if [ -d /opt/intel/mkl/lib/intel64_lin ]; then
     export MKL_LIB_DIR=/opt/intel/mkl/lib/intel64_lin
 elif [ -d /opt/intel/oneapi/mkl/latest/lib ]; then
     export MKL_LIB_DIR=/opt/intel/oneapi/mkl/latest/lib
 else
-    echo "ERROR: cannot find MKL lib directory" >&2
-    exit 1
+    # 非 MKL 构建（如 USE_HML=ON）不需要 MKL 目录，继续执行。
+    echo "NOTE: no MKL lib directory found; continuing without it (non-MKL build)."
 fi
 
 TORCH_LOCATION=$(python3 -m pip show torch | awk -F': ' '/^Location:/ {print $2}')
@@ -44,7 +49,7 @@ if [ -z "${TORCH_LOCATION}" ]; then
     exit 1
 fi
 export TORCH_LOCATION
-export LD_LIBRARY_PATH="${TORCH_LOCATION}/torch/lib:${MKL_LIB_DIR}:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="${TORCH_LOCATION}/torch/lib${MKL_LIB_DIR:+:${MKL_LIB_DIR}}:${LD_LIBRARY_PATH:-}"
 
 python3 -m pip install \
     --default-timeout=1000 \
@@ -66,6 +71,14 @@ if [ "${#WHEELS[@]}" -ne 1 ]; then
     exit 1
 fi
 mkdir -p "${MANYLINUX_OUTPUT_DIR}"
+
+EXTRA_EXCLUDE_ARGS=()
+for _extra in ${EXTRA_EXCLUDES:-}; do
+    EXTRA_EXCLUDE_ARGS+=(--exclude "${_extra}")
+done
+if [ "${#EXTRA_EXCLUDE_ARGS[@]}" -gt 0 ]; then
+    echo "NOTE: extra auditwheel excludes: ${EXTRA_EXCLUDES}"
+fi
 
 auditwheel repair --plat "${PLATFORM}" --strip \
     --exclude libgalaxyhip.so.5 \
@@ -127,6 +140,7 @@ auditwheel repair --plat "${PLATFORM}" --strip \
     --exclude librocblas.so.4 \
     --exclude librocsparse.so.1 \
     --exclude libnuma.so.1 \
+    "${EXTRA_EXCLUDE_ARGS[@]}" \
     -w "${MANYLINUX_OUTPUT_DIR}" \
     "${WHEELS[@]}"
 
@@ -137,3 +151,6 @@ if [ "${#MANYLINUX_WHEELS[@]}" -ne 1 ]; then
     echo "ERROR: expected one manylinux wheel, found ${#MANYLINUX_WHEELS[@]}" >&2
     exit 1
 fi
+
+echo ">>>>>>>>>>MANYLINUX PLATFORM: ${PLATFORM}<<<<<<<<<<"
+echo ">>>>>>>>>>MANYLINUX WHEEL OK: ${MANYLINUX_WHEELS[0]}<<<<<<<<<<"
