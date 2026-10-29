@@ -233,12 +233,12 @@ if(USE_FLASH_ATTENTION)
         -fhip-new-launch-api
         -fgnuc-version=4.2.1
         -fno-implicit-modules
-        -fskip-odr-check-in-gmf
         -fcxx-exceptions
         -fexceptions
         -fcolor-diagnostics
         -faddrsig
         -fno-rounding-math
+        -Xclang
         -mconstructor-aliases
         -mllvm
         -amdgpu-internalize-symbols
@@ -288,6 +288,8 @@ if(USE_FLASH_ATTENTION)
         CK_TILE_FMHA_FWD_SPLITKV_API=1
         CK_TILE_FMHA_FWD_APPENDKV_API=1
         CK_TILE_FMHA_FWD_PAGEDKV_API=1
+        CK_TILE_FMHA_ENABLE_BWD_HEADERS=1
+        CK_TILE_FMHA_ENABLE_EXTENDED_FWD_HEADERS=1
         __GCC_HAVE_DWARF2_CFI_ASM=1
         USE_ROCM_CK_SDPA)
 
@@ -309,7 +311,7 @@ if(USE_FLASH_ATTENTION)
     target_include_directories(ck_sdpa PUBLIC
                                ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/include
                                ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/library/include
-                               ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/example/ck_tile/01_fmha
+                               ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/example_hcu/ck_tile/01_fmha
                                ${CMAKE_CURRENT_BINARY_DIR}/composable_kernel
                                ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/aiter/csrc/include
                                ${CMAKE_CURRENT_SOURCE_DIR}/native/transformers/hip/flash_attn/ck
@@ -611,7 +613,7 @@ if(USE_ROCM)
     list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/hip)
     list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/include)
     list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/library/include)
-    list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/example/ck_tile/01_fmha)
+    list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/example_hcu/ck_tile/01_fmha)
     list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_BINARY_DIR}/composable_kernel)
     list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/aiter/csrc/include)
     # NOTE: The PyTorch build does not actually add_subdirectory
