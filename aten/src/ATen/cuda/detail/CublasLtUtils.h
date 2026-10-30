@@ -308,9 +308,7 @@ CublasLtTypeInfo<T, C_Dtype> getCublasLtTypeInfo() {
     info.compute_type = CUBLAS_COMPUTE_64F;
     info.scale_type = CUDA_R_64F;
   } else if constexpr (std::is_same_v<T, float>) {
-    if (at::globalContext().float32Precision(
-            at::Float32Backend::CUDA,
-            at::Float32Op::MATMUL) == at::Float32Precision::TF32) {
+    if (at::globalContext().allowTF32CuBLAS()) {
       info.compute_type = CUBLAS_COMPUTE_32F_FAST_TF32;
     }
   } else if constexpr (std::is_same_v<T, c10::complex<double>>) {
