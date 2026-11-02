@@ -283,9 +283,9 @@ __global__ void CatArrayBatchedCopy_contig(
           return;
         }
 
-        for (IndexType rowGroup = warp; rowGroup * rowsPerWarp < nRows;
-             rowGroup += warpStride) {
-          if (inputRowVecDividesWarp) {
+        if (inputRowVecDividesWarp) {
+          for (IndexType rowGroup = warp; rowGroup * rowsPerWarp < nRows;
+               rowGroup += warpStride) {
             const IndexType rowInGroup = lane / inputRowVec;
             const IndexType inner = inputRowVecPow2 ?
                 lane & (inputRowVec - 1) : lane - rowInGroup * inputRowVec;
@@ -299,17 +299,18 @@ __global__ void CatArrayBatchedCopy_contig(
               at::native::memory::st_vec<kVecBytes>(
                   outputChar + static_cast<int64_t>(outputVecOffset) * kVecBytes, vec);
             }
-          } else {
-            const IndexType row = rowGroup;
-            const IndexType inputBase = row * inputRowVec;
-            const IndexType outputBase = row * outputRowVec + outputOffsetVec;
-            for (IndexType inner = lane; inner < inputRowVec;
-                 inner += kWarpSize) {
+          }
+        } else {
+            const IndexType nVec = nRows * inputRowVec;
+            for (IndexType idx = tid; idx < nVec; idx += stride) {
+              const IndexType row = idx / inputRowVec;
+              const IndexType inner = idx - row * inputRowVec;
+              const IndexType outputVecOffset =
+                  row * outputRowVec + outputOffsetVec + inner;
               auto vec = at::native::memory::ld_vec<kVecBytes>(
-                  inputChar + static_cast<int64_t>(inputBase + inner) * kVecBytes);
+                  inputChar + static_cast<int64_t>(idx) * kVecBytes);
               at::native::memory::st_vec<kVecBytes>(
-                  outputChar + static_cast<int64_t>(outputBase + inner) * kVecBytes, vec);
-            }
+                  outputChar + static_cast<int64_t>(outputVecOffset) * kVecBytes, vec);
           }
         }
         return;
