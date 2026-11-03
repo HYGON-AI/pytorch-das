@@ -1,14 +1,23 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
 #include <c10/core/impl/GPUTrace.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
 #include <c10/util/CallOnce.h>
 #include <c10/util/Exception.h>
+#include <c10/util/Logging.h>
+#include <c10/util/StringUtil.h>
+#include <c10/util/env.h>
 #include <c10/util/irange.h>
 
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <exception>
+#include <string>
+#include <vector>
 
 namespace c10::cuda {
 
@@ -20,8 +29,78 @@ constexpr int kStreamsPerPoolBits = 5;
 constexpr int kStreamsPerPool = 1 << kStreamsPerPoolBits;
 constexpr unsigned int kDefaultFlags = cudaStreamNonBlocking;
 constexpr int kStreamTypeBits = 4;
+#if defined(PYTORCH_DTK_VERSION) && PYTORCH_DTK_VERSION >= 261000
+constexpr uint32_t kStreamsPipeCount = 4;
+#endif
 
 int max_stream_priorities;
+
+#if defined(PYTORCH_DTK_VERSION) && PYTORCH_DTK_VERSION >= 261000
+// Threads share a counter on the same device; different devices advance
+// independently through the configured pipe list.
+std::array<std::atomic<uint32_t>, C10_COMPILE_TIME_MAX_GPUS>
+    stream_pipe_counters{};
+
+bool streamBindPipeEnabled() {
+  static const bool enabled =
+      c10::utils::check_env("TORCH_STREAM_BIND_PIPE_FLAG").value_or(false);
+  return enabled;
+}
+
+const std::vector<uint32_t>& streamBindPipes() {
+  static const auto pipes = [] {
+    const auto value =
+        c10::utils::get_env("TORCH_STREAM_BIND_PIPE").value_or("0,1,2,3");
+    const auto entries = c10::split(value, ',');
+    TORCH_CHECK(
+        !entries.empty(),
+        "TORCH_STREAM_BIND_PIPE must contain at least one pipe ID");
+
+    std::array<bool, kStreamsPipeCount> seen{};
+    std::vector<uint32_t> result;
+    result.reserve(entries.size());
+    for (const auto& entry : entries) {
+      const auto first = entry.find_first_not_of(" \t");
+      const auto last = entry.find_last_not_of(" \t");
+      TORCH_CHECK(
+          first != std::string::npos,
+          "Invalid TORCH_STREAM_BIND_PIPE value: '",
+          value,
+          "'");
+      const std::string token(entry.substr(first, last - first + 1));
+
+      size_t consumed = 0;
+      int pipe = -1;
+      try {
+        pipe = std::stoi(token, &consumed);
+      } catch (const std::exception&) {
+        TORCH_CHECK(
+            false,
+            "Invalid pipe ID '",
+            token,
+            "' in TORCH_STREAM_BIND_PIPE");
+      }
+      TORCH_CHECK(
+          consumed == token.size() && pipe >= 0 &&
+              pipe < static_cast<int>(kStreamsPipeCount),
+          "Invalid pipe ID '",
+          token,
+          "' in TORCH_STREAM_BIND_PIPE; expected values in [0, ",
+          kStreamsPipeCount - 1,
+          "]");
+      TORCH_CHECK(
+          !seen[static_cast<size_t>(pipe)],
+          "Duplicate pipe ID ",
+          pipe,
+          " in TORCH_STREAM_BIND_PIPE");
+      seen[static_cast<size_t>(pipe)] = true;
+      result.push_back(static_cast<uint32_t>(pipe));
+    }
+    return result;
+  }();
+  return pipes;
+}
+#endif
 
 // Non-default streams
 // Note: the number of CUDA devices is determined at run time,
@@ -203,7 +282,31 @@ void initSingleStream(int p, DeviceIndex device_index, int i) {
   auto& stream = streams[p][device_index][i];
   auto pri = -p; // lower number is higher priority
 
+#if defined(PYTORCH_DTK_VERSION) && PYTORCH_DTK_VERSION >= 261000
+  if (streamBindPipeEnabled()) {
+    const auto& pipes = streamBindPipes();
+    const auto ordinal = stream_pipe_counters[device_index].fetch_add(
+        1, std::memory_order_relaxed);
+    const auto pipe = pipes[ordinal % pipes.size()];
+    C10_CUDA_CHECK(duStreamCreateWithPipeMask(
+        &stream, kDefaultFlags, pri, pipe, 0, nullptr));
+    LOG(INFO) << "CUDA stream pipe binding: device="
+              << static_cast<int>(device_index) << ", pipe=" << pipe;
+    if (ordinal == pipes.size()) {
+      TORCH_WARN(
+          "CUDA stream count exceeded the configured pipe count ",
+          pipes.size(),
+          " on device ",
+          static_cast<int>(device_index),
+          "; reusing pipe IDs from ",
+          pipes.front());
+    }
+  } else {
+    C10_CUDA_CHECK(cudaStreamCreateWithPriority(&stream, kDefaultFlags, pri));
+  }
+#else
   C10_CUDA_CHECK(cudaStreamCreateWithPriority(&stream, kDefaultFlags, pri));
+#endif
   const c10::impl::PyInterpreter* interp = c10::impl::GPUTrace::get_trace();
   if (C10_UNLIKELY(interp)) {
     (*interp)->trace_gpu_stream_creation(
