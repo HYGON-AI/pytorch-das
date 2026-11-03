@@ -139,6 +139,16 @@ selected_ops = {
 selected_op_db = [op for op in op_db if op.name in selected_ops]
 
 
+
+def _cpu_only_subprocess_env():
+    # Hide GPUs from the child process. On ROCm, HIP_VISIBLE_DEVICES /
+    # ROCR_VISIBLE_DEVICES inherited from the parent would override
+    # CUDA_VISIBLE_DEVICES and keep the GPUs visible.
+    env = {**os.environ, "CUDA_VISIBLE_DEVICES": ""}
+    env.pop("HIP_VISIBLE_DEVICES", None)
+    env.pop("ROCR_VISIBLE_DEVICES", None)
+    return env
+
 class TestExportOnFakeCuda(TestCase):
     # In CI, this test runs on a CUDA machine with cuda build
     # We set CUDA_VISIBLE_DEVICES="" to simulate a CPU machine with cuda build
@@ -206,7 +216,7 @@ for op in ops:
             (
                 subprocess.check_output(
                     [sys.executable, "-c", test_script],
-                    env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+                    env=_cpu_only_subprocess_env(),
                 )
             )
             .decode("ascii")
@@ -273,7 +283,7 @@ cuda_calls_behavior_unchanged()
             (
                 subprocess.check_output(
                     [sys.executable, "-c", test_script],
-                    env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+                    env=_cpu_only_subprocess_env(),
                 )
             )
             .decode("ascii")
