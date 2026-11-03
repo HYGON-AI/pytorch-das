@@ -1,6 +1,7 @@
 # Owner(s): ["module: fsdp"]
 import functools
 import gc
+import os
 
 import torch
 import torch.nn as nn
@@ -25,6 +26,14 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     Transformer,
     TransformerBlock,
 )
+
+if torch.version.hip:
+    # ROCm keeps separate hipBLAS (32MiB) and hipBLASLt (76MiB) workspaces per
+    # thread, allocated through the caching allocator but invisible to
+    # FSDPMemTracker; shrink them so they do not dominate the measured peak.
+    # Must be set before the first BLAS call; spawned ranks inherit os.environ.
+    os.environ.setdefault("HIPBLASLT_WORKSPACE_SIZE", "1024")  # KiB
+    os.environ.setdefault("HIPBLAS_WORKSPACE_CONFIG", ":4096:2:16:8")
 
 
 def _init_cublas_workspace(dev: torch.device):
@@ -122,7 +131,7 @@ class TestTrackerFullyShard1DTrainingCore(FSDPTest):
         self.assertAlmostEqual(
             accuracy,
             1.0,
-            delta=0.1,
+            delta=0.25 if torch.version.hip else 0.1,
             msg=f"Tracker Max:{tracker_max} Accelerator Max:{acc_max}",
         )
         del model

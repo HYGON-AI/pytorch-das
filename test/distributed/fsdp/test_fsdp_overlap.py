@@ -134,7 +134,9 @@ class TestForwardOverlapWorldSizeOne(FSDPTestContinuous):
                 e1 = Event(enable_timing=True)
                 e2 = Event(enable_timing=True)
 
-                cpu_start = time.process_time()
+                # Use wall time: process_time() only counts CPU spent spinning,
+                # and the GPU sync is a blocking (non-spinning) wait on ROCm.
+                cpu_start = time.perf_counter()
 
                 all_gather_called = False
 
@@ -166,11 +168,11 @@ class TestForwardOverlapWorldSizeOne(FSDPTestContinuous):
                 out.backward()
                 model.zero_grad(set_to_none=True)
 
-                cpu_iter_time = time.process_time() - cpu_start
+                cpu_iter_time = time.perf_counter() - cpu_start
 
                 # wait for gpu
                 out.item()
-                cpu_wait_for_gpu_time = time.process_time() - cpu_start - cpu_iter_time
+                cpu_wait_for_gpu_time = time.perf_counter() - cpu_start - cpu_iter_time
 
                 # get sum of the compute time
                 times = []
