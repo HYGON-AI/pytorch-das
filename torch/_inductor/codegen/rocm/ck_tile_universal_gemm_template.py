@@ -18,6 +18,22 @@ from ...utils import IndentedBuffer
 
 log = logging.getLogger(__name__)
 
+_PROFILE_HELPERS = r"""
+// CK_TILE_EXAMPLE_PROFILE_DIRECT_SUPPORTED
+#include <cstdlib>
+
+static int ck_tile_example_profile_env_int(const char* name, int fallback) {
+    const char* value = std::getenv(name);
+    if (value == nullptr || value[0] == '\0') {
+        return fallback;
+    }
+    return std::atoi(value);
+}
+
+static void ck_tile_example_store_profile_ms(size_t* workspace_size, float elapsed) {
+    *reinterpret_cast<float*>(workspace_size) = elapsed;
+}
+"""
 
 def is_static_int(number):
     import sympy
@@ -61,8 +77,13 @@ class CKTileGemmOperation:
     k_is_padded: str
 
     pipeline: str
-    scheduler: str
-    epilogue: str
+    scheduler: str = "Intrawave"
+    epilogue: str = "Default"
+    
+    m_repeat: int = 0
+    n_repeat: int = 0
+    m_interleave: int = 0
+    n_interleave: int = 0
 
     def layout_repr(self):
         return f"{self.layout_a[0]}{self.layout_b[0]}{self.layout_c[0]}"
@@ -101,8 +122,7 @@ def ops():
     Generate the supported instance dataclasses
     """
     import itertools
-
-    compute_v3_instances = [
+    basic_instances = [
         CKTileGemmOperation(
             layout_a=layout_a,
             layout_b=layout_b,
@@ -122,198 +142,122 @@ def ops():
             m_is_padded=m_is_padded,
             n_is_padded=n_is_padded,
             k_is_padded=k_is_padded,
-            pipeline="CompV3",
-            scheduler="Intrawave",
-            epilogue=epilogue,
+            m_repeat=m_repeat,
+            n_repeat=n_repeat,
+            m_interleave=m_interleave,
+            n_interleave=n_interleave,
+            pipeline="basic",
         )
-        for (layout_a, layout_b, layout_c) in [
-            ("Row", "Row", "Row"),
-            ("Row", "Col", "Row"),
+        for layout_a, layout_b, layout_c in [("Row", "Row", "Row"),("Row", "Col", "Row"),("Col", "Col", "Row"),("Col", "Row", "Row")]
+        for datatype_a, datatype_b, datatype_c, tile_m, tile_n, tile_k, warp_m, warp_n, warp_k, warp_tile_m, warp_tile_n, warp_tile_k,  m_is_padded, n_is_padded, k_is_padded, m_repeat, n_repeat, m_interleave, n_interleave in [
+            # FP16
+            ("F16", "F16", "F16", 128, 128, 32, 4, 1, 1, 32, 64, 32, "false", "false", "false", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 32, 2, 2, 1, 16, 64, 32, "true", "true", "true", 1, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 32, 2, 2, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 128, 32, 2, 2, 1, 32, 64, 32, "true", "true", "true", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 32, 2, 2, 1, 32, 64, 32, "true", "true", "true", 2, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 128, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 128, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 2, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 128, 64, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 64, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 128, 64, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 64, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 2, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 64, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 64, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 64, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 64, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 64, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 4, 1, 1),
+            ("F16", "F16", "F16", 256, 128, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 1, 1, 4),
+            ("F16", "F16", "F16", 256, 128, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("F16", "F16", "F16", 256, 128, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 256, 128, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 2, 1, 4),
+            ("F16", "F16", "F16", 256, 128, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 4, 1, 1),
+            ("F16", "F16", "F16", 64, 128, 32, 2, 2, 1, 16, 64, 32, "true", "true", "true", 1, 1, 1, 4),
+            ("F16", "F16", "F16", 64, 128, 32, 2, 2, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("F16", "F16", "F16", 64, 128, 32, 2, 2, 1, 32, 64, 32, "true", "true", "true", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 64, 128, 32, 2, 2, 1, 32, 64, 32, "true", "true", "true", 2, 4, 1, 1),
+            # BF16
+            ("BF16", "BF16", "BF16", 128, 128, 32, 2, 2, 1, 16, 64, 32, "false", "false", "false", 1, 4, 1, 1),
+            ("BF16", "BF16", "BF16", 128, 128, 32, 2, 2, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("BF16", "BF16", "BF16", 128, 128, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("BF16", "BF16", "BF16", 128, 128, 64, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("BF16", "BF16", "BF16", 128, 64, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("BF16", "BF16", "BF16", 256, 128, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("BF16", "BF16", "BF16", 64, 128, 32, 2, 2, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
         ]
-        for (datatype_a, datatype_b, datatype_c) in [("FP16",) * 3, ("BF16",) * 3]
-        for (tile_m, tile_n, tile_k) in [(256, 256, 32), (256, 256, 64)]
-        for (warp_m, warp_n, warp_k) in [(2, 2, 1)]
-        for (warp_tile_m, warp_tile_n, warp_tile_k) in [(32, 32, 16)]
-        for m_is_padded in ["true", "false"]
-        for n_is_padded in ["true", "false"]
-        for k_is_padded in ["true", "false"]
-        for epilogue in ["Default", "CShuffle"]
-    ]
-
-    compute_v4_instances = [
-        CKTileGemmOperation(
-            layout_a=layout_a,
-            layout_b=layout_b,
-            layout_c=layout_c,
-            datatype_a=datatype_a,
-            datatype_b=datatype_b,
-            datatype_c=datatype_c,
-            tile_m=tile_m,
-            tile_n=tile_n,
-            tile_k=tile_k,
-            warp_m=warp_m,
-            warp_n=warp_n,
-            warp_k=warp_k,
-            warp_tile_m=warp_tile_m,
-            warp_tile_n=warp_tile_n,
-            warp_tile_k=warp_tile_k,
-            m_is_padded=m_is_padded,
-            n_is_padded=n_is_padded,
-            k_is_padded=k_is_padded,
-            pipeline="CompV4",
-            scheduler="Intrawave",
-            epilogue=epilogue,
-        )
-        for (layout_a, layout_b, layout_c) in [
-            ("Row", "Row", "Row"),
-            ("Row", "Col", "Row"),
-        ]
-        for (datatype_a, datatype_b, datatype_c) in [("FP16",) * 3, ("BF16",) * 3]
-        for (tile_m, tile_n, tile_k) in [
-            (256, 256, 32)
-        ]  # half the tile size since it has double buffering
-        for (warp_m, warp_n, warp_k) in [(2, 2, 1)]
-        for (warp_tile_m, warp_tile_n, warp_tile_k) in [(32, 32, 16)]
-        for m_is_padded in ["true", "false"]
-        for n_is_padded in ["true", "false"]
-        for k_is_padded in ["true", "false"]
-        for epilogue in ["Default", "CShuffle"]
-    ]
-
-    mem_instances = [
-        CKTileGemmOperation(
-            layout_a=layout_a,
-            layout_b=layout_b,
-            layout_c=layout_c,
-            datatype_a=datatype_a,
-            datatype_b=datatype_b,
-            datatype_c=datatype_c,
-            tile_m=tile_m,
-            tile_n=tile_n,
-            tile_k=tile_k,
-            warp_m=warp_m,
-            warp_n=warp_n,
-            warp_k=warp_k,
-            warp_tile_m=warp_tile_m,
-            warp_tile_n=warp_tile_n,
-            warp_tile_k=warp_tile_k,
-            m_is_padded=m_is_padded,
-            n_is_padded=n_is_padded,
-            k_is_padded=k_is_padded,
-            pipeline="Mem",
-            scheduler=scheduler,
-            epilogue=epilogue,
-        )
-        for (layout_a, layout_b, layout_c) in [
-            ("Row", "Row", "Row"),
-            ("Row", "Col", "Row"),
-        ]
-        for (datatype_a, datatype_b, datatype_c) in [("FP16",) * 3, ("BF16",) * 3]
-        for (tile_m, tile_n, tile_k) in [(256, 256, 32), (256, 256, 64)]
-        for (warp_m, warp_n, warp_k) in [(2, 2, 1)]
-        for (warp_tile_m, warp_tile_n, warp_tile_k) in [(32, 32, 16)]
-        for m_is_padded in ["true", "false"]
-        for n_is_padded in ["true", "false"]
-        for k_is_padded in ["true", "false"]
-        for scheduler in ["Intrawave", "Interwave"]
-        for epilogue in ["Default", "CShuffle"]
-    ]
-
+    ] 
     return list(
-        itertools.chain(compute_v3_instances, compute_v4_instances, mem_instances)
+        itertools.chain(basic_instances)
     )
 
 
 class CKTileGemmTemplate(CKTileTemplate):
-    """
-    This class is used for rendering CK-Tile Universal GEMM kernels
-    """
-
-    gemm_template = r"""{{version_comment}}
-    {{headers}}
-    {{globals}}
-    {{instance_definition}}
-    extern "C" {
-    PT_EXPORT {{kernel_definition}} {
-
-        using {{instance_namespace}}::BaseGemmPipeline;
-        using {{instance_namespace}}::TilePartitioner;
-
-        constexpr auto TileK = {{instance_namespace}}::TileK;
-        constexpr auto kPrefetchStages = BaseGemmPipeline::PrefetchStages;
-
-        const auto BiasTerms = std::array<const void*, 0> ();
-        const auto BiasStrides = std::array<int32_t, 0> ();
-
-        auto kargs = ck_tile::UniversalGemmKernelArgs<> {
-           {X},
-           {W},
-           BiasTerms,
-           Y,
-           M,
-           N,
-           K,
-           {LDA},
-           {LDB},
-           BiasStrides,
-           LDC,
-           kBatch
-        };
-
-        if (workspace_size) {
-            *workspace_size = 0;
-            return 0;
-        }
-
-        // run the kernel
-        const auto dispatch = [&](const auto has_hot_loop_, const auto tail_number_) constexpr {
-            using Kernel = {{instance_namespace}}::Kernel<has_hot_loop_.value, tail_number_.value>;
-
-            if (!Kernel::IsSupportedArgument(kargs)) {
-                // we do our best to statically avoid this case in `filter_op`
-                throw std::runtime_error("invalid argument");
-            }
-            auto stream_config = ck_tile::stream_config{stream};
-            auto grid_size = Kernel::GridSize(M, N, kBatch);
-            constexpr auto block_size = Kernel::BlockSize();
-            constexpr auto lds_bytes = 0;
-            constexpr auto kBlockPerCU = 1;
-            auto gemm = ck_tile::make_kernel<block_size.x, kBlockPerCU>(Kernel{}, grid_size, block_size, lds_bytes, kargs);
-            float elapsed_time = ck_tile::launch_kernel(stream_config, gemm);
-        };
-
-        const ck_tile::index_t k_grain     = kBatch * TileK;
-        const ck_tile::index_t K_split     = (K + k_grain - 1) / k_grain * TileK;
-        const ck_tile::index_t num_loop    = TilePartitioner::GetLoopNum(K_split);
-        const bool has_hot_loop            = BaseGemmPipeline::BlockHasHotloop(num_loop);
-        const ck_tile::TailNumber tail_num = BaseGemmPipeline::GetBlockLoopTailNum(num_loop);
-
-        {{rendered_dispatch}}
-
+    """ Instance-driven CK Tile example GEMM from example_hcu/ck_tile/03_gemm. """
+    basic_template = r"""{{version_comment}}
+{{headers}}
+{{globals}}
+{{profile_helpers}}
+extern "C" {
+PT_EXPORT {{kernel_definition}} {
+    const bool profile_kernel = workspace_size != nullptr && workspace != nullptr;
+    if (workspace_size != nullptr && !profile_kernel) {
+        *workspace_size = 0;
         return 0;
-    } // kernel definition
-    } // extern C
-    """
-
+    }
+    if (X == nullptr || W == nullptr || Y == nullptr) {
+        return -1;
+    }
+    {{instance_definition}}
+    auto kargs = Kernel::MakeKargs(X, W, Y, M, N, K, LDA, LDB, LDC);
+    if(!Kernel::IsSupportedArgument(kargs))
+    {
+        throw std::runtime_error("Wrong! Arguments not supported! Skipping gemm!\n");
+    }
+    const dim3 grids = Kernel::GridSize(M, N, 1);
+    constexpr dim3 blocks = Kernel::BlockSize();
+    const auto kernel_stream = profile_kernel
+        ? ck_tile::stream_config{stream,
+                                true,
+                                0,
+                                ck_tile_example_profile_env_int("CK_TILE_EXAMPLE_PROFILE_WARMUP", 20),
+                                ck_tile_example_profile_env_int("CK_TILE_EXAMPLE_PROFILE_REPEAT", 100)}
+        : ck_tile::stream_config{stream};
+    const float elapsed = ck_tile::launch_kernel(
+        kernel_stream,
+        ck_tile::make_kernel<blocks.x, kBlockPerCu>(
+            Kernel{}, grids, blocks, 0, kargs));
+    if (profile_kernel) {
+        ck_tile_example_store_profile_ms(workspace_size, elapsed);
+    }
+    return 0;
+}
+}
+"""
     def __init__(
         self,
         input_nodes: list[Buffer],
         layout: Layout,
     ) -> None:
+        is_batched = len(layout.size) == 3
+        name = "ck_tile_batched_gemm_template" if is_batched else "ck_tile_gemm_template"
         super().__init__(
-            "ck_tile_gemm_template",
+            name = name,
             input_nodes=input_nodes,
             layout=layout,
         )
+        self.is_batched = is_batched
 
     def header(self) -> IndentedBuffer:
         res = super().header()
         res.splice(
             """
-                // CK GEMM header(s)
-
-                #include "ck_tile/ops/gemm.hpp"
+                #include "ck_tile/host.hpp"
                 #include "ck_tile/ops/epilogue.hpp"
+                #include "ck_tile/ops/gemm.hpp"
+                #include "ck_tile/ops/gemm/kernel/batched_gemm_kernel.hpp"
             """
         )
         return res
@@ -322,74 +266,8 @@ class CKTileGemmTemplate(CKTileTemplate):
         res = super().globals()
         res.splice(
             """
-                // CK GEMM globals
-
-                using Row = ck_tile::tensor_layout::gemm::RowMajor;
-                using Col = ck_tile::tensor_layout::gemm::ColumnMajor;
-
-                template <ck_tile::index_t PrefetchStages, typename Dispatcher>
-                void dispatch_memory_pipeline_hot_loop(const ck_tile::TailNumber tail_num, Dispatcher dispatch)
-                {
-                    if(tail_num == ck_tile::TailNumber::One)
-                    {
-                        dispatch(ck_tile::bool_constant<true>{},
-                            ck_tile::integral_constant<ck_tile::TailNumber, ck_tile::TailNumber::One>{});
-                    }
-                    else if(tail_num == ck_tile::TailNumber::Full)
-                    {
-                        dispatch(ck_tile::bool_constant<true>{},
-                            ck_tile::integral_constant<ck_tile::TailNumber, ck_tile::TailNumber::Full>{});
-                    }
-
-                    if constexpr(PrefetchStages > 2)
-                    {
-                        if(tail_num == ck_tile::TailNumber::Two)
-                        {
-                            dispatch(ck_tile::bool_constant<true>{},
-                                ck_tile::integral_constant<ck_tile::TailNumber, ck_tile::TailNumber::Two>{});
-                        }
-                    }
-                    if constexpr(PrefetchStages > 3)
-                    {
-                        if(tail_num == ck_tile::TailNumber::Three)
-                        {
-                            dispatch(ck_tile::bool_constant<true>{},
-                                ck_tile::integral_constant<ck_tile::TailNumber, ck_tile::TailNumber::Three>{});
-                        }
-                    }
-                    if constexpr(PrefetchStages > 4)
-                    {
-                        if(tail_num == ck_tile::TailNumber::Four)
-                        {
-                            dispatch(ck_tile::bool_constant<true>{},
-                                ck_tile::integral_constant<ck_tile::TailNumber, ck_tile::TailNumber::Four>{});
-                        }
-                    }
-                    if constexpr(PrefetchStages > 5)
-                    {
-                        if(tail_num == ck_tile::TailNumber::Five)
-                        {
-                            dispatch(ck_tile::bool_constant<true>{},
-                                ck_tile::integral_constant<ck_tile::TailNumber, ck_tile::TailNumber::Five>{});
-                        }
-                    }
-                    if constexpr(PrefetchStages > 6)
-                    {
-                        if(tail_num == ck_tile::TailNumber::Six)
-                        {
-                            dispatch(ck_tile::bool_constant<true>{},
-                                ck_tile::integral_constant<ck_tile::TailNumber, ck_tile::TailNumber::Six>{});
-                        }
-                    }
-                    if constexpr(PrefetchStages > 7)
-                    {
-                        if(tail_num == ck_tile::TailNumber::Seven)
-                        {
-                            dispatch(ck_tile::bool_constant<true>{},
-                                ck_tile::integral_constant<ck_tile::TailNumber, ck_tile::TailNumber::Seven>{});
-                        }
-                    }
-                }
+                using Row     = ck_tile::tensor_layout::gemm::RowMajor;
+                using Col     = ck_tile::tensor_layout::gemm::ColumnMajor;
             """
         )
         return res
@@ -421,9 +299,12 @@ class CKTileGemmTemplate(CKTileTemplate):
 
     def get_gemm_problem_size(self):
         X_size, W_size = [T.get_layout().size for T in [*self.input_nodes]]
-
-        M, K = X_size
-        _, N = W_size
+        if self.is_batched:
+            _, M, K = X_size
+            _, _, N = W_size
+        else:
+            M, K = X_size
+            _, N = W_size
 
         return M, N, K
 
@@ -591,157 +472,54 @@ class CKTileGemmTemplate(CKTileTemplate):
         This method is used to generate code which defines the type alias for the generated kernel class
         """
         template_definition = r"""
-    // Gemm operator {{operation_name}}
-
-    namespace {{operation_name}} {
-         // block tile
-        constexpr int32_t TileM = {{tile_m}};
-        constexpr int32_t TileN = {{tile_n}};
-        constexpr int32_t TileK = {{tile_k}};
-        // warps per block
-        constexpr int32_t WarpM = {{warp_m}};
-        constexpr int32_t WarpN = {{warp_n}};
-        constexpr int32_t WarpK = {{warp_k}};
-        // xdl tile
-        constexpr int32_t WarpTileM = {{warp_tile_m}};
-        constexpr int32_t WarpTileN = {{warp_tile_n}};
-        constexpr int32_t WarpTileK = {{warp_tile_k}};
-
-        constexpr bool kPadM = {{m_is_padded}};
-        constexpr bool kPadN = {{n_is_padded}};
-        constexpr bool kPadK = {{k_is_padded}};
-
-        using ALayout = {{layout_a}};
-        using BLayout = {{layout_b}};
-        using CLayout = {{layout_c}};
-
-        using ADataType = {{datatype_a}};
-        using BDataType = {{datatype_b}};
-        using CDataType = {{datatype_c}};
-        using AccDataType = F32;
-
-        constexpr bool permuteA = false;
-        constexpr bool permuteB = false;
-        constexpr bool DoubleSmemBuffer = {{has_double_smem_buffer}};
-        constexpr bool TransposeC = false;
-
-        constexpr int kBlockPerCu                         = 1;
-        constexpr ck_tile::index_t TilePartitionerGroupNum = 8;
-        constexpr ck_tile::index_t TilePartitionerM01      = 4;
-
-        using GemmShape =
-            ck_tile::TileGemmShape<ck_tile::sequence<TileM, TileN, TileK>,
-                                   ck_tile::sequence<WarpM, WarpN, WarpK>,
-                                   ck_tile::sequence<WarpTileM, WarpTileN, WarpTileK>,
-                                   permuteA,
-                                   permuteB>;
-
-        using TilePartitioner =
-            ck_tile::GemmSpatiallyLocalTilePartitioner<GemmShape,
-                                                       TilePartitionerGroupNum,
-                                                       TilePartitionerM01>;
-
-        using Traits  =
-            ck_tile::TileGemmTraits<kPadM, kPadN, kPadK, ALayout, BLayout, CLayout>;
-
-        using GemmUniversalTraits =
-            ck_tile::TileGemmUniversalTraits<kPadM, kPadN, kPadK, DoubleSmemBuffer,
-                                             ALayout, BLayout, CLayout, TransposeC>;
-
-        using GemmPipelineProblem =
-            ck_tile::GemmPipelineProblem<ADataType, BDataType, AccDataType, GemmShape, Traits>;
-
-        {{rendered_scheduler}}
-
-        template<bool has_hot_loop_v, ck_tile::TailNumber tail_number_v>
-        using UniversalGemmProblem =
-            ck_tile::UniversalGemmPipelineProblem<ADataType,
-                                                  BDataType,
-                                                  AccDataType,
-                                                  GemmShape,
-                                                  GemmUniversalTraits,
-                                                  scheduler,
-                                                  has_hot_loop_v,
-                                                  tail_number_v>;
-
-        {{rendered_pipeline}}
-
-        {{rendered_epilogue}}
-
-        template<bool has_hot_loop_v, ck_tile::TailNumber tail_number_v>
-        using Kernel = ck_tile::GemmKernel<TilePartitioner, GemmPipeline<has_hot_loop_v, tail_number_v>, GemmEpilogue>;
-    }
-
+    constexpr bool kPadM = {{m_is_padded}};
+    constexpr bool kPadN = {{n_is_padded}};
+    constexpr bool kPadK = {{k_is_padded}};
+    constexpr int kBlockPerCu = 1;
+    constexpr ck_tile::index_t M_Tile = {{tile_m}};
+    constexpr ck_tile::index_t N_Tile = {{tile_n}};
+    constexpr ck_tile::index_t K_Tile = {{tile_k}};
+    constexpr ck_tile::index_t M_Warp = {{warp_m}};
+    constexpr ck_tile::index_t N_Warp = {{warp_n}};
+    constexpr ck_tile::index_t K_Warp = {{warp_k}};
+    constexpr ck_tile::index_t M_Warp_Tile = {{warp_tile_m}};
+    constexpr ck_tile::index_t N_Warp_Tile = {{warp_tile_n}};
+    constexpr ck_tile::index_t K_Warp_Tile = {{warp_tile_k}};
+    using ALayout = {{layout_a}};
+    using BLayout = {{layout_b}};
+    using CLayout = {{layout_c}};
+    using ADataType = {{datatype_a}};
+    using BDataType = {{datatype_b}};
+    using AccDataType = float;
+    using CDataType = {{datatype_c}};
+    
+    using GemmShape = ck_tile::TileGemmShape<
+            ck_tile::sequence<M_Tile, N_Tile, K_Tile>,
+            ck_tile::sequence<M_Warp, N_Warp, K_Warp>,
+            ck_tile::sequence<M_Warp_Tile, N_Warp_Tile, K_Warp_Tile>
+        >;
+        
+    using TilePartitioner = ck_tile::GemmTilePartitioner<GemmShape>;
+    using GemmEpilogue = ck_tile::Default2DEpilogue<ck_tile::Default2DEpilogueProblem<AccDataType, CDataType, kPadM, kPadN>>;
+    
+    using GemmTraits = ck_tile::MmacTileGemmTraits<
+            kPadM, kPadN, kPadK, ALayout, BLayout, CLayout,
+            {{m_repeat}}, {{n_repeat}}, {{m_interleave}}, {{n_interleave}}
+        >;
+        
+    using PipelineProblem = ck_tile::MmacUniversalGemmPipelineProblem<
+            ADataType, 
+            BDataType, 
+            AccDataType, 
+            GemmShape, 
+            GemmTraits
+        >;
+    
+    using PipelinePolicy = ck_tile::MmacUniversalGemmPipelineAgBgCrPolicy;
+    using GemmPipeline = ck_tile::MmacGemmPipelineAGmemBGmemCRegV1<PipelineProblem, PipelinePolicy>;
+    using Kernel = ck_tile::{{struct_name}}<TilePartitioner, GemmPipeline, GemmEpilogue>;
 """
-
-        def render_epilogue(epilogue_type):
-            if epilogue_type == "Default":
-                return r"""
-            using EpilogueProblem = ck_tile::DefaultGemm2DEpilogueProblem<ADataType,
-                                                                          BDataType,
-                                                                          AccDataType,
-                                                                          CDataType,
-                                                                          CLayout,
-                                                                          kPadM,
-                                                                          kPadN,
-                                                                          WarpTileM,
-                                                                          WarpTileN,
-                                                                          WarpTileK,
-                                                                          TransposeC>;
-            using GemmEpilogue = ck_tile::DefaultGemm2DEpilogue<EpilogueProblem>;
-        """
-            elif epilogue_type == "CShuffle":
-                return r"""
-            constexpr auto kMemoryOperation = ck_tile::memory_operation_enum::set;
-            using DsDataType = ck_tile::tuple<>; // no bias terms for vanilla GEMM
-            using DsLayout = ck_tile::tuple<>;
-            constexpr auto ELayout = CLayout;
-            using CDEElementWise = ck_tile::element_wise::PassThrough; // no-op
-            using EpilogueProblem = ck_tile::CShuffleEpilogueProblem<ADataType,
-                                                                     BDataType,
-                                                                     DsDataType,
-                                                                     AccDataType,
-                                                                     CDataType,
-                                                                     DsLayout,
-                                                                     ELayout,
-                                                                     CDEElementWise,
-                                                                     GemmPipelineProblem::kBlockSize,
-                                                                     TileM,
-                                                                     TileN,
-                                                                     WarpM,
-                                                                     WarpN,
-                                                                     WarpTileM,
-                                                                     WarpTileN,
-                                                                     WarpTileK,
-                                                                     TransposeC,
-                                                                     kMemoryOperation>;
-
-            using GemmEpilogue = ck_tile::CShuffleEpilogue<EpilogueProblem>;
-        """
-            else:
-                raise AssertionError("Epilogue must be set")
-
-        def render_pipeline(pipeline_type):
-            return rf"""
-            using BaseGemmPipeline = ck_tile::BaseGemmPipelineAgBgCr{pipeline_type}<GemmPipelineProblem>;
-
-            template<bool has_hot_loop_v, ck_tile::TailNumber tail_number_v>
-            using GemmPipeline = ck_tile::GemmPipelineAgBgCr{pipeline_type}<UniversalGemmProblem<has_hot_loop_v, tail_number_v>>;
-        """
-
-        def render_scheduler(scheduler_type):
-            return rf"""
-            constexpr auto scheduler = ck_tile::GemmPipelineScheduler::{scheduler_type};
-        """
-
-        rendered_definition = self._template_from_string(template_definition).render(
-            operation_name=op.name(),
-            **asdict(op),
-            rendered_scheduler=render_scheduler(op.scheduler),
-            rendered_pipeline=render_pipeline(op.pipeline),
-            rendered_epilogue=render_epilogue(op.epilogue),
-            has_double_smem_buffer=("true" if op.pipeline == "CompV4" else "false"),
-        )
+        rendered_definition = self._template_from_string(template_definition).render(**asdict(op), struct_name = "BatchedGemmKernel" if self.is_batched else "GemmKernel")
         return rendered_definition
 
     def render(  # type: ignore[override]
@@ -750,118 +528,45 @@ class CKTileGemmTemplate(CKTileTemplate):
         """
         The primary entry point for the code rendering process used in this template.
         """
-        epilogue_nodes = kwargs.get("epilogue_nodes")
+        epilogue_nodes = kwargs.get("epilogue_nodes", None)
         assert epilogue_nodes is None or 0 == len(epilogue_nodes)
-        template_buffer_node = kwargs.get("template_buffer_node")
+        template_buffer_node = kwargs.get("template_buffer_node", None)
         if template_buffer_node is not None:
             self.output_node = template_buffer_node
         assert 2 == len(self.input_nodes)
         X, W = self.input_nodes
         Y = self.output_node
-
-        instance_definition = self.emit_ck_instance(op)
-
+        size_arg_strs = ["M", "N", "K", "LDA", "LDB", "LDC"]
+        if self.is_batched:
+            size_arg_strs.insert(0, "B")
         version_comment = rf"""/**
-* Generated code for CK inductor backend
-* See {type(self).__module__}.{type(self).__qualname__}
-*
-* Template instance {op}
-*
-* {torch.__version__=}
-* torch.version.git_version={getattr(torch.version, "git_version", "None")}
-*/
-"""
-
-        def render_dispatch(pipeline_type, op_name):
-            switch_tailnum_template = r"""
-            switch (tail_num) {
-                {% for tail_num in valid_tailnums %}
-                case ck_tile::TailNumber::{{tail_num}}:
-                    dispatch({{has_hot_loop}},
-                             ck_tile::integral_constant<ck_tile::TailNumber, ck_tile::TailNumber::{{tail_num}}>{});
-                    break;
-                {% endfor %}
-                default:
-                    std::ostringstream err;
-                    err << "Unsupported dispatch: "
-                        << "Pipeline: " << "{{pipeline}}"
-                        << "Prefetch stages: " << kPrefetchStages
-                        << "Tail num: " << tail_num;
-                    throw std::runtime_error(err.str());
-            } // switch tail_num
-            """
-            dispatch_template = r"""
-        if (has_hot_loop) {
-            {{rendered_with_hot_loop}}
-        }
-        else { // has_hot_loop == false
-            {{rendered_without_hot_loop}}
-        } // if has_hot_loop
+        * Generated code for CK inductor backend
+        * See {type(self).__module__}.{type(self).__qualname__}
+        *
+        * Template instance {op}
+        *
+        * {torch.__version__=}
+        * torch.version.git_version={getattr(torch.version, "git_version", "None")}
+        */
         """
-            if pipeline_type == "CompV3":
-                return self._template_from_string(dispatch_template).render(
-                    rendered_with_hot_loop=self._template_from_string(
-                        switch_tailnum_template
-                    ).render(
-                        has_hot_loop="ck_tile::integral_constant<bool, true>{}",
-                        valid_tailnums=("Full", "Odd", "Even"),
-                        pipeline=pipeline_type,
-                    ),
-                    rendered_without_hot_loop=self._template_from_string(
-                        switch_tailnum_template
-                    ).render(
-                        has_hot_loop="ck_tile::integral_constant<bool, false>{}",
-                        valid_tailnums=("Full", "Odd", "Even"),
-                        pipeline=pipeline_type,
-                    ),
-                )
-            elif pipeline_type == "Mem":
-                return self._template_from_string(dispatch_template).render(
-                    rendered_with_hot_loop="dispatch_memory_pipeline_hot_loop<kPrefetchStages>(tail_num, dispatch);",
-                    rendered_without_hot_loop=self._template_from_string(
-                        switch_tailnum_template
-                    ).render(
-                        has_hot_loop="ck_tile::integral_constant<bool, false>{}",
-                        valid_tailnums=("Full", "Odd", "Even"),
-                        pipeline=pipeline_type,
-                    ),
-                )
-            elif pipeline_type == "CompV4":
-                return self._template_from_string(dispatch_template).render(
-                    rendered_with_hot_loop=self._template_from_string(
-                        switch_tailnum_template
-                    ).render(
-                        has_hot_loop="ck_tile::integral_constant<bool, true>{}",
-                        valid_tailnums=("Two", "Three"),
-                        pipeline=pipeline_type,
-                    ),
-                    rendered_without_hot_loop=self._template_from_string(
-                        switch_tailnum_template
-                    ).render(
-                        has_hot_loop="ck_tile::integral_constant<bool, false>{}",
-                        valid_tailnums=("Full", "Odd", "Even"),
-                        pipeline=pipeline_type,
-                    ),
-                )
-            else:
-                raise AssertionError(f"Pipeline {pipeline_type} is not supported")
-
-        return self._template_from_string(self.gemm_template).render(
+        instance_definition = self.emit_ck_instance(op)
+        template =  self._template_from_string(self.basic_template).render(
+            version_comment=version_comment,
             headers=self.header().getvalue(),
             globals=self.globals().getvalue(),
-            instance_definition=instance_definition,
+            profile_helpers=_PROFILE_HELPERS,
+            instance_definition = instance_definition,
             kernel_definition=kernel.def_kernel(
-                inputs=[X, W],  # type: ignore[list-item]
+                inputs=[X, W],
                 outputs=[Y],
                 names_str="X, W, Y",
                 size_args=[
-                    f"int32_t {arg}" for arg in ["M", "N", "K", "LDA", "LDB", "LDC"]
+                    f"int32_t {arg}"
+                    for arg in size_arg_strs
                 ],
             ),
-            instance_namespace=op.name(),
-            version_comment=version_comment,
-            rendered_dispatch=render_dispatch(op.pipeline, op.name()),
         )
+        return template
 
     def gen_ops(self):
         """
