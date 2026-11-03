@@ -231,7 +231,7 @@ void gemm_impl(CUDABLAS_GEMM_ARGTYPES(Dtype)) {
  invoker.Run(argument, StreamConfig{stream, false});
 }
 
-
+#if 0 // WMMA disabled
 template <
     typename Dtype,
     int BLOCK_SIZE,
@@ -403,5 +403,5 @@ void gemm_impl_wmma(CUDABLAS_GEMM_ARGTYPES(Dtype)) {
                           << std::endl;
 #endif
 }
-
+# endif // WMMA disabled
 } // namespace at::native

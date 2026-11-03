@@ -32,10 +32,10 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
             32,
             4,
             4,
-            32,
-            32,
+            16,
+            16,
+            8,
             4,
-            2,
             S<8,32,1>,
             S<1,0,2>,
             1,
@@ -53,10 +53,10 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
             32,
             4,
             4,
-            32,
-            32,
+            16,
+            16,
+            8,
             4,
-            2,
             S<8,32,1>,
             S<1,0,2>,
             1,
@@ -74,10 +74,10 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
             32,
             4,
             4,
-            32,
-            32,
+            16,
+            16,
+            8,
             4,
-            2,
             S<8,32,1>,
             S<1,0,2>,
             1,
@@ -95,10 +95,10 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
             32,
             4,
             4,
-            32,
-            32,
+            16,
+            16,
+            8,
             4,
-            2,
             S<8,32,1>,
             S<1,0,2>,
             1,
@@ -124,10 +124,10 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
             32,
             4,
             4,
-            32,
-            32,
+            16,
+            16,
+            8,
             4,
-            2,
             S<8,32,1>,
             S<1,0,2>,
             1,
@@ -145,10 +145,10 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
             32,
             4,
             4,
-            32,
-            32,
+            16,
+            16,
+            8,
             4,
-            2,
             S<8,32,1>,
             S<1,0,2>,
             1,
@@ -166,10 +166,10 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
             32,
             4,
             4,
-            32,
-            32,
+            16,
+            16,
+            8,
             4,
-            2,
             S<8,32,1>,
             S<1,0,2>,
             1,
@@ -186,10 +186,10 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
             32,
             4,
             4,
-            32,
-            32,
+            16,
+            16,
+            8,
             4,
-            2,
             S<8,32,1>,
             S<1,0,2>,
             1,
@@ -213,10 +213,10 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
             32,
             4,
             4,
-            32,
-            32,
+            16,
+            16,
+            8,
             4,
-            2,
             S<8,32,1>,
             S<1,0,2>,
             1,
@@ -234,10 +234,10 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
             32,
             4,
             4,
-            32,
-            32,
+            16,
+            16,
+            8,
             4,
-            2,
             S<8,32,1>,
             S<1,0,2>,
             S<1,0,2>,
@@ -256,10 +256,10 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
             32,
             4,
             4,
-            32,
-            32,
+            16,
+            16,
+            8,
             4,
-            2,
             S<8,32,1>,
             S<1,0,2>,
             S<1,0,2>
@@ -278,10 +278,10 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
             32,
             4,
             4,
-            32,
-            32,
+            16,
+            16,
+            8,
             4,
-            2,
             S<8,32,1>,
             S<1,0,2>,
             S<1,0,2>,
@@ -298,6 +298,8 @@ void dispatch_half_gemm(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
   }
 #endif
 }
+// WMMA (gfx11/gfx12) is not supported by this CK version; disabled.
+#if 0
 void dispatch_half_gemm_wmma(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
   // If any of the shapes can't be tiled, we must use padding.
   bool use_padding = ((m % 256 != 0) || (n % 128 != 0) || (k % 64 != 0));
@@ -597,8 +599,11 @@ void dispatch_half_gemm_wmma(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
   }
 }
 
+#endif // 0 (WMMA)
+
 template <>
 void gemm_internal_ck<at::Half>(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
+#if 0 // WMMA disabled
   static const std::vector<std::string> wmma_archs = {
     "gfx1100", "gfx1101", "gfx1102", "gfx1200", "gfx1201",
 #if ROCM_VERSION >= 70000
@@ -608,7 +613,9 @@ void gemm_internal_ck<at::Half>(CUDABLAS_GEMM_ARGTYPES(at::Half)) {
   if (at::detail::getCUDAHooks().isGPUArch(wmma_archs)) {
     dispatch_half_gemm_wmma(CUDABLAS_GEMM_ARGS(at::Half));
   }
-  else if (at::detail::getCUDAHooks().isGPUArch({"gfx9"})) {
+  else
+#endif // 0 (WMMA)
+  if (at::detail::getCUDAHooks().isGPUArch({"gfx9"})) {
     dispatch_half_gemm(CUDABLAS_GEMM_ARGS(at::Half));
   }
   else {
