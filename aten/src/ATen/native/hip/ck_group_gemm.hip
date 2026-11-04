@@ -54,10 +54,10 @@ using GroupedGemmXdlSplit = ck::tensor_operation::device::DeviceGroupedGemmXdlSp
     32,                                      // KPerBlock
     8,                                       // AK1
     8,                                       // BK1
-    32,                                      // MPerXDL
-    32,                                      // NPerXDL
-    4,                                       // MXdlPerWave
-    2,                                       // NXdlPerWave
+    16,                                      // MPerXDL (HCU: no 32x32 MFMA, use 16x16)
+    16,                                      // NPerXDL
+    8,                                       // MXdlPerWave
+    4,                                       // NXdlPerWave
     S<1,4,64,1>,                             // ABlockTransferThreadClusterLengths_K0_M_K1
     S<0,2,1,3>,                              // ABlockTransferThreadClusterArrangeOrder
     S<0,2,1,3>,                              // ABlockTransferSrcAccessOrder
@@ -84,7 +84,7 @@ using GroupedGemmMultipleDSplit = ck::tensor_operation::device::DeviceGroupedGem
     DataType, DataType, CkTypes::F32, DataType, ck::Tuple<>, DataType,
     CkTypes::PassThrough, CkTypes::PassThrough, CkTypes::PassThrough,
     ck::tensor_operation::device::GemmSpecialization::MNKPadding,
-    1, 256, 256, 128, 32, 8, 8, 32, 32, 4, 2,
+    1, 256, 256, 128, 32, 8, 8, 16, 16, 8, 4,
     S<1,4,64,1>,  S<0,2,1,3>, S<0,2,1,3>,
     3, 8, 8, 1,
     S<1,4,64,1>,  S<0,2,1,3>, S<0,2,1,3>,
