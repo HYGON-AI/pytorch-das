@@ -53,6 +53,13 @@ void topk_out_with_sort(
   bool stable
 ) {
   auto [sorted_values, sorted_indices] = at::cuda::sort(self, stable, dim, largest);
+  if (self.dim() == 0) {
+    // 0-dim (scalar) tensors have no dimension to narrow. k is 1 here, so the
+    // sort already produced the single-element result and we can copy directly.
+    values.copy_(sorted_values);
+    indices.copy_(sorted_indices);
+    return;
+  }
   values.copy_(sorted_values.narrow(dim, 0, k));
   indices.copy_(sorted_indices.narrow(dim, 0, k));
 }

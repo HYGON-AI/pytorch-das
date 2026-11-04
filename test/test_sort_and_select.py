@@ -590,6 +590,19 @@ class TestSortAndSelect(TestCase):
                     torch.arange(k, device=device).expand_as(indices),
                 )
 
+    def test_topk_deterministic_reproducible(self, device):
+        # With deterministic algorithms enabled, repeated topk calls must return
+        # identical results on every device, CPU included. The ties exercise the
+        # tie-breaking path, which has to be stable.
+        x = torch.rand(1024, device=device)
+        x[:128] = x[0]
+        with DeterministicGuard(True):
+            expected_values, expected_indices = torch.topk(x, 512)
+            for _ in range(10):
+                values, indices = torch.topk(x, 512)
+                self.assertEqual(values, expected_values)
+                self.assertEqual(indices, expected_indices)
+
     def test_topk_arguments(self, device):
         q = torch.randn(10, 2, 10, device=device)
         # Make sure True isn't mistakenly taken as the 2nd dimension (interpreted as 1)
@@ -1705,6 +1718,54 @@ class TestTopKRocmStable(TestCase):
         shape, k, dim = _ALL_CASES[case]
         with DeterministicGuard(False), mock.patch.dict(os.environ, {_ENV_VAR: "1"}):
             self.assertTrue(_all_identical(shape, k, dim, device), msg=case)
+
+    @onlyCUDA
+    @parametrize("case", list(_ALL_CASES))
+    def test_topk_rocm_stable_matches_default(self, device, case):
+        # Enabling either switch must not change *what* topk selects: the
+        # returned values have to equal both the default (no-switch) path and a
+        # full-sort reference. Only the ordering of tied indices may differ.
+        shape, k, dim = _ALL_CASES[case]
+        x = torch.randn(*shape, device=device)
+
+        def run():
+            return torch.topk(x, k, dim=dim, largest=True, sorted=True)
+
+        ref_values = torch.sort(x, dim=dim, descending=True).values.narrow(dim, 0, k)
+
+        with DeterministicGuard(False), mock.patch.dict(os.environ, {_ENV_VAR: "0"}):
+            default_values, default_indices = run()
+        with DeterministicGuard(True), mock.patch.dict(os.environ, {_ENV_VAR: "0"}):
+            det_values, det_indices = run()
+        with DeterministicGuard(False), mock.patch.dict(os.environ, {_ENV_VAR: "1"}):
+            env_values, env_indices = run()
+
+        for name, values, indices in (
+            ("default", default_values, default_indices),
+            ("det", det_values, det_indices),
+            ("env", env_values, env_indices),
+        ):
+            self.assertEqual(values, ref_values, msg=f"{case}/{name}: values vs sort")
+            self.assertEqual(
+                x.gather(dim, indices), values, msg=f"{case}/{name}: indices"
+            )
+
+    @onlyCUDA
+    def test_topk_rocm_stable_scalar(self, device):
+        # 0-dim (scalar) input used to fail under the stable path: the result was
+        # produced by narrow(), which cannot be applied to a 0-dim tensor.
+        x = torch.randn((), device=device)
+        expected_values, expected_indices = torch.topk(x, 1)
+
+        with DeterministicGuard(True), mock.patch.dict(os.environ, {_ENV_VAR: "0"}):
+            values, indices = torch.topk(x, 1)
+        self.assertEqual(values, expected_values)
+        self.assertEqual(indices, expected_indices)
+
+        with DeterministicGuard(False), mock.patch.dict(os.environ, {_ENV_VAR: "1"}):
+            values, indices = torch.topk(x, 1)
+        self.assertEqual(values, expected_values)
+        self.assertEqual(indices, expected_indices)
 
 
 instantiate_device_type_tests(TestSortAndSelect, globals())
