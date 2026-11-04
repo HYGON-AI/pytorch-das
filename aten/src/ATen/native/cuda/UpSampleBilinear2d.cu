@@ -12,6 +12,7 @@
 #include <ATen/native/cuda/KernelUtils.cuh>
 #include <ATen/cuda/detail/KernelUtils.h>
 #include <ATen/native/cuda/LaunchUtils.h>
+#include <ATen/native/cuda/MemoryAccess.cuh>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -37,50 +38,194 @@ namespace at::native {
 namespace {
 
 template <typename scalar_t, typename accscalar_t>
-C10_LAUNCH_BOUNDS_1(1024)
+C10_LAUNCH_BOUNDS_1(256)
 __global__ void upsample_bilinear2d_out_frame(
-    const int n,
     const accscalar_t rheight,
     const accscalar_t rwidth,
     const bool align_corners,
     const PackedTensorAccessor<const scalar_t, 4> idata,
     PackedTensorAccessor<scalar_t, 4> odata) {
-  int index = threadIdx.x + blockIdx.x * blockDim.x;
+  constexpr int channels_per_block = 64;
 
   const int batchsize = idata.size(0);
   const int channels = idata.size(1);
   const int height1 = idata.size(2);
   const int width1 = idata.size(3);
+  const int height2 = odata.size(2);
   const int width2 = odata.size(3);
+  const int64_t in_batch_stride = idata.stride(0);
+  const int64_t in_channel_stride = idata.stride(1);
+  const int64_t in_row_stride = idata.stride(2);
+  const int64_t in_col_stride = idata.stride(3);
+  const int64_t out_batch_stride = odata.stride(0);
+  const int64_t out_channel_stride = odata.stride(1);
+  const int64_t out_row_stride = odata.stride(2);
+  const int64_t out_col_stride = odata.stride(3);
+  const int w2 = blockIdx.x * blockDim.x + threadIdx.x;
 
-  if (index < n) {
-    const int w2 = index % width2; // 0:width2-1
-    const int h2 = index / width2; // 0:height2-1
+  __shared__ int sh_h1;
+  __shared__ int sh_h1p;
+  __shared__ accscalar_t sh_h1lambda;
+  __shared__ accscalar_t sh_h0lambda;
+  for (int h2 = blockIdx.y; h2 < height2; h2 += gridDim.y) {
+    if (threadIdx.x == 0) {
+      const accscalar_t h1r = area_pixel_compute_source_index<accscalar_t>(
+          rheight, h2, align_corners, /*cubic=*/false);
+      sh_h1 = h1r;
+      sh_h1p = sh_h1 < height1 - 1 ? 1 : 0;
+      sh_h1lambda = h1r - sh_h1;
+      sh_h0lambda = static_cast<accscalar_t>(1) - sh_h1lambda;
+    }
+    __syncthreads();
 
-    const accscalar_t h1r = area_pixel_compute_source_index<accscalar_t>(
-        rheight, h2, align_corners, /*cubic=*/false);
-    const int h1 = h1r;
-    const int h1p = (h1 < height1 - 1) ? 1 : 0;
-    const accscalar_t h1lambda = h1r - h1;
-    const accscalar_t h0lambda = static_cast<accscalar_t>(1) - h1lambda;
-    //
-    const accscalar_t w1r = area_pixel_compute_source_index<accscalar_t>(
-        rwidth, w2, align_corners, /*cubic=*/false);
-    const int w1 = w1r;
-    const int w1p = (w1 < width1 - 1) ? 1 : 0;
-    const accscalar_t w1lambda = w1r - w1;
-    const accscalar_t w0lambda = static_cast<accscalar_t>(1) - w1lambda;
-    //
-    for (int n = 0; n < batchsize; n++) {
-      for (int c = 0; c < channels; ++c) {
-        const accscalar_t val = h0lambda *
-                (w0lambda * idata[n][c][h1][w1] +
-                 w1lambda * idata[n][c][h1][w1 + w1p]) +
-            h1lambda *
-                (w0lambda * idata[n][c][h1 + h1p][w1] +
-                 w1lambda * idata[n][c][h1 + h1p][w1 + w1p]);
-        odata[n][c][h2][w2] = static_cast<scalar_t>(val);
+    if (w2 < width2) {
+      const int h1 = sh_h1;
+      const int h1p = sh_h1p;
+      const accscalar_t h1lambda = sh_h1lambda;
+      const accscalar_t h0lambda = sh_h0lambda;
+      const accscalar_t w1r = area_pixel_compute_source_index<accscalar_t>(
+          rwidth, w2, align_corners, /*cubic=*/false);
+      const int w1 = w1r;
+      const int w1p = w1 < width1 - 1 ? 1 : 0;
+      const accscalar_t w1lambda = w1r - w1;
+      const accscalar_t w0lambda = static_cast<accscalar_t>(1) - w1lambda;
+
+      const int channel_blocks =
+          (channels + channels_per_block - 1) / channels_per_block;
+      const int total_blocks = batchsize * channel_blocks;
+      for (int nc_block = blockIdx.z; nc_block < total_blocks;
+           nc_block += gridDim.z) {
+        const int n = nc_block / channel_blocks;
+        const int c_begin =
+            (nc_block - n * channel_blocks) * channels_per_block;
+        const int c_end = min(c_begin + channels_per_block, channels);
+        const int64_t right_offset = w1p * in_col_stride;
+        const int64_t bottom_offset = h1p * in_row_stride;
+        const scalar_t* input_channel =
+            idata.data() + n * in_batch_stride + c_begin * in_channel_stride +
+            h1 * in_row_stride + w1 * in_col_stride;
+        scalar_t* output_channel =
+            odata.data() + n * out_batch_stride + c_begin * out_channel_stride +
+            h2 * out_row_stride + w2 * out_col_stride;
+        #pragma unroll 4
+        for (int c = c_begin; c < c_end; ++c) {
+          const accscalar_t val = h0lambda *
+                  (w0lambda * input_channel[0] +
+                   w1lambda * input_channel[right_offset]) +
+              h1lambda *
+                  (w0lambda * input_channel[bottom_offset] +
+                   w1lambda * input_channel[bottom_offset + right_offset]);
+          output_channel[0] = static_cast<scalar_t>(val);
+          input_channel += in_channel_stride;
+          output_channel += out_channel_stride;
+        }
       }
+    }
+    if (h2 + gridDim.y < height2) {
+      __syncthreads();
+    }
+  }
+}
+
+template <int pixels_per_block, int channels_per_block, typename scalar_t, typename accscalar_t>
+C10_LAUNCH_BOUNDS_1(1024)
+__global__ void upsample_bilinear2d_nchw_tile_out_frame(
+    const accscalar_t rheight,
+    const accscalar_t rwidth,
+    const bool align_corners,
+    const int channels,
+    const int height1,
+    const int width1,
+    const int height2,
+    const int width2,
+    const scalar_t* idata,
+    scalar_t* odata,
+    const int pixel_count) {
+  __shared__ int sh_h1[pixels_per_block];
+  __shared__ int sh_w1[pixels_per_block];
+  __shared__ int sh_h1p[pixels_per_block];
+  __shared__ int sh_w1p[pixels_per_block];
+  __shared__ int sh_h2[pixels_per_block];
+  __shared__ int sh_w2[pixels_per_block];
+  __shared__ accscalar_t sh_h0lambda[pixels_per_block];
+  __shared__ accscalar_t sh_h1lambda[pixels_per_block];
+  __shared__ accscalar_t sh_w0lambda[pixels_per_block];
+  __shared__ accscalar_t sh_w1lambda[pixels_per_block];
+
+  const int pixel_base = blockIdx.x * pixels_per_block;
+  const int channel_base = blockIdx.y * channels_per_block;
+  const int n = blockIdx.z;
+
+  if (threadIdx.y == 0 && threadIdx.x < pixels_per_block) {
+    const int pixel = pixel_base + threadIdx.x;
+    if (pixel < pixel_count) {
+      const int h2 = pixel / width2;
+      const int w2 = pixel - h2 * width2;
+      sh_h2[threadIdx.x] = h2;
+      sh_w2[threadIdx.x] = w2;
+
+      const accscalar_t h1r = area_pixel_compute_source_index<accscalar_t>(
+          rheight, h2, align_corners, /*cubic=*/false);
+      const int h1 = h1r;
+      sh_h1[threadIdx.x] = h1;
+      sh_h1p[threadIdx.x] = h1 < height1 - 1 ? 1 : 0;
+      sh_h1lambda[threadIdx.x] = h1r - h1;
+      sh_h0lambda[threadIdx.x] =
+          static_cast<accscalar_t>(1) - sh_h1lambda[threadIdx.x];
+
+      const accscalar_t w1r = area_pixel_compute_source_index<accscalar_t>(
+          rwidth, w2, align_corners, /*cubic=*/false);
+      const int w1 = w1r;
+      sh_w1[threadIdx.x] = w1;
+      sh_w1p[threadIdx.x] = (w1 < width1 - 1) ? 1 : 0;
+      sh_w1lambda[threadIdx.x] = w1r - w1;
+      sh_w0lambda[threadIdx.x] =
+          static_cast<accscalar_t>(1) - sh_w1lambda[threadIdx.x];
+    }
+  }
+  __syncthreads();
+
+  const int local_pixel = threadIdx.x;
+  const int c_begin = channel_base + threadIdx.y;
+  const int c_end = min(channel_base + channels_per_block, channels);
+  const int pixel = pixel_base + local_pixel;
+
+  if (pixel < pixel_count && c_begin < channels) {
+    const int h1 = sh_h1[local_pixel];
+    const int w1 = sh_w1[local_pixel];
+    const int h1p = sh_h1p[local_pixel];
+    const int w1p = sh_w1p[local_pixel];
+    const int h2 = sh_h2[local_pixel];
+    const int w2 = sh_w2[local_pixel];
+    const accscalar_t h0lambda = sh_h0lambda[local_pixel];
+    const accscalar_t h1lambda = sh_h1lambda[local_pixel];
+    const accscalar_t w0lambda = sh_w0lambda[local_pixel];
+    const accscalar_t w1lambda = sh_w1lambda[local_pixel];
+
+    const int input_batch_stride = channels * height1 * width1;
+    const int input_channel_stride = height1 * width1;
+    const int output_batch_stride = channels * height2 * width2;
+    const int output_channel_stride = height2 * width2;
+    const int right_offset = w1p;
+    const int bottom_offset = h1p * width1;
+    const scalar_t* input_channel =
+        idata + n * input_batch_stride + c_begin * input_channel_stride +
+        h1 * width1 + w1;
+    scalar_t* output_channel =
+        odata + n * output_batch_stride + c_begin * output_channel_stride +
+        h2 * width2 + w2;
+    #pragma unroll
+    for (int c = c_begin; c < c_end; c += 4) {
+      const accscalar_t val = h0lambda * (
+          w0lambda * input_channel[0] +
+          w1lambda * input_channel[right_offset]
+        ) + h1lambda * (
+          w0lambda * input_channel[bottom_offset] +
+          w1lambda * input_channel[bottom_offset + right_offset]
+        );
+      output_channel[0] = static_cast<scalar_t>(val);
+      input_channel += 4 * input_channel_stride;
+      output_channel += 4 * output_channel_stride;
     }
   }
 }
@@ -103,10 +248,12 @@ __global__ void upsample_bilinear2d_nhwc_out_frame(
   const int index = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (index < out_numel) {
-    const int c = index % channels;
-    const int w2 = (index / channels) % width2;
-    const int h2 = (index / channels / width2) % height2;
-    const int n = index / channels / width2 / height2;
+    const int pixel = index / channels;
+    const int c = index - pixel * channels;
+    const int nh = pixel / width2;
+    const int w2 = pixel - nh * width2;
+    const int n = nh / height2;
+    const int h2 = nh - n * height2;
 
     const accscalar_t h1r = area_pixel_compute_source_index<accscalar_t>(
         rheight, h2, align_corners, /*cubic=*/false);
@@ -122,14 +269,143 @@ __global__ void upsample_bilinear2d_nhwc_out_frame(
     const accscalar_t w1lambda = w1r - w1;
     const accscalar_t w0lambda = static_cast<accscalar_t>(1) - w1lambda;
 
+    const int input_row_stride = width1 * channels;
+    const int base00 = ((n * height1 + h1) * width1 + w1) * channels + c;
+    const int base01 = base00 + w1p * channels;
+    const int base10 = base00 + h1p * input_row_stride;
+    const int base11 = base10 + w1p * channels;
     const accscalar_t val = h0lambda * (
-        w0lambda * idata[idx_cl(n, h1, w1, c, height1, width1, channels)] +
-        w1lambda * idata[idx_cl(n, h1, w1 + w1p, c, height1, width1, channels)]
+        w0lambda * idata[base00] +
+        w1lambda * idata[base01]
       ) + h1lambda * (
-        w0lambda * idata[idx_cl(n, h1 + h1p, w1, c, height1, width1, channels)] +
-        w1lambda * idata[idx_cl(n, h1 + h1p, w1 + w1p, c, height1, width1, channels)]
+        w0lambda * idata[base10] +
+        w1lambda * idata[base11]
       );
-    odata[idx_cl(n, h2, w2, c, height2, width2, channels)] = static_cast<scalar_t>(val);
+    odata[index] = static_cast<scalar_t>(val);
+  }
+}
+
+template <int pixels_per_block, int channels_per_block, int vec_size, typename scalar_t, typename accscalar_t>
+C10_LAUNCH_BOUNDS_1(1024)
+__global__ void upsample_bilinear2d_nhwc_tile_vec_out_frame(
+    const accscalar_t rheight,
+    const accscalar_t rwidth,
+    const bool align_corners,
+    const int channels,
+    const int height1,
+    const int width1,
+    const int height2,
+    const int width2,
+    const scalar_t* idata,
+    scalar_t* odata,
+    const int pixel_count) {
+  __shared__ int sh_h1[pixels_per_block];
+  __shared__ int sh_w1[pixels_per_block];
+  __shared__ int sh_h1p[pixels_per_block];
+  __shared__ int sh_w1p[pixels_per_block];
+  __shared__ int sh_h2[pixels_per_block];
+  __shared__ int sh_w2[pixels_per_block];
+  __shared__ accscalar_t sh_h0lambda[pixels_per_block];
+  __shared__ accscalar_t sh_h1lambda[pixels_per_block];
+  __shared__ accscalar_t sh_w0lambda[pixels_per_block];
+  __shared__ accscalar_t sh_w1lambda[pixels_per_block];
+
+  constexpr int channel_vecs_per_block = channels_per_block / vec_size;
+  const int pixel_base = blockIdx.x * pixels_per_block;
+  const int channel_base = blockIdx.y * channels_per_block;
+  const int n = blockIdx.z;
+  const int local_pixel = threadIdx.x / channel_vecs_per_block;
+  const int channel_vec = threadIdx.x - local_pixel * channel_vecs_per_block;
+  const int c = channel_base + channel_vec * vec_size;
+  const int pixel = pixel_base + local_pixel;
+
+
+  if (threadIdx.x < pixels_per_block) {
+    const int pixel = pixel_base + threadIdx.x;
+    if (pixel < pixel_count) {
+      const int h2 = pixel / width2;
+      const int w2 = pixel - h2 * width2;
+      sh_h2[threadIdx.x] = h2;
+      sh_w2[threadIdx.x] = w2;
+
+      const accscalar_t h1r = area_pixel_compute_source_index<accscalar_t>(
+          rheight, h2, align_corners, /*cubic=*/false);
+      const int h1 = h1r;
+      sh_h1[threadIdx.x] = h1;
+      sh_h1p[threadIdx.x] = (h1 < height1 - 1) ? 1 : 0;
+      sh_h1lambda[threadIdx.x] = h1r - h1;
+      sh_h0lambda[threadIdx.x] =
+          static_cast<accscalar_t>(1) - sh_h1lambda[threadIdx.x];
+
+      const accscalar_t w1r = area_pixel_compute_source_index<accscalar_t>(
+          rwidth, w2, align_corners, /*cubic=*/false);
+      const int w1 = w1r;
+      sh_w1[threadIdx.x] = w1;
+      sh_w1p[threadIdx.x] = (w1 < width1 - 1) ? 1 : 0;
+      sh_w1lambda[threadIdx.x] = w1r - w1;
+      sh_w0lambda[threadIdx.x] =
+          static_cast<accscalar_t>(1) - sh_w1lambda[threadIdx.x];
+    }
+  }
+  __syncthreads();
+
+  if (pixel < pixel_count && c < channels) {
+    const int h1 = sh_h1[local_pixel];
+    const int w1 = sh_w1[local_pixel];
+    const int h1p = sh_h1p[local_pixel];
+    const int w1p = sh_w1p[local_pixel];
+    const int h2 = sh_h2[local_pixel];
+    const int w2 = sh_w2[local_pixel];
+    const accscalar_t h0lambda = sh_h0lambda[local_pixel];
+    const accscalar_t h1lambda = sh_h1lambda[local_pixel];
+    const accscalar_t w0lambda = sh_w0lambda[local_pixel];
+    const accscalar_t w1lambda = sh_w1lambda[local_pixel];
+
+    const int input_row_stride = width1 * channels;
+    const int base00 = ((n * height1 + h1) * width1 + w1) * channels + c;
+    const int base01 = base00 + w1p * channels;
+    const int base10 = base00 + h1p * input_row_stride;
+    const int base11 = base10 + w1p * channels;
+    const int out_base = ((n * height2 + h2) * width2 + w2) * channels + c;
+
+    if (c + vec_size <= channels &&
+        base00 % vec_size == 0 &&
+        base01 % vec_size == 0 &&
+        base10 % vec_size == 0 &&
+        base11 % vec_size == 0 &&
+        out_base % vec_size == 0) {
+      const auto v00 = memory::load_vector<vec_size>(idata, static_cast<uint32_t>(base00 / vec_size));
+      const auto v01 = memory::load_vector<vec_size>(idata, static_cast<uint32_t>(base01 / vec_size));
+      const auto v10 = memory::load_vector<vec_size>(idata, static_cast<uint32_t>(base10 / vec_size));
+      const auto v11 = memory::load_vector<vec_size>(idata, static_cast<uint32_t>(base11 / vec_size));
+      memory::aligned_vector<scalar_t, vec_size> out;
+      #pragma unroll
+      for (int j = 0; j < vec_size; ++j) {
+        const accscalar_t val = h0lambda * (
+            w0lambda * static_cast<accscalar_t>(v00.val[j]) +
+            w1lambda * static_cast<accscalar_t>(v01.val[j])
+          ) + h1lambda * (
+            w0lambda * static_cast<accscalar_t>(v10.val[j]) +
+            w1lambda * static_cast<accscalar_t>(v11.val[j])
+          );
+        out.val[j] = static_cast<scalar_t>(val);
+      }
+      reinterpret_cast<memory::aligned_vector<scalar_t, vec_size>*>(odata)[out_base / vec_size] = out;
+    } else {
+      #pragma unroll
+      for (int j = 0; j < vec_size; ++j) {
+        if (c + j < channels) {
+          const accscalar_t val = h0lambda * (
+              w0lambda * static_cast<accscalar_t>(idata[base00 + j]) +
+              w1lambda * static_cast<accscalar_t>(idata[base01 + j])
+            ) + h1lambda * (
+              w0lambda * static_cast<accscalar_t>(idata[base10 + j]) +
+              w1lambda * static_cast<accscalar_t>(idata[base11 + j])
+            );
+          odata[out_base + j] = static_cast<scalar_t>(val);
+        }
+      }
+    }
   }
 }
 
@@ -383,6 +659,9 @@ static void upsample_bilinear2d_out_cuda_template(
       at::ScalarType::Half, at::ScalarType::BFloat16,
       input.scalar_type(), "upsample_bilinear2d_out_frame", [&] {
     // heuristic: only use channels_last path when it's faster than the contiguous path
+    if (input.size(0) == 0) {
+      return;
+    }
     if (memory_format == at::MemoryFormat::ChannelsLast && channels >= 16 && \
           output.is_contiguous(memory_format)) {
       using accscalar_t = at::acc_type<scalar_t, true>;
@@ -407,28 +686,57 @@ static void upsample_bilinear2d_out_cuda_template(
 
       const scalar_t* idata = input_cl.const_data_ptr<scalar_t>();
       scalar_t* odata = output.mutable_data_ptr<scalar_t>();
+      const auto* idata_bytes = reinterpret_cast<const char*>(idata);
+      auto* odata_bytes = reinterpret_cast<char*>(odata);
+      const int input_vec_size = memory::can_vectorize_up_to<scalar_t>(idata_bytes);
+      const int output_vec_size = memory::can_vectorize_up_to<scalar_t>(odata_bytes);
+      const bool can_vectorize4 = std::min(input_vec_size, output_vec_size) >= 4;
 
       const accscalar_t rheight = area_pixel_compute_scale<accscalar_t>(
           input_height, output_height, align_corners, scales_h);
       const accscalar_t rwidth = area_pixel_compute_scale<accscalar_t>(
           input_width, output_width, align_corners, scales_w);
 
-      upsample_bilinear2d_nhwc_out_frame<scalar_t, accscalar_t>
-        <<<ceil_div(num_kernels, num_threads), num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-          rheight, rwidth, align_corners,
-          channels,
-          height1,
-          width1,
-          height2,
-          width2,
-          idata, odata,
-          output.numel());
+      const int pixel_count = height2 * width2;
+      const int batch = input.size(0);
+      const auto max_grid_z = at::cuda::getCurrentDeviceProperties()->maxGridSize[2];
+      if (can_vectorize4 && channels >= 48 && batch <= max_grid_z) {
+        upsample_bilinear2d_nhwc_tile_vec_out_frame<4, 128, 4, scalar_t, accscalar_t>
+          <<<dim3(ceil_div(pixel_count, 4), ceil_div(channels, 128), batch), 4 * (128 / 4), 0, at::cuda::getCurrentCUDAStream()>>>(
+            rheight, rwidth, align_corners,
+            channels,
+            height1,
+            width1,
+            height2,
+            width2,
+            idata, odata,
+            pixel_count);
+      } else if (can_vectorize4 && channels < 48 && batch <= max_grid_z) {
+        upsample_bilinear2d_nhwc_tile_vec_out_frame<32, 48, 4, scalar_t, accscalar_t>
+          <<<dim3(ceil_div(pixel_count, 32), 1, batch), 32 * (48 / 4), 0, at::cuda::getCurrentCUDAStream()>>>(
+            rheight, rwidth, align_corners,
+            channels,
+            height1,
+            width1,
+            height2,
+            width2,
+            idata, odata,
+            pixel_count);
+      } else {
+        upsample_bilinear2d_nhwc_out_frame<scalar_t, accscalar_t>
+          <<<ceil_div(num_kernels, num_threads), num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+            rheight, rwidth, align_corners,
+            channels,
+            height1,
+            width1,
+            height2,
+            width2,
+            idata, odata,
+            output.numel());
+      }
       C10_CUDA_KERNEL_LAUNCH_CHECK();
     } else {
       // non-channels_last case, not necessarily contiguous
-      const int num_kernels = output_height * output_width;
-      const int num_threads = std::min(
-          at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock, 1024);
       cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
       using accscalar_t = at::acc_type<scalar_t, true>;
@@ -441,12 +749,53 @@ static void upsample_bilinear2d_out_cuda_template(
       const accscalar_t rwidth = area_pixel_compute_scale<accscalar_t>(
           input_width, output_width, align_corners, scales_w);
 
-      upsample_bilinear2d_out_frame<scalar_t, accscalar_t>
-          <<<ceil_div(num_kernels, num_threads),
-             num_threads,
-             0,
-             stream>>>(
-              num_kernels, rheight, rwidth, align_corners, idata, odata);
+      const int batch = input.size(0);
+      const auto* device_properties = at::cuda::getCurrentDeviceProperties();
+      const auto max_grid_y = device_properties->maxGridSize[1];
+      const auto max_grid_z = device_properties->maxGridSize[2];
+      const int pixel_count = output_height * output_width;
+      if (input.is_contiguous() && output.is_contiguous() &&
+          channels >= 4 &&
+          pixel_count <= 64 * 1024 &&
+          input.numel() < std::numeric_limits<int>::max() &&
+          output.numel() < std::numeric_limits<int>::max() &&
+          ceil_div(channels, 32) <= max_grid_y &&
+          batch <= max_grid_z) {
+        upsample_bilinear2d_nchw_tile_out_frame<128, 32, scalar_t, accscalar_t>
+            <<<dim3(ceil_div(pixel_count, 128), ceil_div(channels, 32), batch),
+               dim3(128, 4, 1),
+               0,
+               stream>>>(
+                rheight,
+                rwidth,
+                align_corners,
+                channels,
+                input_height,
+                input_width,
+                output_height,
+                output_width,
+                input.const_data_ptr<scalar_t>(),
+                output.mutable_data_ptr<scalar_t>(),
+                pixel_count);
+      } else {
+        constexpr int pixels_per_block = 128;
+        constexpr int channels_per_block = 64;
+        const int channel_blocks =
+            ceil_div(channels, channels_per_block);
+        const int grid_z = std::min<int64_t>(
+            static_cast<int64_t>(batch) * channel_blocks, max_grid_z);
+        const int grid_y =
+            std::min<int64_t>(output_height, max_grid_y);
+        upsample_bilinear2d_out_frame<scalar_t, accscalar_t>
+            <<<dim3(
+                   ceil_div(output_width, pixels_per_block),
+                   grid_y,
+                   grid_z),
+               pixels_per_block,
+               0,
+               stream>>>(
+                rheight, rwidth, align_corners, idata, odata);
+      }
       C10_CUDA_KERNEL_LAUNCH_CHECK();
     }
   });
