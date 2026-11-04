@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
 #pragma once
 
 #include <cuda_runtime_api.h>
@@ -198,6 +201,11 @@ class C10_CUDA_API CUDAStream {
  * You can request a stream from the high priority pool by setting
  * isHighPriority to true, or a stream for a specific device by setting device
  * (defaulting to the current CUDA stream.)
+ *
+ * On DTK 26.10 or newer, setting TORCH_STREAM_BIND_PIPE_FLAG=1 creates these
+ * streams with hardware pipe IDs assigned round-robin per device. The
+ * comma-separated TORCH_STREAM_BIND_PIPE setting selects the pipe IDs and
+ * defaults to 0,1,2,3.
  */
 C10_API CUDAStream
 getStreamFromPool(const bool isHighPriority = false, DeviceIndex device = -1);
