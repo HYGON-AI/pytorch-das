@@ -23,6 +23,7 @@ from torch._decomp.decompositions import (
     embedding_dense_backward as decomp_embedding_dense_backward,
     pw_cast_for_opmath,
     pw_cast_for_opmath_non_tensor_args,
+    use_upsample_linear_opt,
 )
 from torch._decomp.decompositions_for_rng import extra_random_decomps
 from torch._dynamo.utils import counters
@@ -144,6 +145,18 @@ decomps_to_exclude: list[torch._ops.OpOverload | torch._ops.OpOverloadPacket] = 
 
 remove_decompositions(decompositions, decomps_to_exclude)
 
+if use_upsample_linear_opt:
+    decompositions.update(
+        decomp.get_decompositions(
+            [
+                aten.upsample_bilinear2d.default,
+                aten.upsample_trilinear3d.default,
+                aten.upsample_linear1d_backward.default,
+                aten.upsample_bilinear2d_backward.default,
+                aten.upsample_trilinear3d_backward.default,
+            ]
+        )
+    )
 
 def register_decomposition(
     ops: _GenericOperator | list[_GenericOperator],
