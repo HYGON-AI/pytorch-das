@@ -1465,7 +1465,7 @@ def test_foo(self, device, dtype, op):
                 return e
 
             # adapt the callback call since ErrorInputs contain SampleInputs
-            _, subtest_ctx = cb(e.sample_input, i)
+            _, subtest_ctx, _ = cb(e.sample_input, i)
             return (e, subtest_ctx)
 
         return TrackedInputIter(
