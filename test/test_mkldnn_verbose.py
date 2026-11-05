@@ -13,7 +13,7 @@ class TestMKLDNNVerbose(TestCase):
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as p:
             for line in p.stdout.readlines():
                 line = str(line, 'utf-8').strip()
-                if line.startswith("onednn_verbose"):
+                if line.startswith(("onednn_verbose", "hygondnn_verbose")):
                     num = num + 1
                 elif line == 'Failed to set MKLDNN into verbose mode. Please consider to disable this verbose scope.':
                     return
@@ -26,7 +26,7 @@ class TestMKLDNNVerbose(TestCase):
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as p:
             for line in p.stdout.readlines():
                 line = str(line, 'utf-8').strip()
-                if line.startswith("onednn_verbose"):
+                if line.startswith(("onednn_verbose", "hygondnn_verbose")):
                     num = num + 1
         self.assertEqual(num, 0, 'unexpected oneDNN verbose messages found.')
 

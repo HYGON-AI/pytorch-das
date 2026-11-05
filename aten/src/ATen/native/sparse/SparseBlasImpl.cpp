@@ -444,6 +444,8 @@ void add_out_sparse_csr(
     const Tensor& result) {
 #if AT_USE_MKL_SPARSE()
   sparse::impl::mkl::add_out_sparse_csr(mat1, mat2, alpha, result);
+#elif AT_USE_HSPARSE()
+  sparse::impl::mkl::add_out_sparse_csr(mat1, mat2, alpha, result);
 #elif AT_USE_EIGEN_SPARSE()
   sparse::impl::eigen::add_out_sparse(mat1, mat2, alpha, result);
 #else
@@ -461,7 +463,7 @@ void triangular_solve_out_sparse_csr(
     bool upper,
     bool transpose,
     bool unitriangular) {
-#if !AT_USE_MKL_SPARSE()
+#if !(AT_USE_MKL_SPARSE() || AT_USE_HSPARSE())
   TORCH_CHECK(
       false,
       "Calling triangular_solve on a sparse CPU tensor requires compiling PyTorch with MKL. ",

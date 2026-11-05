@@ -272,6 +272,20 @@ static Tensor _mkldnn_convolution(
       mkldnn_convolution_memory_format(input_t.ndimension(), use_channels_last);
 
   auto output_sizes = conv_output_size(input_t.sizes(), weight_t.sizes(), padding_expanded, stride_expanded, dilation_expanded);
+#ifdef USE_HDNN
+  if (std::any_of(
+          output_sizes.begin(), output_sizes.end(), [](int64_t size) {
+            return size == 0;
+          })) {
+    if (input_t.is_mkldnn()) {
+      ideep::tensor empty_output(
+          ideep::tensor::dims(output_sizes.begin(), output_sizes.end()),
+          get_mkldnn_dtype(input_t.scalar_type()));
+      return MKLDNNTensor(empty_output, input_t.options());
+    }
+    return at::empty(output_sizes, input_t.options().memory_format(memory_format));
+  }
+#endif
   auto output = at::empty({0}, input_t.options());
   ideep::tensor y;
   if (use_channels_last) {

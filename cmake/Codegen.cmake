@@ -70,6 +70,14 @@ if(INTERN_BUILD_ATEN_OPS)
     endif()
   endif(MSVC)
 
+  if(BLAS STREQUAL "HBLAS" AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # Keep small-bmm rounding consistent across input strides.
+    set_property(
+      SOURCE "${CMAKE_CURRENT_LIST_DIR}/../aten/src/ATen/native/LinearAlgebra.cpp"
+      APPEND PROPERTY COMPILE_OPTIONS "-ffp-contract=off"
+    )
+  endif()
+
   if(NOT MSVC AND NOT "${CMAKE_C_COMPILER_ID}" MATCHES "Clang")
     set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/../aten/src/ATen/MapAllocator.cpp PROPERTIES COMPILE_FLAGS "-fno-openmp")
   endif()

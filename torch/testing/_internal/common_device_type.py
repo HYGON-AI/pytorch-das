@@ -43,6 +43,7 @@ from torch.testing._internal.common_utils import (
     skipCUDANonDefaultStreamIf,
     skipIfTorchDynamo,
     TEST_HPU,
+    TEST_HML,
     TEST_MKL,
     TEST_MPS,
     TEST_WITH_ASAN,
@@ -1808,10 +1809,12 @@ def skipCPUIfNoMkl(fn):
     return skipCPUIf(not TEST_MKL, "PyTorch is built without MKL support")(fn)
 
 
-# Skips a test on CPU if MKL Sparse is not available (it's not linked on Windows).
+# Skips a test on CPU if no sparse BLAS backend is available: MKL provides one,
+# and on HML builds HSPARSE takes its place (Windows has neither).
 def skipCPUIfNoMklSparse(fn):
     return skipCPUIf(
-        IS_WINDOWS or not TEST_MKL, "PyTorch is built without MKL support"
+        IS_WINDOWS or not (TEST_MKL or TEST_HML),
+        "PyTorch is built without MKL or HSPARSE support",
     )(fn)
 
 

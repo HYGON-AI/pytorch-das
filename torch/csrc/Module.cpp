@@ -2426,7 +2426,7 @@ PyObject* initModule() {
 #endif
   ASSERT_TRUE(set_module_attr("_has_cusparselt", has_cusparselt));
 
-#if AT_MKL_ENABLED() || AT_POCKETFFT_ENABLED()
+#if AT_MKL_ENABLED() || AT_POCKETFFT_ENABLED() || AT_HML_ENABLED()
   PyObject* has_spectral = Py_True;
 #else
   PyObject* has_spectral = Py_False;
@@ -2490,6 +2490,8 @@ Call this whenever a new thread is created in order to propagate values from
   ASSERT_TRUE(
       set_module_attr("has_openmp", at::hasOpenMP() ? Py_True : Py_False));
   ASSERT_TRUE(set_module_attr("has_mkl", at::hasMKL() ? Py_True : Py_False));
+  ASSERT_TRUE(
+      set_module_attr("has_hml", AT_HML_ENABLED() ? Py_True : Py_False));
   ASSERT_TRUE(
       set_module_attr("_has_kleidiai", at::hasKleidiAI() ? Py_True : Py_False));
   ASSERT_TRUE(
