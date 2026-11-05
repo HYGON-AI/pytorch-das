@@ -6,16 +6,21 @@
 ### PyTorch HCU/DTK 编译流程
 ### 说明：
 ### 1. 运行本脚本前须安装 DTK，默认路径为 /opt/dtk。
-### 2. 代码仓库地址、分支以及 MAGMA 下载地址在下方变量区按需配置。
+### 2. 默认使用脚本所在仓库的当前 checkout；代码仓库地址和分支仅在需要自行拉取时配置。
 ### 3. 本脚本依赖编译镜像自带 GCC 工具链，无需额外激活。
 ### 4. 三方库通过 git submodule 拉取，并使用 tools/third_party/apply_patches.sh 应用仓库补丁。
 ### 5. MAGMA 默认启用；如需跳过（编译参数 USE_MAGMA=0），请追加参数 --no-magma。
 
-set -e
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 ### 使用方式
 ### 默认编译（启用 MAGMA）：
 ###   bash scripts/build_hcu.sh
+### 使用资源服务器自动选择 MAGMA：
+###   RESOURCE_SERVER_URL=http://10.16.1.201:8000 bash scripts/build_hcu.sh
 ### 关闭 MAGMA（跳过下载，USE_MAGMA=0）：
 ###   bash scripts/build_hcu.sh --no-magma
 ### manylinux 出包请在编译完成后单独执行：
@@ -37,24 +42,31 @@ done
 ### 从代码仓库拉取 PyTorch 代码分支（按需配置）
 export PYTORCH_REPO_URL="${PYTORCH_REPO_URL:-}"
 export PYTORCH_BRANCH="${PYTORCH_BRANCH:-}"
-export PYTORCH_ROOT="${PYTORCH_ROOT:-/workspace/pytorch}"
+export PYTORCH_ROOT="${PYTORCH_ROOT:-${REPO_ROOT}}"
 
 ### 设置已安装 DTK 路径和 MAGMA 下载地址（按需配置）
 export DTK_ROOT="${DTK_ROOT:-/opt/dtk}"
+export RESOURCE_SERVER_URL="${RESOURCE_SERVER_URL:-}"
 export MAGMA_URL="${MAGMA_URL:-}"
 
-if [ -z "${PYTORCH_REPO_URL}" ] || [ -z "${PYTORCH_BRANCH}" ]; then
-    echo "ERROR: PYTORCH_REPO_URL and PYTORCH_BRANCH must be set" >&2
-    exit 1
-fi
 if [ ! -f "${DTK_ROOT}/env.sh" ]; then
     echo "ERROR: DTK is not installed at ${DTK_ROOT}" >&2
     echo "Install DTK first, or set DTK_ROOT to the DTK installation directory." >&2
     exit 1
 fi
 
-### 设置 workspace
-if [ -d "${PYTORCH_ROOT}/.git" ]; then
+### 设置 workspace。CI 默认直接使用已经 checkout/合并完成的源码。
+if [ -n "${PYTORCH_REPO_URL}" ] || [ -n "${PYTORCH_BRANCH}" ]; then
+    if [ -z "${PYTORCH_REPO_URL}" ] || [ -z "${PYTORCH_BRANCH}" ]; then
+        echo "ERROR: PYTORCH_REPO_URL and PYTORCH_BRANCH must be set together" >&2
+        exit 1
+    fi
+elif [ ! -d "${PYTORCH_ROOT}/.git" ]; then
+    echo "ERROR: existing PyTorch checkout not found at ${PYTORCH_ROOT}" >&2
+    exit 1
+fi
+
+if [ -n "${PYTORCH_REPO_URL}" ] && [ -d "${PYTORCH_ROOT}/.git" ]; then
     echo ">>>>>>>>>>USE EXISTING PYTORCH SOURCE<<<<<<<<<<"
     cd "${PYTORCH_ROOT}"
     git remote set-url origin "${PYTORCH_REPO_URL}"
@@ -65,10 +77,13 @@ if [ -d "${PYTORCH_ROOT}/.git" ]; then
     else
         git checkout -b "${PYTORCH_BRANCH}" "origin/${PYTORCH_BRANCH}"
     fi
-else
+elif [ -n "${PYTORCH_REPO_URL}" ]; then
     echo ">>>>>>>>>>CLONE PYTORCH SOURCE<<<<<<<<<<"
     mkdir -p "$(dirname "${PYTORCH_ROOT}")"
     git clone --branch "${PYTORCH_BRANCH}" "${PYTORCH_REPO_URL}" "${PYTORCH_ROOT}"
+    cd "${PYTORCH_ROOT}"
+else
+    echo ">>>>>>>>>>USE CURRENT PYTORCH CHECKOUT<<<<<<<<<<"
     cd "${PYTORCH_ROOT}"
 fi
 WORK_SPACE=$(pwd)
@@ -77,7 +92,9 @@ export DISTDIR=${WORK_SPACE}/dist
 
 ### 设置 MKL 路径
 if [ -f /opt/intel/oneapi/mkl/latest/env/vars.sh ]; then
+    set +u
     source /opt/intel/oneapi/mkl/latest/env/vars.sh
+    set -u
 fi
 if [ -n "${MKLROOT:-}" ] && [ -d "${MKLROOT}/lib" ]; then
     export MKL_LIB_DIR="${MKLROOT}/lib"
@@ -114,14 +131,17 @@ copy_mkl_runtime_lib() {
 
 ### 导入 DTK 内置环境变量
 echo ">>>>>>>>>>LOAD INSTALLED DTK<<<<<<<<<<"
+set +u
 source "${DTK_ROOT}/env.sh"
+set -u
 
 ### 设置 PyTorch 编译所需的 DTK/ROCm 环境
 export ROCM_PATH="${DTK_ROOT}"
 export HIP_PATH="${ROCM_PATH}/hip"
 export AMDGPU_TARGETS="${AMDGPU_TARGETS:-gfx906;gfx926;gfx928;gfx936;gfx938}"
-export PYTHON_VERSION=3.10.12
+export PYTHON_VERSION="$(python3 -c 'import platform; print(platform.python_version())')"
 export PATH="${ROCM_PATH}/bin:${ROCM_PATH}/llvm/bin:${ROCM_PATH}/hcc/bin:${ROCM_PATH}/hip/bin:${ROCM_PATH}/miopen/bin:${PATH}"
+export HIPCC_COMPILE_FLAGS_APPEND="${HIPCC_COMPILE_FLAGS_APPEND:-} --gcc-toolchain=$(dirname "$(dirname "$(readlink -f "$(command -v g++)")")")"
 export LD_LIBRARY_PATH="${ROCM_PATH}/lib:${ROCM_PATH}/lib64:${ROCM_PATH}/hip/lib:${ROCM_PATH}/llvm/lib:${ROCM_PATH}/opencl/lib/x86_64:${ROCM_PATH}/miopen/lib:${ROCM_PATH}/rocblas/lib:${ROCM_PATH}/magma/lib:${MKL_LIB_DIR}:${LD_LIBRARY_PATH:-}"
 export MIOPEN_SYSTEM_DB_PATH="${ROCM_PATH}/miopen/share/miopen/db/"
 export PYTORCH_CUSTOM_SUFFIX=''
@@ -141,7 +161,8 @@ fi
 echo "Detected DTK release: ${DTK_RELEASE}"
 
 if [ "${DTK_RELEASE}" = "2604" ]; then
-    # DTK 26.04 needs explicit amd_comgr lookup in hip-lang-config.cmake.
+    : "${DTK2604_DEPENDENCY_1:?ERROR: DTK2604_DEPENDENCY_1 is required for DTK 26.04}"
+    : "${DTK2604_DEPENDENCY_2:?ERROR: DTK2604_DEPENDENCY_2 is required for DTK 26.04}"
     HIP_LANG_CONFIG="${DTK_ROOT}/hip/lib/cmake/hip-lang/hip-lang-config.cmake"
     python3 - "${HIP_LANG_CONFIG}" <<'PY'
 import os
@@ -152,6 +173,11 @@ import sys
 import tempfile
 
 path = Path(sys.argv[1])
+dependency_1 = os.environ["DTK2604_DEPENDENCY_1"]
+dependency_2 = os.environ["DTK2604_DEPENDENCY_2"]
+for dependency in (dependency_1, dependency_2):
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", dependency):
+        raise ValueError(f"invalid CMake dependency name: {dependency!r}")
 raw = path.read_bytes()
 bom = raw.startswith(b"\xef\xbb\xbf")
 text = raw.decode("utf-8-sig")
@@ -162,13 +188,13 @@ if b"\r\n" in raw and raw.count(b"\r\n") != raw.count(b"\n"):
 newline = "\r\n" if b"\r\n" in raw else "\n"
 text = text.replace("\r\n", "\n")
 old = re.compile(
-    r"(?m)^(?P<indent>[ \t]*)find_dependency\(AMDDeviceLibs\)\n"
-    r"(?P=indent)find_dependency\(amd_comgr\)[ \t]*$"
+    rf"(?m)^(?P<indent>[ \t]*)find_dependency\({re.escape(dependency_1)}\)\n"
+    rf"(?P=indent)find_dependency\({re.escape(dependency_2)}\)[ \t]*$"
 )
 anchor = 'include( "${CMAKE_CURRENT_LIST_DIR}/hip-lang-targets.cmake" )'
 replacement = (
-    "find_dependency(AMDDeviceLibs)\n"
-    "find_dependency(amd_comgr PATHS ${ROCM_PATH}/lib64/cmake/amd_comgr)\n"
+    f"find_dependency({dependency_1})\n"
+    f"find_dependency({dependency_2} PATHS ${{ROCM_PATH}}/lib64/cmake/{dependency_2})\n"
     + anchor
 )
 if replacement in text:
@@ -180,8 +206,8 @@ if len(old.findall(text)) != 1 or text.count(anchor) != 1:
     raise ValueError(f"unexpected hip-lang dependency layout in {path}")
 updated = old.sub(
     lambda match: (
-        f"{match['indent']}#find_dependency(AMDDeviceLibs)\n"
-        f"{match['indent']}#find_dependency(amd_comgr)"
+        f"{match['indent']}#find_dependency({dependency_1})\n"
+        f"{match['indent']}#find_dependency({dependency_2})"
     ),
     text,
     count=1,
@@ -204,6 +230,16 @@ PY
 elif [ "${DTK_RELEASE}" = "2610" ]; then
     # The 26.10 package keeps both temporary hip-lang edits disabled.
     echo "DTK 26.10: skip temporary hip-lang dependency edits"
+fi
+
+if [ -z "${MAGMA_URL}" ] && [ -n "${RESOURCE_SERVER_URL}" ]; then
+    RESOURCE_SERVER_URL="${RESOURCE_SERVER_URL%/}"
+    if [ "${DTK_RELEASE}" = "2604" ]; then
+        MAGMA_URL="${RESOURCE_SERVER_URL}/thirdparty/pytorch/magma-install.tar.gz"
+    elif [ "${DTK_RELEASE}" = "2610" ]; then
+        MAGMA_URL="${RESOURCE_SERVER_URL}/thirdparty/pytorch/magma_v2.8.0-hip_DTK26.10/MAGMA-v2.8.0_hip.dtk26.10-16Oct2026.tar.gz"
+    fi
+    export MAGMA_URL
 fi
 
 ### 加载 magma 库
@@ -392,7 +428,7 @@ USE_ROCM=1 \
 USE_LMDB=1 \
 USE_OPENCV=1 \
 USE_NUMPY=1 \
-USE_GLOG=1 \
+USE_GLOG="${USE_GLOG:-1}" \
 USE_GFLAGS=1 \
 USE_ROCM_CK_GEMM=0 \
 USE_ROCM_CK_SDPA=0 \
