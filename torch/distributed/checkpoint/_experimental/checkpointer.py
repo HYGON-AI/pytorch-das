@@ -1,6 +1,6 @@
 import abc
 import logging
-from concurrent.futures import Future
+from concurrent.futures import Future, wait
 from typing import Any, TypeVar
 
 from .checkpoint_process import CheckpointProcess
@@ -336,9 +336,10 @@ class AsyncCheckpointer(Checkpointer):
         This method should be called when the checkpointer is no longer needed to ensure
         proper cleanup of async resources.
         """
-        if self._write_future is not None:
-            self._write_future.result()
-
-        self._checkpoint_stager.close()
-        self._checkpoint_process.close()
+        try:
+            if self._write_future is not None:
+                wait([self._write_future])
+        finally:
+            self._checkpoint_stager.close()
+            self._checkpoint_process.close()
         logger.info("AsyncCheckpointer closed")
