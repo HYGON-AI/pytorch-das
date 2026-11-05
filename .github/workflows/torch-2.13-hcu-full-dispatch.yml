@@ -1,0 +1,21 @@
+name: torch-2.13-hcu-full-dispatch
+run-name: "torch-2.13-hcu-full - ${{ github.event_name }}"
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub cron is UTC: Beijing 00:00 every Saturday.
+    - cron: "0 16 * * 5"
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: PyTorch 2.13 build and full test
+    uses: HYGON-AI/pytorch-das/.github/workflows/github-ci.yml@2.13.0-dev
+    with:
+      suite: full
+      source_ref: 2.13.0-dev
+      merge_pr: false
+      publish: false
