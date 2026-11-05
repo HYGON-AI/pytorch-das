@@ -1,0 +1,112 @@
+name: torch-hcu-pr
+run-name: "torch-hcu-pr - ${{ github.event_name }} - ${{ github.event.pull_request.number || github.ref_name }}"
+
+on:
+  pull_request_target:
+    branches:
+      - 2.13.0-dev
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  push:
+    branches:
+      - 2.13.0-dev
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pytorch-${{ github.event.pull_request.number || github.ref_name || github.event_name }}
+  cancel-in-progress: >-
+    ${{
+      github.event_name == 'pull_request_target' &&
+      (github.event.action != 'labeled' ||
+       github.event.label.name == 'ready-hcu')
+    }}
+
+jobs:
+  authorize-pr:
+    name: authorize HCU execution
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      authorized: ${{ steps.authorization.outputs.authorized }}
+    steps:
+      - name: Verify ready-hcu authorization
+        id: authorization
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const label = "ready-hcu";
+            const {action, pull_request: pr} = context.payload;
+            const hasLabel = pr.labels.some(({name}) => name === label);
+            const locked = `HCU CI is locked for ${pr.head.sha}. ` +
+              `A trusted maintainer must apply the ${label} label.`;
+            const removeLabel = async () => {
+              if (!hasLabel) return;
+              try {
+                await github.rest.issues.removeLabel({
+                  ...context.repo,
+                  issue_number: pr.number,
+                  name: label,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            };
+
+            core.setOutput("authorized", "false");
+
+            if (action !== "labeled") {
+              const supported = ["opened", "reopened", "ready_for_review", "synchronize"];
+              if (!supported.includes(action)) {
+                core.setFailed(`Unsupported pull request action: ${action}.`);
+                return;
+              }
+              if (!hasLabel) return core.setFailed(locked);
+              core.setOutput("authorized", "true");
+              core.info(`HCU CI is authorized for PR #${pr.number}.`);
+              return;
+            }
+            if (context.payload.label?.name !== label) {
+              core.info(`Ignoring unrelated label: ${context.payload.label?.name}.`);
+              return;
+            }
+
+            const {data: {permission}} =
+              await github.rest.repos.getCollaboratorPermissionLevel({
+                ...context.repo,
+                username: context.actor,
+              });
+            if (!["write", "maintain", "admin"].includes(permission)) {
+              await removeLabel();
+              core.setFailed(
+                `${context.actor} cannot authorize HCU CI (permission: ${permission}).`
+              );
+              return;
+            }
+
+            core.setOutput("authorized", "true");
+            core.info(`${context.actor} authorized HCU CI for ${pr.head.sha}.`);
+
+  pipeline:
+    name: build, test and optional publish
+    needs: authorize-pr
+    if: >-
+      ${{
+        always() &&
+        (github.event_name != 'pull_request_target' ||
+         (needs.authorize-pr.result == 'success' &&
+          needs.authorize-pr.outputs.authorized == 'true'))
+      }}
+    uses: ./.github/workflows/github-ci.yml
+    with:
+      suite: pr
+      source_ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
+      merge_pr: ${{ github.event_name == 'pull_request_target' }}
+      pr_base_sha: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || '' }}
+      pr_head_sha: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || '' }}
+      publish: ${{ github.event_name == 'push' && github.ref_name == '2.13.0-dev' }}
+    secrets:
+      PYPI_PASSWORD: ${{ github.event_name == 'push' && secrets.PYPI_PASSWORD || '' }}
