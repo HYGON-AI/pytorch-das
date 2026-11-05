@@ -1,0 +1,258 @@
+name: PyTorch HCU CI
+
+on:
+  workflow_call:
+    inputs:
+      suite:
+        required: true
+        type: string
+      source_ref:
+        required: true
+        type: string
+      merge_pr:
+        type: boolean
+        default: false
+      pr_base_sha:
+        type: string
+        default: ""
+      pr_head_sha:
+        type: string
+        default: ""
+      publish:
+        type: boolean
+        default: false
+    secrets:
+      PYPI_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+    working-directory: source
+
+env:
+  RESOURCE_SERVER_URL: ${{ vars.RESOURCE_SERVER_URL }}
+  DTK_PKG_URL: ${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/dtk26.10/DTK-26.10-CentOS8.5-x86_64.tar.gz
+  PIP_INDEX_URL: ${{ vars.PYPI_URL }}/nightly/dtk2610/+simple/
+  BUILD_PIP_INDEX_URL: ${{ vars.PYPI_URL }}/nightly/dtk2610/+simple/
+  HCU_CI_INDEX_URL: ${{ vars.PYPI_URL }}/nightly/dtk2610/+simple/
+  AICC_INSTALLER_URL: ${{ vars.RESOURCE_SERVER_URL }}/ai_cc/Nightly/hcu_llvm_installer.sh
+
+jobs:
+  preflight:
+    runs-on: bw1100
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: source
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref }}
+      - id: check
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == schedule ]] &&
+             [[ -z "$(git log --since='7 days ago' -1 --format=%H)" ]]; then
+            echo should_run=false >> "${GITHUB_OUTPUT}"
+          else
+            echo should_run=true >> "${GITHUB_OUTPUT}"
+          fi
+
+  build:
+    needs: preflight
+    if: needs.preflight.outputs.should_run == 'true'
+    runs-on: bw1100
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+    container:
+      image: ${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py${{ matrix.python }}-mkl2024.2.0.664
+      options: >-
+        --init --ipc=host --shm-size=64g
+        --ulimit stack=10485760:83886080 --ulimit core=0
+        --device=/dev/kfd --device=/dev/dri --group-add video
+        --security-opt seccomp=unconfined --cap-add SYS_PTRACE
+        --volume /opt/hyhal:/opt/hyhal:ro
+    env:
+      USE_ROCM: "1"
+      MAX_JOBS: "32"
+      MAGMA_URL: ${{ vars.RESOURCE_SERVER_URL }}/thirdparty/pytorch/magma_v2.8.0-hip_DTK26.10/MAGMA-v2.8.0_hip.dtk26.10-16Oct2026.tar.gz
+      MAGMA_SHA256: ebd3f355981ee9f7b5405ab53a826c85741ff076821372e3eba6324e09dfd9f5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: source
+          fetch-depth: 0
+          ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
+      - name: Merge pull request
+        if: inputs.merge_pr
+        env:
+          PR_BASE_SHA: ${{ inputs.pr_base_sha }}
+          PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
+        run: |
+          git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
+          git checkout --detach "${PR_BASE_SHA}"
+          git -c user.name=github-actions -c user.email=ci@github merge --no-ff --no-edit "${PR_HEAD_SHA}"
+      - name: Configure index
+        run: |
+          host="${{ vars.PYPI_URL }}"
+          host="${host#*://}"
+          echo "PIP_TRUSTED_HOST=${host%%[:/]*}" >> "${GITHUB_ENV}"
+          if [[ "${{ matrix.python }}" == "3.10" ]]; then
+            python_lib="$(find /usr/local -maxdepth 3 -name 'libpython3.10.so.1.0' -print -quit 2>/dev/null)"
+            test -n "${python_lib}"
+            dirname "${python_lib}" > /etc/ld.so.conf.d/python.conf
+            ldconfig
+          fi
+      - name: Install DTK
+        run: |
+          if [[ ! -f /opt/dtk/env.sh ]]; then
+            wget --quiet --output-document=- -- "${DTK_PKG_URL}" | tar -xzf - -C /opt
+            mv /opt/dtk-* /opt/dtk
+          fi
+      - name: Build wheel
+        run: |
+          bash scripts/build_hcu.sh
+          bash scripts/build_hcu_manylinux.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: torch-dtk2610-py${{ matrix.python }}
+          path: |
+            source/dist/*.whl
+            source/build/bin/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  test:
+    needs: [preflight, build]
+    if: needs.preflight.outputs.should_run == 'true' && needs.build.result == 'success'
+    runs-on: ${{ matrix.target.runner }}
+    timeout-minutes: ${{ inputs.suite == 'full' && 4320 || matrix.mode == 'mr' && 720 || 240 }}
+    container:
+      image: ${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.12-mkl2024.2.0.664
+      options: >-
+        --init --ipc=host --shm-size=64g
+        --ulimit stack=10485760:83886080 --ulimit core=0
+        --device=/dev/kfd --device=/dev/dri --group-add video
+        --security-opt seccomp=unconfined --cap-add SYS_PTRACE
+        --volume /opt/hyhal:/opt/hyhal:ro
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: nmz
+            runner: bw1100
+          - name: bw
+            runner: bw1000
+        mode: ${{ fromJSON(inputs.suite == 'full' && '["full"]' || '["mr", "nn"]') }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: source
+          fetch-depth: 0
+          ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
+      - name: Merge pull request
+        if: inputs.merge_pr
+        env:
+          PR_BASE_SHA: ${{ inputs.pr_base_sha }}
+          PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
+        run: |
+          git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
+          git checkout --detach "${PR_BASE_SHA}"
+          git -c user.name=github-actions -c user.email=ci@github merge --no-ff --no-edit "${PR_HEAD_SHA}"
+      - name: Configure index and DTK
+        run: |
+          host="${{ vars.PYPI_URL }}"
+          host="${host#*://}"
+          echo "PIP_TRUSTED_HOST=${host%%[:/]*}" >> "${GITHUB_ENV}"
+          if [[ ! -f /opt/dtk/env.sh ]]; then
+            wget --quiet --output-document=- -- "${DTK_PKG_URL}" | tar -xzf - -C /opt
+            mv /opt/dtk-* /opt/dtk
+          fi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: torch-dtk2610-py3.12
+          path: source
+      - name: Install test tools
+        run: |
+          set +u
+          source /opt/dtk/env.sh
+          set -u
+          installer="$(mktemp)"
+          trap 'rm -f -- "${installer}"' EXIT
+          wget --quiet --output-document="${installer}" -- "${AICC_INSTALLER_URL}"
+          bash "${installer}" --major 2.0.0 --dtk-dir /opt/dtk
+          test -x /opt/dtk/bin/aicc
+          python3 -m pip install --no-cache-dir --upgrade --force-reinstall \
+            --index-url "${HCU_CI_INDEX_URL}" --trusted-host "${PIP_TRUSTED_HOST}" hcu-torch-ci
+      - name: Run tests
+        env:
+          TEST_MODE: ${{ matrix.mode }}
+          TEST_DEVICES: ${{ matrix.mode == 'nn' && '0' || '0,1,2,3,4,5,6,7' }}
+        run: |
+          set +u
+          source /opt/dtk/env.sh
+          set -u
+          shopt -s nullglob
+          wheels=(dist/*manylinux*.whl)
+          shopt -u nullglob
+          test "${#wheels[@]}" -eq 1
+          hcu-torch-ci run --mode "${TEST_MODE}" --repo "${PWD}" \
+            --torch-wheel "${wheels[0]}" --devices "${TEST_DEVICES}"
+      - name: Upload reports
+        if: always()
+        run: |
+          if [[ -d test/test-reports ]]; then
+            mkdir -p test-reports
+            cp -R test/test-reports/. test-reports/
+          fi
+      - name: Save reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reports-dtk2610-py3.12-${{ matrix.target.name }}-${{ matrix.mode }}
+          path: source/test-reports
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    needs: [preflight, build, test]
+    if: inputs.publish && inputs.suite == 'pr' && needs.preflight.outputs.should_run == 'true' && needs.build.result == 'success' && needs.test.result == 'success'
+    runs-on: bw1100
+    container:
+      image: ${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.12-mkl2024.2.0.664
+    env:
+      DEVPI_URL: ${{ vars.PYPI_URL }}
+      PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: source
+          ref: ${{ inputs.source_ref }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: torch-dtk2610-py3.10
+          path: source/publish-dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: torch-dtk2610-py3.12
+          path: source/publish-dist
+      - name: Publish wheel
+        run: |
+          python3 -m pip install --no-cache-dir --upgrade CIUpload
+          shopt -s nullglob
+          wheels=(publish-dist/dist/*manylinux*.whl)
+          shopt -u nullglob
+          test "${#wheels[@]}" -eq 2
+          for wheel in "${wheels[@]}"; do
+            CIUpload REPAIR --dtk_version 2610 --git_commit "$(git rev-parse --short=6 HEAD)" \
+              --outputdir output -f "${wheel}"
+          done
+          CIUpload NIGHTLY --devpi_url "${DEVPI_URL}" --password "${PYPI_PASSWORD}" \
+            --dtk_pkg_name DTK-26.10-CentOS8.5-x86_64.tar.gz --record -f output/*manylinux*.whl
