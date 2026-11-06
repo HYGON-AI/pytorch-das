@@ -204,10 +204,10 @@ class CKGroupedConvFwdTemplate(CKTemplate):
         }
 
         // when debugging, do time kernel to serialize launches
-        auto stream_config = StreamConfig{stream, /* time kernel */ false, /* log level */ 0};
+        auto stream_config = StreamConfig{stream, /* time kernel */ false};
 
         if (workspace != nullptr) {
-            conv.SetWorkSpacePointer(&argument, workspace, stream_config);
+            conv.SetWorkSpacePointer(&argument, workspace);
         }
 
         // run the kernel
@@ -282,7 +282,8 @@ class CKGroupedConvFwdTemplate(CKTemplate):
                 using G_K    = ck::tensor_layout::convolution::G_K;
 
                 using BlockGemmPipelineScheduler = ck::BlockGemmPipelineScheduler;
-                using GemmSpecialization = ck::tensor_operation::device::GemmSpecialization;
+                static constexpr auto ConvFwdDefault = ck::tensor_operation::device::ConvolutionForwardSpecialization::Default;
+                static constexpr auto GemmMNKPadding = ck::tensor_operation::device::GemmSpecialization::MNKPadding;
                 using BlockGemmPipelineVersion = ck::BlockGemmPipelineVersion;
 
                 using ConvolutionForwardSpecialization = ck::tensor_operation::device::ConvolutionForwardSpecialization;
@@ -293,7 +294,7 @@ class CKGroupedConvFwdTemplate(CKTemplate):
                 namespace utils {
                 namespace conv {
 
-                ConvParam::ConvParam(ck::index_t n_dim,
+                ck::utils::conv::ConvParam::ConvParam(ck::index_t n_dim,
                                     ck::index_t group_count,
                                     ck::index_t n_batch,
                                     ck::index_t n_out_channels,
@@ -303,7 +304,8 @@ class CKGroupedConvFwdTemplate(CKTemplate):
                                     const std::vector<ck::index_t>& strides,
                                     const std::vector<ck::index_t>& dilations,
                                     const std::vector<ck::index_t>& left_pads,
-                                    const std::vector<ck::index_t>& right_pads)
+                                    const std::vector<ck::index_t>& right_pads,
+                                    const std::string&& instance_name)
                     : num_dim_spatial_(static_cast<ck::long_index_t>(n_dim)),
                     G_(static_cast<ck::long_index_t>(group_count)),
                     N_(static_cast<ck::long_index_t>(n_batch)),
@@ -358,9 +360,19 @@ class CKGroupedConvFwdTemplate(CKTemplate):
                 // in CK's utility library. For architectural reasons, generated code doesn't
                 // link with this library, so we provide local definitions here.
                 // CalculateStrides is omitted as it became a template method in CK 4266f867.
-                const std::vector<std::size_t>& ck::HostTensorDescriptor::GetLengths() const { return mLens; }
-                const std::vector<std::size_t>& ck::HostTensorDescriptor::GetStrides() const { return mStrides; }
-                std::size_t ck::HostTensorDescriptor::GetNumOfDimension() const { return mLens.size(); }
+                const std::vector<std::size_t>& HostTensorDescriptor::GetLengths() const { return mLens; }
+                const std::vector<std::size_t>& HostTensorDescriptor::GetStrides() const { return mStrides; }
+                std::size_t HostTensorDescriptor::GetNumOfDimension() const { return mLens.size(); }
+                void HostTensorDescriptor::CalculateStrides() {
+                    mStrides.clear();
+                    mStrides.resize(mLens.size(), 0);
+                    if(mStrides.empty())
+                        return;
+
+                    mStrides.back() = 1;
+                    std::partial_sum(
+                        mLens.rbegin(), mLens.rend() - 1, mStrides.rbegin() + 1, std::multiplies<std::size_t>());
+                }
             """
         )
         return res
@@ -371,7 +383,7 @@ class CKGroupedConvFwdTemplate(CKTemplate):
             """
                 // CK conv headers
 
-                #include "ck/tensor_operation/gpu/device/impl/device_grouped_conv_fwd_multiple_abd_xdl_cshuffle_v3.hpp"
+                #include "ck/tensor_operation/gpu/device/impl/device_grouped_conv_fwd_multiple_d_xdl_cshuffle.hpp"
                 #include "ck/tensor_operation/gpu/device/convolution_forward_specialization.hpp"
                 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
 
@@ -466,7 +478,6 @@ class CKGroupedConvFwdTemplate(CKTemplate):
 
     def gen_ops(self):
         unfiltered_instances = gen_conv_ops_library()
-
         filtered_instances = list(
             filter(lambda op: self.filter_op(op), unfiltered_instances)
         )
@@ -493,7 +504,7 @@ class CKGroupedConvFwdTemplate(CKTemplate):
         template_definition = r"""
     // Gemm operator {{operation_name}}
     using Operation_{{operation_name}} =
-        ck::tensor_operation::device::DeviceGroupedConvFwdMultipleABD_Xdl_CShuffle_V3<
+        ck::tensor_operation::device::DeviceGroupedConvFwdMultipleD_Xdl_CShuffle<
             {{template_params}}>;
 
 """
@@ -513,6 +524,8 @@ class CKGroupedConvFwdTemplate(CKTemplate):
                 template_params.append(arg)
             else:
                 if field_value is not None:
+                    if isinstance(field_value, bool):
+                        field_value = str(field_value).lower()
                     # pyrefly: ignore [bad-argument-type]
                     template_params.append(f"/* {field_name} */ {field_value}")
         return self._template_from_string(template_definition).render(
