@@ -1,0 +1,23 @@
+name: torch-hcu-full
+run-name: "torch-hcu-full - ${{ github.event_name }} - ${{ github.ref_name || 'scheduled' }}"
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub cron is UTC: Beijing 00:00 every Saturday.
+    # The reusable workflow skips the full test when the branch has had no
+    # commits during the previous seven days.
+    - cron: "0 16 * * 5"
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: build and full test
+    uses: ./.github/workflows/github-ci.yml
+    with:
+      suite: full
+      source_ref: 2.14.1-dev
+      merge_pr: false
+      publish: false
