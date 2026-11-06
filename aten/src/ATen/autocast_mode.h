@@ -849,6 +849,8 @@ copy pasted in from VariableTypeEverything.cpp with appropriate substitutions.
   _(rnn_tanh_cell)                       \
   _(rnn_relu_cell)                       \
   _(_scaled_dot_product_flash_attention) \
+  _(_scaled_dot_product_flash_attention_masked) \
+  _(_scaled_dot_product_flash_attention_varlen_masked) \
   _(scaled_dot_product_attention)
 
 #define AT_FORALL_FP32(_)             \

@@ -3712,6 +3712,27 @@ def sdpa_constraint(fx_node, *args, **kwargs):
     return args, kwargs
 
 
+def masked_sdpa_constraint(fx_node, *args, **kwargs):
+    args, kwargs = sdpa_constraint(fx_node, *args, **kwargs)
+    args = list(args)
+    contiguous_names = {
+        "attn_mask",
+        "cumulative_sequence_length_q",
+        "cumulative_sequence_length_k",
+        "logsumexp",
+        "rng_state",
+    }
+    for index, argument in enumerate(fx_node.target._schema.arguments):
+        if argument.name not in contiguous_names:
+            continue
+        if index < len(args) and isinstance(args[index], ir.IRNode):
+            args[index] = ir.ExternKernel.require_contiguous(args[index])
+        elif argument.name in kwargs and isinstance(kwargs[argument.name], ir.IRNode):
+            kwargs[argument.name] = ir.ExternKernel.require_contiguous(
+                kwargs[argument.name]
+            )
+    return tuple(args), kwargs
+
 # WIP
 make_fallback(aten._adaptive_avg_pool3d)  # @isuruf
 make_fallback(aten.adaptive_max_pool3d, override_decomp=True)
@@ -3932,6 +3953,27 @@ make_fallback(
     aten._scaled_dot_product_flash_attention.quantized,
     warn=False,
 )
+make_fallback(
+    aten._scaled_dot_product_flash_attention_masked.default,
+    masked_sdpa_constraint,
+    warn=False,
+)
+make_fallback(
+    aten._scaled_dot_product_flash_attention_masked_backward.default,
+    masked_sdpa_constraint,
+    warn=False,
+)
+make_fallback(
+    aten._scaled_dot_product_flash_attention_varlen_masked.default,
+    masked_sdpa_constraint,
+    warn=False,
+)
+make_fallback(
+    aten._scaled_dot_product_flash_attention_varlen_masked_backward.default,
+    masked_sdpa_constraint,
+    warn=False,
+)
+
 make_fallback(
     aten._scaled_dot_product_flash_attention_backward.default,
     sdpa_constraint,

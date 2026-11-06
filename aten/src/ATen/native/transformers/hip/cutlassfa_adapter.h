@@ -6,11 +6,14 @@
 #define CUTLASSFA_ADAPTER_H
 
 #ifdef USE_ROCM
+#include <cstdio>
 #include <dlfcn.h>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <fnmatch.h>
 #include <vector>
+#include <typeinfo>
 #include <ATen/hip/HIPContext.h>
 #include <c10/core/ScalarType.h>
 #include <ATen/core/Tensor.h>
@@ -74,6 +77,37 @@ typedef std::vector<at::Tensor> (*mha_varlen_bwd_func)(const at::Tensor , const 
 typedef int (*get_fa_api_changed)();
 
 
+using mha_fwd_attnmask_func = std::vector<at::Tensor> (*)(
+    at::Tensor&, const at::Tensor&, const at::Tensor&, const at::Tensor&,
+    std::optional<at::Tensor>&, std::optional<at::Tensor>&,
+    float, float, bool, int, int, float, float, bool,
+    std::optional<at::Generator>, bool, const std::optional<at::Tensor>&,
+    const std::optional<at::Tensor>&);
+
+using mha_bwd_attnmask_func = std::vector<at::Tensor> (*)(
+    const at::Tensor&, const at::Tensor&, const at::Tensor&, const at::Tensor&,
+    const at::Tensor&, const at::Tensor&, const at::Tensor&,
+    std::optional<at::Tensor>&, std::optional<at::Tensor>&,
+    std::optional<at::Tensor>&, std::optional<at::Tensor>&,
+    float, float, bool, int, int, float, bool,
+    std::optional<at::Generator>, std::optional<at::Tensor>&, bool);
+
+using mha_varlen_fwd_attnmask_func = std::vector<at::Tensor> (*)(
+    at::Tensor&, const at::Tensor&, const at::Tensor&, const at::Tensor&,
+    std::optional<at::Tensor>&, const at::Tensor&, const at::Tensor&,
+    std::optional<at::Tensor>&, std::optional<at::Tensor>&,
+    int, int, float, float, bool, bool, int, int, float, float, bool,
+    std::optional<at::Generator>, const std::optional<at::Tensor>&);
+
+using mha_varlen_bwd_attnmask_func = std::vector<at::Tensor> (*)(
+    const at::Tensor&, const at::Tensor&, const at::Tensor&, const at::Tensor&,
+    const at::Tensor&, const at::Tensor&, const at::Tensor&,
+    std::optional<at::Tensor>&, std::optional<at::Tensor>&,
+    std::optional<at::Tensor>&, const at::Tensor&, const at::Tensor&,
+    std::optional<at::Tensor>&, int, int, float, float, bool, bool,
+    int, int, float, bool, std::optional<at::Generator>,
+    std::optional<at::Tensor>&);
+
 // 查找匹配的动态库文件
 std::string find_matching_libraries(const fs::path& directory, const std::string& pattern) {
     bool found = false;
@@ -121,6 +155,31 @@ std::string get_so_path() {
   return fa_so_p;
 }
 
+bool supports_mask_dropout(const fs::path& fa_so_path) {
+  const auto version_path =
+      fa_so_path.parent_path() / "flash_attn" / "version.py";
+  std::ifstream version_file(version_path);
+  std::string line;
+
+  while (std::getline(version_file, line)) {
+    int major = 0;
+    int minor = 0;
+    int patch = 0;
+    if (std::sscanf(
+            line.c_str(),
+            "version = '%d.%d.%d'",
+            &major,
+            &minor,
+            &patch) == 3) {
+      return major > 2 ||
+          (major == 2 &&
+           (minor > 8 || (minor == 8 && patch >= 4)));
+    }
+  }
+
+  return false;
+}
+
 namespace sdp {
 
 namespace cutlassfa_adapter {
@@ -134,10 +193,16 @@ public:
     mha_varlen_fwd_func mha_varlen_fwd = nullptr;
 
     mha_varlen_bwd_func mha_varlen_bwd = nullptr;
+    mha_fwd_attnmask_func mha_fwd_attnmask = nullptr;
+    mha_bwd_attnmask_func mha_bwd_attnmask = nullptr;
+    mha_varlen_fwd_attnmask_func mha_varlen_fwd_attnmask = nullptr;
+    mha_varlen_bwd_attnmask_func mha_varlen_bwd_attnmask = nullptr;
     // mha_fwd_kvcache_func mha_fwd_kvcache = nullptr;
     CUTLASSFA() {
 
       auto fa_so_p = get_so_path();
+      mask_dropout_supported_ =
+          supports_mask_dropout(fs::path(fa_so_p));
       handle = dlopen(fa_so_p.c_str(), RTLD_LAZY);
       if(!handle){
         TORCH_CHECK(false, "Not load library for Cutlass Fa so");
@@ -166,6 +231,28 @@ public:
           dlclose(handle);
           TORCH_CHECK(false, "无法获取flash-attn 函数符号: ");
       }
+      mha_fwd_attnmask =
+          load_optional_mask_api<mha_fwd_attnmask_func>("mha_fwd_attnmask");
+      mha_bwd_attnmask =
+          load_optional_mask_api<mha_bwd_attnmask_func>("mha_bwd_attnmask");
+      mha_varlen_fwd_attnmask =
+          load_optional_mask_api<mha_varlen_fwd_attnmask_func>(
+              "mha_varlen_fwd_attnmask");
+      mha_varlen_bwd_attnmask =
+          load_optional_mask_api<mha_varlen_bwd_attnmask_func>(
+              "mha_varlen_bwd_attnmask");
+    }
+
+    bool has_attnmask_api() const {
+      return mha_fwd_attnmask && mha_bwd_attnmask;
+    }
+
+    bool has_varlen_attnmask_api() const {
+      return mha_varlen_fwd_attnmask && mha_varlen_bwd_attnmask;
+    }
+
+    bool supports_attnmask_dropout() const {
+      return mask_dropout_supported_;
     }
 
     static CUTLASSFA &get_instance(){
@@ -181,7 +268,32 @@ public:
     CUTLASSFA& operator=(const CUTLASSFA&) = delete;
     CUTLASSFA& operator=(CUTLASSFA&&) = delete;
 private:
+    template <typename Fn>
+    Fn load_optional_mask_api(const char* name) {
+      // HYGON wheels expose pybind function-pointer RTTI. Fail closed when
+      // the signature is unknown (the mask forward ABI gained an argument).
+      const auto signature = std::string("_ZTS") + typeid(Fn).name();
+      dlerror();
+      auto* signature_symbol = dlsym(handle, signature.c_str());
+      const auto* signature_error = dlerror();
+      if (!signature_symbol || signature_error) {
+        return nullptr;
+      }
+      dlerror();
+      auto* symbol = dlsym(handle, name);
+      const auto* error = dlerror();
+      Dl_info signature_info{};
+      Dl_info function_info{};
+      if (error || !symbol || !dladdr(signature_symbol, &signature_info) ||
+          !dladdr(symbol, &function_info) ||
+          signature_info.dli_fbase != function_info.dli_fbase) {
+        return nullptr;
+      }
+      return reinterpret_cast<Fn>(symbol);
+    }
+
     void* handle;
+    bool mask_dropout_supported_ = false;
     static bool is_new;
     ~CUTLASSFA(){
         dlclose(handle);
