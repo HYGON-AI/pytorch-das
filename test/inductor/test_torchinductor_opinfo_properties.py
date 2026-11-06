@@ -584,7 +584,6 @@ XFAIL_DICTS = {
 
 ROCM_EAGER_EQUIV_XFAILS = {
     "aot_eager_decomp_partition": {
-        "nn.functional.gelu": {fp32},
         "nn.functional.layer_norm": {fp32},
         "nn.functional.rms_norm": {fp32},
         "softmax": {fp32},
@@ -595,14 +594,13 @@ ROCM_EAGER_EQUIV_XFAILS = {
         "sigmoid": {fp32},
         "nn.functional.gelu": {fp32},
         "nn.functional.layer_norm": {fp32},
-        "nn.functional.silu": {fp16, fp32},
+        "nn.functional.silu": {fp32},
         "softmax": {fp32},
         "log_softmax": {fp32},
     },
     "inductor_numerics": {
         "sigmoid": {fp32},
         "sub": {ALL},
-        "nn.functional.gelu": {fp32},
         "nn.functional.layer_norm": {fp32},
         "softmax": {fp32},
         "log_softmax": {fp32},

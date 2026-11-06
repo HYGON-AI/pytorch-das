@@ -236,6 +236,11 @@ class TestFullyShardOverlap(FSDPTest):
         test_time = _time_fn(functools.partial(run_train_steps, num_iters, True))
 
         buffer_ms = 4  # CPU delays and copies
+        if torch.version.hip:
+            # Per-iteration FSDP overhead (kernel launches, cross-stream event
+            # waits) is several times higher on ROCm and is only partly hidden
+            # behind the GPU sleeps; leave more slack per iteration.
+            buffer_ms = 15
         # Baseline: FSDP all-gather is exposed since the FSDP module waits for
         # the current stream and hence the high-compute linear
         self.assertLessEqual(

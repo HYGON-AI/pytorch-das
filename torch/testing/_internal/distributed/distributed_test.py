@@ -7126,7 +7126,7 @@ class DistributedTest:
 
                 self.assertEqual(attrs["pg_name"], "0")  # yes this is a string
                 self.assertEqual(attrs["pg_desc"], "default_pg")
-                self.assertEqual(attrs["pg_size"], 2)
+                self.assertEqual(attrs["pg_size"], dist.get_world_size())
 
                 self.assertGreaterEqual(attrs.get("in_msg_nelems", -1), 0)
                 self.assertGreaterEqual(attrs.get("out_msg_nelems", -1), 0)

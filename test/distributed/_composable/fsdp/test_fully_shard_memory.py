@@ -5,6 +5,7 @@ import gc
 import unittest
 
 import torch
+from torch.utils.checkpoint import checkpoint
 from torch.distributed.fsdp import CPUOffloadPolicy, fully_shard, OffloadPolicy
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest, get_devtype
@@ -84,6 +85,16 @@ class TestFullyShardMemory(FSDPTest):
         # row-/col-majorness.
         inp = torch.randn(2, 768, device=device_type)
         lin(inp).sum().backward()
+        if torch.version.hip:
+            # ROCm keeps separate hipBLAS / hipBLASLt workspaces per thread;
+            # touch every combination before measuring the baseline.
+            for shape in [(1, 768), (2, 768), (16, 768), (256, 768), (4096, 768)]:
+                w = torch.nn.Linear(768, 768, device=device_type)
+                x = torch.randn(*shape, device=device_type, requires_grad=True)
+                w(x).sum().backward()
+                checkpoint(w, x, use_reentrant=False).sum().backward()
+            a = torch.randn(4, 16, 64, device=device_type, requires_grad=True)
+            torch.bmm(a, a.transpose(1, 2)).sum().backward()
         torch.get_device_module(device_type).empty_cache()
         base_mem_mb = self._get_peak_active_memory_mb()
         vocab_size = 32

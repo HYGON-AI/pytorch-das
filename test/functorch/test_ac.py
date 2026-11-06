@@ -326,6 +326,9 @@ class MemoryBudgetTest(TestCase):
         self.assertEqual(mem, 12)
         self.assertEqual(flops - eager_flops, 2 * 2 * 6 + 4 * 4 * 4)
 
+    @unittest.skipIf(
+        TEST_WITH_ROCM, "test requires memory-efficient attention unavailable on ROCm"
+    )
     def test_attention_vs_linear(self):
         def f(x, w):
             orig_shape = x.shape
