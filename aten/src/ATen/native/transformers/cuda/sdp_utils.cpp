@@ -26,6 +26,10 @@
 #include <c10/core/SymInt.h>
 #include <cstdint>
 
+#if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION)
+#include <ATen/native/transformers/hip/flash_attn/flash_api.h>
+#endif
+
 #if USE_ROCM
 #if defined(USE_FLASH_ATTENTION) && defined(USE_MEM_EFF_ATTENTION)
 #include <ATen/native/transformers/hip/aotriton_versions.h>
@@ -860,6 +864,49 @@ bool check_dtypes_flash_attention(sdp_params const& params, bool debug) {
   }
 }
 
+bool check_flash_attention_mask(sdp_params const& params, bool debug) {
+  if (!params.attn_mask.has_value()) {
+    return true;
+  }
+#if defined(USE_ROCM) && defined(USE_FLASH_ATTENTION)
+  const auto& mask = *params.attn_mask;
+  const auto& q = params.query;
+  const auto& k = params.key;
+  const auto& v = params.value;
+  // The remaining SDPA constraints check hardware, Q/K/V dtypes and strides.
+  if (has_only_dense_inputs(params) && !mask.is_nested() &&
+      q.layout() == at::kStrided && k.layout() == at::kStrided &&
+      v.layout() == at::kStrided && mask.layout() == at::kStrided &&
+      mask.dim() == 4 && mask.scalar_type() == at::kBool &&
+      mask.is_contiguous() && mask.device() == q.device() &&
+      k.device() == q.device() && v.device() == q.device() &&
+      params.dropout >= 0.0 && params.dropout < 1.0 &&
+      (params.dropout == 0.0 ||
+       pytorch_flash::supports_cutlass_attnmask_dropout()) &&
+      q.sym_size(0) > 0 && q.sym_size(1) > 0 &&
+      k.sym_size(1) > 0 && v.sym_size(1) > 0 &&
+      k.sym_size(2) == v.sym_size(2) &&
+      (q.sym_size(3) == 64 || q.sym_size(3) == 128) &&
+      (q.scalar_type() == at::kHalf || q.scalar_type() == at::kBFloat16) &&
+      mask.sym_size(0) == q.sym_size(0) && mask.sym_size(1) == q.sym_size(1) &&
+      mask.sym_size(2) == q.sym_size(2) && mask.sym_size(3) == k.sym_size(2) &&
+      at::globalContext().getROCmFAPreferredBackend() == at::ROCmFABackend::Cutlass &&
+      pytorch_flash::has_cutlass_attnmask_api()) {
+    return true;
+  }
+  if (debug) {
+    TORCH_WARN(
+        "Masked Flash attention requires a compatible Cutlass FA mask API, "
+        "fp16/bf16 head_dim 64 or 128, a contiguous bool mask [B,Hq,Lq,Lk], "
+        "0 <= dropout_p < 1, and flash-attn >= 2.8.4 when dropout_p > 0. "
+        "Explicit mask and causal are intersected by FA.");
+  }
+  return false;
+#else
+  return check_for_attn_mask(params, debug);
+#endif
+}
+
 bool check_runtime_disabled_cudnn(sdp_params const& params, bool debug) {
   // We check the global context to see if user has explicitly turned of cudnn
   // sdp kernels
@@ -967,7 +1014,7 @@ bool can_use_flash_attention(sdp_params const& params, bool debug) {
       check_runtime_disabled_flash,
       check_all_tensors_on_device,
       check_tensor_shapes,
-      check_for_attn_mask,
+      check_flash_attention_mask,
       check_head_dim_size_flash<false /*caller_is_meff*/>,
       check_flash_attention_hardware_support,
       check_requires_grad_and_head_dim_gt192_constraints_on_sm86_89_or_120,
