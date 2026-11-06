@@ -64,6 +64,11 @@ class CKTileGemmOperation:
     pipeline: str
     scheduler: str
     epilogue: str
+    
+    m_repeat: int = 0
+    n_repeat: int = 0
+    m_interleave: int = 0
+    n_interleave: int = 0
 
     def layout_repr(self):
         return f"{self.layout_a[0]}{self.layout_b[0]}{self.layout_c[0]}"
@@ -102,8 +107,8 @@ def ops():
     Generate the supported instance dataclasses
     """
     import itertools
-
-    compute_v3_instances = [
+    
+    v1_instances = [
         CKTileGemmOperation(
             layout_a=layout_a,
             layout_b=layout_b,
@@ -123,105 +128,59 @@ def ops():
             m_is_padded=m_is_padded,
             n_is_padded=n_is_padded,
             k_is_padded=k_is_padded,
-            pipeline="CompV3",
+            m_repeat=m_repeat,
+            n_repeat=n_repeat,
+            m_interleave=m_interleave,
+            n_interleave=n_interleave,
+            pipeline="V1",
             scheduler="Intrawave",
             epilogue=epilogue,
         )
-        for (layout_a, layout_b, layout_c) in [
-            ("Row", "Row", "Row"),
-            ("Row", "Col", "Row"),
+        for layout_a, layout_b, layout_c in [("Row", "Row", "Row"),("Row", "Col", "Row"),("Col", "Col", "Row"),("Col", "Row", "Row")]
+        for datatype_a, datatype_b, datatype_c, tile_m, tile_n, tile_k, warp_m, warp_n, warp_k, warp_tile_m, warp_tile_n, warp_tile_k,  m_is_padded, n_is_padded, k_is_padded, m_repeat, n_repeat, m_interleave, n_interleave in [
+            # FP16
+            ("F16", "F16", "F16", 128, 128, 32, 4, 1, 1, 32, 64, 32, "false", "false", "false", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 32, 2, 2, 1, 16, 64, 32, "true", "true", "true", 1, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 32, 2, 2, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 128, 32, 2, 2, 1, 32, 64, 32, "true", "true", "true", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 32, 2, 2, 1, 32, 64, 32, "true", "true", "true", 2, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 128, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 128, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 2, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 128, 64, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 64, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 128, 64, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 64, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 2, 1, 4),
+            ("F16", "F16", "F16", 128, 128, 64, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 64, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 64, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("F16", "F16", "F16", 128, 64, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 128, 64, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 4, 1, 1),
+            ("F16", "F16", "F16", 256, 128, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 1, 1, 4),
+            ("F16", "F16", "F16", 256, 128, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("F16", "F16", "F16", 256, 128, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 256, 128, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 2, 1, 4),
+            ("F16", "F16", "F16", 256, 128, 32, 4, 1, 1, 32, 64, 32, "true", "true", "true", 2, 4, 1, 1),
+            ("F16", "F16", "F16", 64, 128, 32, 2, 2, 1, 16, 64, 32, "true", "true", "true", 1, 1, 1, 4),
+            ("F16", "F16", "F16", 64, 128, 32, 2, 2, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("F16", "F16", "F16", 64, 128, 32, 2, 2, 1, 32, 64, 32, "true", "true", "true", 2, 1, 1, 4),
+            ("F16", "F16", "F16", 64, 128, 32, 2, 2, 1, 32, 64, 32, "true", "true", "true", 2, 4, 1, 1),
+            # BF16
+            ("BF16", "BF16", "BF16", 128, 128, 32, 2, 2, 1, 16, 64, 32, "false", "false", "false", 1, 4, 1, 1),
+            ("BF16", "BF16", "BF16", 128, 128, 32, 2, 2, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("BF16", "BF16", "BF16", 128, 128, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("BF16", "BF16", "BF16", 128, 128, 64, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("BF16", "BF16", "BF16", 128, 64, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("BF16", "BF16", "BF16", 256, 128, 32, 4, 1, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
+            ("BF16", "BF16", "BF16", 64, 128, 32, 2, 2, 1, 16, 64, 32, "true", "true", "true", 1, 4, 1, 1),
         ]
-        for (datatype_a, datatype_b, datatype_c) in [("FP16",) * 3, ("BF16",) * 3]
-        for (tile_m, tile_n, tile_k) in [(256, 256, 32), (256, 256, 64)]
-        for (warp_m, warp_n, warp_k) in [(2, 2, 1)]
-        for (warp_tile_m, warp_tile_n, warp_tile_k) in [(32, 32, 16)]
-        for m_is_padded in ["true", "false"]
-        for n_is_padded in ["true", "false"]
-        for k_is_padded in ["true", "false"]
-        for epilogue in ["Default", "CShuffle"]
-    ]
-
-    compute_v4_instances = [
-        CKTileGemmOperation(
-            layout_a=layout_a,
-            layout_b=layout_b,
-            layout_c=layout_c,
-            datatype_a=datatype_a,
-            datatype_b=datatype_b,
-            datatype_c=datatype_c,
-            tile_m=tile_m,
-            tile_n=tile_n,
-            tile_k=tile_k,
-            warp_m=warp_m,
-            warp_n=warp_n,
-            warp_k=warp_k,
-            warp_tile_m=warp_tile_m,
-            warp_tile_n=warp_tile_n,
-            warp_tile_k=warp_tile_k,
-            m_is_padded=m_is_padded,
-            n_is_padded=n_is_padded,
-            k_is_padded=k_is_padded,
-            pipeline="CompV4",
-            scheduler="Intrawave",
-            epilogue=epilogue,
-        )
-        for (layout_a, layout_b, layout_c) in [
-            ("Row", "Row", "Row"),
-            ("Row", "Col", "Row"),
-        ]
-        for (datatype_a, datatype_b, datatype_c) in [("FP16",) * 3, ("BF16",) * 3]
-        for (tile_m, tile_n, tile_k) in [
-            (256, 256, 32)
-        ]  # half the tile size since it has double buffering
-        for (warp_m, warp_n, warp_k) in [(2, 2, 1)]
-        for (warp_tile_m, warp_tile_n, warp_tile_k) in [(32, 32, 16)]
-        for m_is_padded in ["true", "false"]
-        for n_is_padded in ["true", "false"]
-        for k_is_padded in ["true", "false"]
-        for epilogue in ["Default", "CShuffle"]
-    ]
-
-    mem_instances = [
-        CKTileGemmOperation(
-            layout_a=layout_a,
-            layout_b=layout_b,
-            layout_c=layout_c,
-            datatype_a=datatype_a,
-            datatype_b=datatype_b,
-            datatype_c=datatype_c,
-            tile_m=tile_m,
-            tile_n=tile_n,
-            tile_k=tile_k,
-            warp_m=warp_m,
-            warp_n=warp_n,
-            warp_k=warp_k,
-            warp_tile_m=warp_tile_m,
-            warp_tile_n=warp_tile_n,
-            warp_tile_k=warp_tile_k,
-            m_is_padded=m_is_padded,
-            n_is_padded=n_is_padded,
-            k_is_padded=k_is_padded,
-            pipeline="Mem",
-            scheduler=scheduler,
-            epilogue=epilogue,
-        )
-        for (layout_a, layout_b, layout_c) in [
-            ("Row", "Row", "Row"),
-            ("Row", "Col", "Row"),
-        ]
-        for (datatype_a, datatype_b, datatype_c) in [("FP16",) * 3, ("BF16",) * 3]
-        for (tile_m, tile_n, tile_k) in [(256, 256, 32), (256, 256, 64)]
-        for (warp_m, warp_n, warp_k) in [(2, 2, 1)]
-        for (warp_tile_m, warp_tile_n, warp_tile_k) in [(32, 32, 16)]
-        for m_is_padded in ["true", "false"]
-        for n_is_padded in ["true", "false"]
-        for k_is_padded in ["true", "false"]
-        for scheduler in ["Intrawave", "Interwave"]
-        for epilogue in ["Default", "CShuffle"]
-    ]
-
+        for epilogue in ["Default"]
+    ] 
+    
     return list(
-        itertools.chain(compute_v3_instances, compute_v4_instances, mem_instances)
+        itertools.chain(v1_instances)
     )
 
 
@@ -237,63 +196,25 @@ class CKTileGemmTemplate(CKTileTemplate):
     extern "C" {
     PT_EXPORT {{kernel_definition}} {
 
-        using {{instance_namespace}}::BaseGemmPipeline;
-        using {{instance_namespace}}::TilePartitioner;
-
-        constexpr auto TileK = {{instance_namespace}}::TileK;
-        constexpr auto kPrefetchStages = BaseGemmPipeline::PrefetchStages;
-
-        const auto BiasTerms = std::array<const void*, 0> ();
-        const auto BiasStrides = std::array<int32_t, 0> ();
-
-        auto kargs = ck_tile::UniversalGemmKernelArgs<> {
-           {X},
-           {W},
-           BiasTerms,
-           Y,
-           M,
-           N,
-           K,
-           {LDA},
-           {LDB},
-           BiasStrides,
-           LDC,
-           kBatch
-        };
+        using Kernel = {{instance_namespace}}::Kernel;
+        auto kargs = Kernel::MakeKargs(X, W, Y, M, N, K, LDA, LDB, LDC);
 
         if (workspace_size) {
             *workspace_size = 0;
             return 0;
         }
 
-        const ck_tile::index_t k_grain     = kBatch * TileK;
-        const ck_tile::index_t K_split     = (K + k_grain - 1) / k_grain * TileK;
-        const ck_tile::index_t num_loop    = TilePartitioner::GetLoopNum(K_split);
-        const bool has_hot_loop            = BaseGemmPipeline::BlockHasHotloop(num_loop);
-        const ck_tile::TailNumber tail_num = BaseGemmPipeline::GetBlockLoopTailNum(num_loop);
-
-        // run the kernel
-        const auto Run = [&](const auto has_hot_loop_, const auto tail_number_) {
-            constexpr bool has_hot_loop_v = has_hot_loop_.value;
-            constexpr auto tail_number_v = tail_number_.value;
-
-            using Kernel = {{instance_namespace}}::Kernel<has_hot_loop_v, tail_number_v>;
-
-            if (!Kernel::IsSupportedArgument(kargs)) {
-                // we do our best to statically avoid this case in `filter_op`
-                throw std::runtime_error("invalid argument");
-            }
-            auto stream_config = ck_tile::stream_config{stream};
-            auto grid_size = Kernel::GridSize(M, N, kBatch);
-            auto block_size = Kernel::BlockSize();
-            constexpr auto lds_bytes = 0;
-            constexpr auto kBlockPerCU = 1;
-            auto gemm = ck_tile::make_kernel<kBlockPerCU>(Kernel{}, grid_size, block_size, lds_bytes, kargs);
-            ck_tile::launch_kernel(stream_config, gemm);
-        };
-
-        BaseGemmPipeline::TailHandler(Run, has_hot_loop, tail_num);
-
+        if (!Kernel::IsSupportedArgument(kargs)) {
+            // we do our best to statically avoid this case in `filter_op`
+            throw std::runtime_error("invalid argument");
+        }
+        auto stream_config = ck_tile::stream_config{stream};
+        auto grid_size = Kernel::GridSize(M, N, kBatch);
+        constexpr auto block_size = Kernel::BlockSize();
+        constexpr auto lds_bytes = 0;
+        constexpr auto kBlockPerCU = 1;
+        auto gemm = ck_tile::make_kernel<block_size.x, kBlockPerCU>(Kernel{}, grid_size, block_size, lds_bytes, kargs);
+        ck_tile::launch_kernel(stream_config, gemm);
         return 0;
     } // kernel definition
     } // extern C
@@ -318,6 +239,7 @@ class CKTileGemmTemplate(CKTileTemplate):
 
                 #include "ck_tile/ops/gemm.hpp"
                 #include "ck_tile/ops/epilogue.hpp"
+                #include "ck_tile/host.hpp"
             """
         )
         return res
@@ -575,14 +497,12 @@ class CKTileGemmTemplate(CKTileTemplate):
                                    ck_tile::sequence<WarpTileM, WarpTileN, WarpTileK>,
                                    permuteA,
                                    permuteB>;
-
+        
         using TilePartitioner =
-            ck_tile::GemmSpatiallyLocalTilePartitioner<GemmShape,
-                                                       TilePartitionerGroupNum,
-                                                       TilePartitionerM01>;
+            ck_tile::GemmTilePartitioner<GemmShape>;
 
         using Traits  =
-            ck_tile::TileGemmTraits<kPadM, kPadN, kPadK, ALayout, BLayout, CLayout>;
+            ck_tile::MmacTileGemmTraits<kPadM, kPadN, kPadK, ALayout, BLayout, CLayout, {{m_repeat}}, {{n_repeat}}, {{m_interleave}}, {{n_interleave}}>;
 
         using GemmUniversalTraits =
             ck_tile::TileGemmUniversalTraits<kPadM, kPadN, kPadK, DoubleSmemBuffer,
@@ -593,23 +513,19 @@ class CKTileGemmTemplate(CKTileTemplate):
 
         {{rendered_scheduler}}
 
-        template<bool has_hot_loop_v, ck_tile::TailNumber tail_number_v>
         using UniversalGemmProblem =
-            ck_tile::UniversalGemmPipelineProblem<ADataType,
+            ck_tile::MmacUniversalGemmPipelineProblem<ADataType,
                                                   BDataType,
                                                   AccDataType,
                                                   GemmShape,
-                                                  GemmUniversalTraits,
-                                                  scheduler,
-                                                  has_hot_loop_v,
-                                                  tail_number_v>;
+                                                  Traits,
+                                                  scheduler>;
 
         {{rendered_pipeline}}
 
         {{rendered_epilogue}}
 
-        template<bool has_hot_loop_v, ck_tile::TailNumber tail_number_v>
-        using Kernel = ck_tile::GemmKernel<TilePartitioner, GemmPipeline<has_hot_loop_v, tail_number_v>, GemmEpilogue>;
+        using Kernel = ck_tile::GemmKernel<TilePartitioner, GemmPipeline, GemmEpilogue>;
     }
 
 """
@@ -621,23 +537,11 @@ class CKTileGemmTemplate(CKTileTemplate):
             using DsLayout = ck_tile::tuple<>;
             using CDElementwise = ck_tile::element_wise::PassThrough;
 
-            using EpilogueProblem = ck_tile::DefaultGemm2DEpilogueProblem<ADataType,
-                                                                          BDataType,
-                                                                          DsDataType,
-                                                                          AccDataType,
+            using EpilogueProblem = ck_tile::Default2DEpilogueProblem<AccDataType,
                                                                           CDataType,
-                                                                          DsLayout,
-                                                                          CLayout,
-                                                                          CDElementwise,
-                                                                          TileM,
-                                                                          TileN,
                                                                           kPadM,
-                                                                          kPadN,
-                                                                          WarpTileM,
-                                                                          WarpTileN,
-                                                                          WarpTileK,
-                                                                          TransposeC>;
-            using GemmEpilogue = ck_tile::DefaultGemm2DEpilogue<EpilogueProblem>;
+                                                                          kPadN>;
+            using GemmEpilogue = ck_tile::Default2DEpilogue<EpilogueProblem>;
         """
             elif epilogue_type == "CShuffle":
                 return r"""
@@ -669,10 +573,7 @@ class CKTileGemmTemplate(CKTileTemplate):
 
         def render_pipeline(pipeline_type):
             return rf"""
-            using BaseGemmPipeline = ck_tile::BaseGemmPipelineAgBgCr{pipeline_type}<GemmPipelineProblem>;
-
-            template<bool has_hot_loop_v, ck_tile::TailNumber tail_number_v>
-            using GemmPipeline = ck_tile::GemmPipelineAgBgCr{pipeline_type}<UniversalGemmProblem<has_hot_loop_v, tail_number_v>>;
+            using GemmPipeline = ck_tile::MmacGemmPipelineAGmemBGmemCReg{pipeline_type}<UniversalGemmProblem, ck_tile::MmacUniversalGemmPipelineAgBgCrPolicy>;
         """
 
         def render_scheduler(scheduler_type):
