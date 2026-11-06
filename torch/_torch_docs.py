@@ -11559,7 +11559,16 @@ The boolean option :attr:`sorted` if ``True``, will make sure that the returned
 
 .. note::
     When using `torch.topk`, the indices of tied elements are not guaranteed to be stable
-    and may vary across different invocations.
+    and may vary across different invocations unless
+    :func:`torch.use_deterministic_algorithms` is enabled. In deterministic mode,
+    lower indices are selected before higher indices for tied values. If
+    :attr:`sorted` is ``False``, the returned elements are still not guaranteed
+    to appear in sorted order.
+
+    On ROCm, setting the ``PYTORCH_ROCM_TOPK_STABLE=1`` environment variable has
+    the same effect as deterministic mode for this operator: tied elements are
+    resolved by index, at the cost of using a full sort. Without it, ROCm keeps
+    using its (faster) top-k gather path, whose tie handling is not reproducible.
 
 Args:
     {input}

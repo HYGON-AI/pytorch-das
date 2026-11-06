@@ -1,6 +1,9 @@
 #define TORCH_ASSERT_ONLY_METHOD_OPERATORS
 #include <ATen/native/cuda/TensorTopK.h>
 
+#include <c10/util/env.h>
+
+#include <ATen/Context.h>
 #include <ATen/core/Tensor.h>
 #include <ATen/TensorMeta.h>
 #include <ATen/TensorUtils.h>
@@ -19,13 +22,44 @@
 
 namespace at::native {
 
+#if defined(USE_ROCM)
+namespace {
+
+// Opt-in reproducibility switch for ROCm top-k.
+//
+// The ROCm top-k gather path reserves output slots for elements that tie on the
+// k-th value through atomics (see `reserveWarpSpace` in TensorTopK.cu), so which
+// of the equally-scored candidates end up in the result depends on warp
+// scheduling and may differ between two invocations with the very same input.
+// The default keeps that (faster) path.  Setting this environment variable to 1
+// makes ROCm top-k go through a full stable sort instead, which resolves ties by
+// input index and therefore returns identical indices on every invocation.
+// (torch.use_deterministic_algorithms(True) has the same effect, see
+// Note [Enabling Deterministic Operations].)
+constexpr const char* kRocmTopKStableEnvVar = "PYTORCH_ROCM_TOPK_STABLE";
+
+bool rocm_topk_stable_enabled() {
+  return c10::utils::check_env(kRocmTopKStableEnvVar).value_or(false);
+}
+
+} // namespace
+#endif // defined(USE_ROCM)
+
 void topk_out_with_sort(
   const Tensor& self,
   int64_t k, int64_t dim, bool largest,
   const Tensor& values,
-  const Tensor& indices
+  const Tensor& indices,
+  bool stable
 ) {
-  auto [sorted_values, sorted_indices] = at::cuda::sort(self, /* stable= */false, dim, largest);
+  auto [sorted_values, sorted_indices] = at::cuda::sort(self, stable, dim, largest);
+  if (self.dim() == 0) {
+    // 0-dim (scalar) tensors have no dimension to narrow. k is 1 here, so the
+    // sort already produced the single-element result and we can copy directly.
+    values.copy_(sorted_values);
+    indices.copy_(sorted_indices);
+    return;
+  }
   values.copy_(sorted_values.narrow(dim, 0, k));
   indices.copy_(sorted_indices.narrow(dim, 0, k));
 }
@@ -84,15 +118,33 @@ TORCH_IMPL_FUNC(topk_out_cuda)
 
   dim = at::maybe_wrap_dim(dim, self);
 
-  if (should_use_sort(self, dim)) {
-    topk_out_with_sort(self, k, dim, largest, values, indices);
-    return;
-  }
-
   // If k is 0 the result is an empty tensor, so we don't need to launch a kernel.
+  // Kept first so that no code path below pays for a full sort of an empty
+  // result.
   if (k == 0) {
     return;
   }
+
+  // See Note [Enabling Deterministic Operations]
+  bool stable = at::globalContext().deterministicAlgorithms();
+#if defined(USE_ROCM)
+  // The ROCm top-k gather path can reserve tie slots through atomics.
+  // PYTORCH_ROCM_TOPK_STABLE=1 lets the user ask for the stable path without
+  // enabling deterministic mode globally; see rocm_topk_stable_enabled() above.
+  stable |= rocm_topk_stable_enabled();
+#endif
+
+  if (should_use_sort(self, dim)) {
+    topk_out_with_sort(self, k, dim, largest, values, indices, stable);
+    return;
+  }
+
+#if defined(USE_ROCM)
+  if (stable) {
+    topk_out_with_sort(self, k, dim, largest, values, indices, stable);
+    return;
+  }
+#endif
 
   launch_gather_topk_kernel(self, k, dim, largest, values, indices);
 
@@ -103,7 +155,7 @@ TORCH_IMPL_FUNC(topk_out_cuda)
       // This avoids any memory allocations and performs all sorting
       // work inplace along the slice
 
-      sortKeyValueInplace(values, indices, dim, largest);
+      sortKeyValueInplace(values, indices, dim, largest, stable);
     } else {
       // Depend upon the backup sort that returns indices, which we
       // can use in conjunction with gather to produce the original
@@ -116,7 +168,7 @@ TORCH_IMPL_FUNC(topk_out_cuda)
 
       Tensor sortedIndices = at::empty_like(indices);
       Tensor sortedValues = at::empty_like(values);
-      at::cuda::sort_outf(values, /* stable= */ false, dim, largest, sortedValues, sortedIndices);
+      at::cuda::sort_outf(values, stable, dim, largest, sortedValues, sortedIndices);
       indices.copy_(indices.gather(dim, sortedIndices));
       values.copy_(sortedValues);
     }

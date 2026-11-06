@@ -1,7 +1,10 @@
 # Owner(s): ["module: tests"]
 
+import os
 import random
+import unittest
 from itertools import permutations, product
+from unittest import mock
 
 import numpy as np
 
@@ -25,10 +28,12 @@ from torch.testing._internal.common_dtype import (
     integral_types,
 )
 from torch.testing._internal.common_utils import (
+    DeterministicGuard,
     parametrize,
     run_tests,
     skipIfTorchDynamo,
     slowTest,
+    TEST_WITH_ROCM,
     TestCase,
 )
 
@@ -513,6 +518,90 @@ class TestSortAndSelect(TestCase):
         # see https://github.com/pytorch/pytorch/issues/116324
         x = torch.quantize_per_tensor(torch.randn(()), 0.1, 10, torch.qint8)
         x.topk(1)
+
+    def test_topk_deterministic_tie_breaking(self, device):
+        x = torch.tensor(
+            [
+                [3.0, 3.0, 2.0, 3.0, 1.0],
+                [1.0, 0.0, 0.0, 0.0, 2.0],
+            ],
+            device=device,
+        )
+
+        with DeterministicGuard(True):
+            values, indices = torch.topk(x, 3, dim=-1, largest=True, sorted=True)
+            self.assertEqual(
+                values,
+                torch.tensor([[3.0, 3.0, 3.0], [2.0, 1.0, 0.0]], device=device),
+            )
+            self.assertEqual(
+                indices, torch.tensor([[0, 1, 3], [4, 0, 1]], device=device)
+            )
+
+            values, indices = torch.topk(x, 4, dim=-1, largest=False, sorted=True)
+            self.assertEqual(
+                values,
+                torch.tensor(
+                    [[1.0, 2.0, 3.0, 3.0], [0.0, 0.0, 0.0, 1.0]],
+                    device=device,
+                ),
+            )
+            self.assertEqual(
+                indices, torch.tensor([[4, 2, 0, 1], [1, 2, 3, 0]], device=device)
+            )
+
+            _, indices = torch.topk(x, 3, dim=-1, largest=True, sorted=False)
+            self.assertEqual(
+                indices.sort(dim=-1).values,
+                torch.tensor([[0, 1, 3], [0, 1, 4]], device=device),
+            )
+
+            nan_x = torch.tensor(
+                [[float("nan"), float("nan"), 3.0, 3.0, 2.0]],
+                device=device,
+            )
+            values, indices = torch.topk(nan_x, 4, dim=-1, largest=True, sorted=True)
+            self.assertTrue(values[0, :2].isnan().all())
+            self.assertEqual(values[0, 2:], torch.tensor([3.0, 3.0], device=device))
+            self.assertEqual(indices, torch.tensor([[0, 1, 2, 3]], device=device))
+
+            values, indices = torch.topk(nan_x, 4, dim=-1, largest=False, sorted=True)
+            self.assertEqual(
+                values[0, :3], torch.tensor([2.0, 3.0, 3.0], device=device)
+            )
+            self.assertTrue(values[0, 3].isnan().item())
+            self.assertEqual(indices, torch.tensor([[4, 2, 3, 0]], device=device))
+
+    @onlyCUDA
+    def test_topk_deterministic_tie_breaking_cuda_multiblock(self, device):
+        x = torch.ones(2, 20000, device=device)
+
+        with DeterministicGuard(True):
+            for k in (128, 129, 4096):
+                _, indices = torch.topk(x, k, dim=-1, largest=True, sorted=True)
+                self.assertEqual(
+                    indices,
+                    torch.arange(k, device=device).expand_as(indices),
+                )
+
+                _, indices = torch.topk(x, k, dim=-1, largest=False, sorted=True)
+                self.assertEqual(
+                    indices,
+                    torch.arange(k, device=device).expand_as(indices),
+                )
+
+    def test_topk_deterministic_reproducible(self, device):
+        # With deterministic algorithms enabled, repeated topk calls must return
+        # identical results on every device, CPU included. The ties exercise the
+        # tie-breaking path, which has to be stable.
+        x = torch.rand(1024, device=device)
+        x[:128] = x[0]
+        with DeterministicGuard(True):
+            expected_values, expected_indices = torch.topk(x, 512)
+            for _ in range(10):
+                values, indices = torch.topk(x, 512)
+                self.assertEqual(values, expected_values)
+                self.assertEqual(indices, expected_indices)
 
     def test_topk_arguments(self, device):
         q = torch.randn(10, 2, 10, device=device)
@@ -1453,7 +1542,234 @@ class TestSortAndSelect(TestCase):
             )
 
 
+# Shapes chosen to exercise every dispatch branch of topk_out_cuda on ROCm:
+#
+#   slice <= 256         -> warptopk  (only when HAS_WARP_MERGE_SORT(),
+#                                      i.e. ROCM_VERSION >= 70000; else sbtopk)
+#   256 < slice < 10000  -> sbtopk    (the path whose tie handling is not
+#                                      reproducible)
+#   slice >= 10000 (1-D) -> full sort
+#   large multi-slice    -> mbtopk
+#
+# Tables are keyed by a readable name so that the generated test ids are
+# readable, e.g. ..._case_1d_5000_cuda.
+_REPRODUCIBLE_BY_DEFAULT = {
+    "1d_10000": ((10000,), 64, 0),
+    "1d_20000": ((20000,), 64, 0),
+    "2x20000": ((2, 20000), 128, -1),
+    "20x20000": ((20, 20000), 128, -1),
+    "3000x800": ((3000, 800), 128, -1),
+}
+
+# Not reproducible without any switch, on every ROCm build: these shapes end up
+# in the sbtopk gather path, which reserves tie slots through atomics.
+_UNSTABLE_BY_DEFAULT = {
+    "1d_257": ((257,), 64, 0),
+    "1d_1000": ((1000,), 64, 0),
+    "1d_2048": ((2048,), 64, 0),
+    "1d_5000": ((5000,), 64, 0),
+    "1d_9999": ((9999,), 64, 0),
+    "2x5000": ((2, 5000), 128, -1),
+}
+
+# slice <= 256 is reproducible by default only when the build has
+# HAS_WARP_MERGE_SORT() (ROCM_VERSION >= 70000); otherwise it falls back to the
+# sbtopk path and is not reproducible.  The expectation is therefore resolved at
+# runtime from the build (see _build_has_warptopk).
+_SMALL_SLICE = {
+    "1d_100": ((100,), 64, 0),
+    "1d_256": ((256,), 64, 0),
+}
+
+_ALL_CASES = {**_REPRODUCIBLE_BY_DEFAULT, **_UNSTABLE_BY_DEFAULT, **_SMALL_SLICE}
+
+_ITERS = 20
+
+_ENV_VAR = "PYTORCH_ROCM_TOPK_STABLE"
+
+
+def _build_has_warptopk():
+    """Whether the build has the warptopk path, i.e. HAS_WARP_MERGE_SORT()
+    (ROCM_VERSION >= 70000).  Approximated with the HIP major version reported
+    by torch.version.hip; the ROCm and HIP versions come from the same DTK."""
+    hip = torch.version.hip or ""
+    try:
+        return int(hip.split(".")[0]) >= 7
+    except (IndexError, ValueError):
+        return False
+
+
+def _all_identical(shape, k, dim, device, iters=_ITERS):
+    """Run topk on an all-equal tensor `iters` times and report whether the
+    returned indices are identical every time."""
+    x = torch.ones(*shape, device=device)
+    outs = [torch.topk(x, k, dim=dim)[1] for _ in range(iters)]
+    return all(torch.equal(outs[0], o) for o in outs[1:])
+
+
+@unittest.skipIf(not TEST_WITH_ROCM, "ROCm-only test")
+class TestTopKRocmStable(TestCase):
+    """Reproducibility of torch.topk on ROCm.
+
+    On ROCm the top-k gather path (sbtopk) reserves output slots for elements
+    that tie on the k-th value through atomics, so which of the equally scored
+    candidates are selected depends on warp scheduling and is not reproducible
+    across invocations.  Two switches route topk through a stable full sort
+    instead:
+
+      * torch.use_deterministic_algorithms(True)
+      * PYTORCH_ROCM_TOPK_STABLE=1
+
+    Each test sets (or explicitly clears) both switches itself and restores them
+    afterwards, so the tests are independent of each other and of the ambient
+    environment.
+
+    The `default_*` tests pin down the reproducibility *without* any switch.
+    They pass on today's builds and fail, with the observed value in the
+    message, as soon as that behavior changes -- for instance when the
+    underlying bug is fixed, when a switch is left enabled, or when running on a
+    build with a different ROCm version.
+    """
+
+    @onlyCUDA
+    @parametrize("case", list(_REPRODUCIBLE_BY_DEFAULT))
+    def test_topk_rocm_default_reproducible(self, device, case):
+        # These shapes never reach the sbtopk path, so they are reproducible
+        # even without any switch.
+        shape, k, dim = _REPRODUCIBLE_BY_DEFAULT[case]
+        with DeterministicGuard(False), mock.patch.dict(os.environ, {_ENV_VAR: "0"}):
+            reproducible = _all_identical(shape, k, dim, device)
+        self.assertEqual(
+            reproducible,
+            True,
+            msg=(
+                f"{case}: reproducible={reproducible}, expected=True -- this "
+                f"shape should stay reproducible without any switch (it does "
+                f"not use the sbtopk path). If this changed, please update the "
+                f"expectation."
+            ),
+        )
+
+    @onlyCUDA
+    @parametrize("case", list(_UNSTABLE_BY_DEFAULT))
+    def test_topk_rocm_default_known_unstable(self, device, case):
+        # These shapes fall into the sbtopk gather path, whose tie handling is
+        # not reproducible. The expectation is pinned to the current behavior on
+        # purpose: when it flips to True the bug was most likely fixed (or a
+        # switch is active), and this test then reports it instead of silently
+        # staying green.
+        shape, k, dim = _UNSTABLE_BY_DEFAULT[case]
+        with DeterministicGuard(False), mock.patch.dict(os.environ, {_ENV_VAR: "0"}):
+            reproducible = _all_identical(shape, k, dim, device)
+        self.assertEqual(
+            reproducible,
+            False,
+            msg=(
+                f"{case}: reproducible={reproducible}, expected=False -- this "
+                f"shape lands in the ROCm sbtopk path, where the tied slots are "
+                f"reserved through atomics and the result is not reproducible "
+                f"across invocations. If it became True, the underlying bug is "
+                f"probably fixed (or a switch is on); please update this "
+                f"expectation."
+            ),
+        )
+
+    @onlyCUDA
+    @parametrize("case", list(_SMALL_SLICE))
+    def test_topk_rocm_default_small_slice(self, device, case):
+        # slice <= 256 uses warptopk (reproducible) only when the build has
+        # HAS_WARP_MERGE_SORT(); otherwise it falls back to the non-reproducible
+        # sbtopk path, e.g. ROCm 6.x builds expect False while ROCm 7.x builds
+        # expect True.
+        shape, k, dim = _SMALL_SLICE[case]
+        has_warptopk = _build_has_warptopk()
+        expected = has_warptopk
+        with DeterministicGuard(False), mock.patch.dict(os.environ, {_ENV_VAR: "0"}):
+            reproducible = _all_identical(shape, k, dim, device)
+        self.assertEqual(
+            reproducible,
+            expected,
+            msg=(
+                f"{case}: reproducible={reproducible}, expected={expected} "
+                f"(torch.version.hip={torch.version.hip}, "
+                f"has_warptopk={has_warptopk}) -- slice<=256 goes through "
+                f"warptopk and is reproducible only when the build has "
+                f"HAS_WARP_MERGE_SORT() (ROCM_VERSION>=70000, roughly ROCm>=7.0); "
+                f"on older builds it falls back to the non-reproducible sbtopk "
+                f"path, i.e. ROCm 6.x expect False while ROCm 7.x expect True. "
+                f"If this mismatches, please check the build's ROCm version and "
+                f"update this expectation."
+            ),
+        )
+
+    @onlyCUDA
+    @parametrize("case", list(_ALL_CASES))
+    def test_topk_rocm_deterministic_algorithms(self, device, case):
+        # torch.use_deterministic_algorithms(True) alone must make every shape
+        # reproducible.
+        shape, k, dim = _ALL_CASES[case]
+        with DeterministicGuard(True), mock.patch.dict(os.environ, {_ENV_VAR: "0"}):
+            self.assertTrue(_all_identical(shape, k, dim, device), msg=case)
+
+    @onlyCUDA
+    @parametrize("case", list(_ALL_CASES))
+    def test_topk_rocm_stable_env_var(self, device, case):
+        # PYTORCH_ROCM_TOPK_STABLE=1 alone must make every shape reproducible.
+        shape, k, dim = _ALL_CASES[case]
+        with DeterministicGuard(False), mock.patch.dict(os.environ, {_ENV_VAR: "1"}):
+            self.assertTrue(_all_identical(shape, k, dim, device), msg=case)
+
+    @onlyCUDA
+    @parametrize("case", list(_ALL_CASES))
+    def test_topk_rocm_stable_matches_default(self, device, case):
+        # Enabling either switch must not change *what* topk selects: the
+        # returned values have to equal both the default (no-switch) path and a
+        # full-sort reference. Only the ordering of tied indices may differ.
+        shape, k, dim = _ALL_CASES[case]
+        x = torch.randn(*shape, device=device)
+
+        def run():
+            return torch.topk(x, k, dim=dim, largest=True, sorted=True)
+
+        ref_values = torch.sort(x, dim=dim, descending=True).values.narrow(dim, 0, k)
+
+        with DeterministicGuard(False), mock.patch.dict(os.environ, {_ENV_VAR: "0"}):
+            default_values, default_indices = run()
+        with DeterministicGuard(True), mock.patch.dict(os.environ, {_ENV_VAR: "0"}):
+            det_values, det_indices = run()
+        with DeterministicGuard(False), mock.patch.dict(os.environ, {_ENV_VAR: "1"}):
+            env_values, env_indices = run()
+
+        for name, values, indices in (
+            ("default", default_values, default_indices),
+            ("det", det_values, det_indices),
+            ("env", env_values, env_indices),
+        ):
+            self.assertEqual(values, ref_values, msg=f"{case}/{name}: values vs sort")
+            self.assertEqual(
+                x.gather(dim, indices), values, msg=f"{case}/{name}: indices"
+            )
+
+    @onlyCUDA
+    def test_topk_rocm_stable_scalar(self, device):
+        # 0-dim (scalar) input used to fail under the stable path: the result was
+        # produced by narrow(), which cannot be applied to a 0-dim tensor.
+        x = torch.randn((), device=device)
+        expected_values, expected_indices = torch.topk(x, 1)
+
+        with DeterministicGuard(True), mock.patch.dict(os.environ, {_ENV_VAR: "0"}):
+            values, indices = torch.topk(x, 1)
+        self.assertEqual(values, expected_values)
+        self.assertEqual(indices, expected_indices)
+
+        with DeterministicGuard(False), mock.patch.dict(os.environ, {_ENV_VAR: "1"}):
+            values, indices = torch.topk(x, 1)
+        self.assertEqual(values, expected_values)
+        self.assertEqual(indices, expected_indices)
+
+
 instantiate_device_type_tests(TestSortAndSelect, globals())
+instantiate_device_type_tests(TestTopKRocmStable, globals())
 
 if __name__ == "__main__":
     run_tests()
