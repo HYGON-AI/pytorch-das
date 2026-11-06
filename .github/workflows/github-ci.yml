@@ -1,0 +1,384 @@
+name: PyTorch HCU CI
+
+on:
+  workflow_call:
+    inputs:
+      suite:
+        required: true
+        type: string
+      source_ref:
+        required: true
+        type: string
+      merge_pr:
+        required: false
+        default: false
+        type: boolean
+      pr_base_sha:
+        required: false
+        default: ""
+        type: string
+      pr_head_sha:
+        required: false
+        default: ""
+        type: string
+      publish:
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      PYPI_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+    working-directory: source
+
+env:
+  RESOURCE_SERVER_URL: "${{ vars.RESOURCE_SERVER_URL }}"
+
+jobs:
+  preflight:
+    name: preflight
+    runs-on: bw1100
+    outputs:
+      should_run: ${{ steps.context.outputs.should_run }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: source
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref }}
+
+      - name: Check pipeline context
+        id: context
+        run: |
+          case "${{ inputs.suite }}" in
+            pr|full) ;;
+            *) echo "ERROR: unsupported suite: ${{ inputs.suite }}" >&2; exit 1 ;;
+          esac
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]] && \
+             [[ -z "$(git log --since='7 days ago' -1 --format=%H)" ]]; then
+            echo "should_run=false" >> "${GITHUB_OUTPUT}"
+            echo "No commits in the last seven days; skipping weekly full test." \
+              >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          echo "should_run=true" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: build (${{ matrix.config.id }}, py${{ matrix.config.python }})
+    needs: preflight
+    if: needs.preflight.outputs.should_run == 'true'
+    runs-on: bw1100
+    container:
+      image: "${{ vars.HARBOR_SITE }}/dev/dev:${{ matrix.config.image }}"
+      options: >-
+        --init --ipc=host --shm-size=64g
+        --ulimit stack=10485760:83886080 --ulimit core=0
+        --device=/dev/kfd --device=/dev/dri --group-add video
+        --security-opt seccomp=unconfined --cap-add SYS_PTRACE
+        --volume /opt/hyhal:/opt/hyhal:ro
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - id: dtk2604
+            directory: dtk26.04
+            package: DTK-26.04-rc4-centos8-x86_64.tar.gz
+            python: "3.10"
+            image: rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.10-mkl2024.2.0.664
+            magma: thirdparty/pytorch/magma-install.tar.gz
+            use-glog: "1"
+          - id: dtk2604
+            directory: dtk26.04
+            package: DTK-26.04-rc4-centos8-x86_64.tar.gz
+            python: "3.12"
+            image: rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.12-mkl2024.2.0.664
+            magma: thirdparty/pytorch/magma-install.tar.gz
+            use-glog: "1"
+          - id: dtk2610
+            directory: dtk26.10
+            package: DTK-26.10-CentOS8.5-x86_64.tar.gz
+            python: "3.11"
+            image: rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.11-mkl2024.2.0.664
+            magma: thirdparty/pytorch/magma_v2.8.0-hip_DTK26.10/MAGMA-v2.8.0_hip.dtk26.10-16Oct2026.tar.gz
+            use-glog: "0"
+          - id: dtk2610
+            directory: dtk26.10
+            package: DTK-26.10-CentOS8.5-x86_64.tar.gz
+            python: "3.12"
+            image: rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.12-mkl2024.2.0.664
+            magma: thirdparty/pytorch/magma_v2.8.0-hip_DTK26.10/MAGMA-v2.8.0_hip.dtk26.10-16Oct2026.tar.gz
+            use-glog: "1"
+    env:
+      DTK_PKG_URL: "${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/${{ matrix.config.directory }}/${{ matrix.config.package }}"
+      MAGMA_URL: "${{ vars.RESOURCE_SERVER_URL }}/${{ matrix.config.magma }}"
+      BUILD_PIP_INDEX_URL: "${{ vars.PYPI_URL }}/nightly/${{ matrix.config.id }}/+simple/"
+      PIP_INDEX_URL: "${{ vars.PYPI_URL }}/nightly/${{ matrix.config.id }}/+simple/"
+      DTK2604_DEPENDENCY_1: "${{ vars.DTK2604_DEPENDENCY_1 }}"
+      DTK2604_DEPENDENCY_2: "${{ vars.DTK2604_DEPENDENCY_2 }}"
+      USE_GLOG: "${{ matrix.config['use-glog'] }}"
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: source
+          fetch-depth: 0
+          ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
+
+      - name: Merge pull request
+        if: inputs.merge_pr
+        env:
+          PR_BASE_SHA: ${{ inputs.pr_base_sha }}
+          PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
+        run: |
+          git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
+          git checkout --detach "${PR_BASE_SHA}"
+          git -c user.name=github-actions -c user.email=ci@github \
+            merge --no-ff --no-edit "${PR_HEAD_SHA}"
+
+      - name: Configure package index
+        run: |
+          host="${{ vars.PYPI_URL }}"
+          host="${host#*://}"
+          echo "PIP_TRUSTED_HOST=${host%%[:/]*}" >> "${GITHUB_ENV}"
+
+      - name: Install DTK
+        run: |
+          stage="$(mktemp -d)"
+          trap 'rm -rf -- "${stage}"' EXIT
+          wget --quiet --output-document="${stage}/dtk.tar.gz" -- "${DTK_PKG_URL}"
+          mkdir -p "${stage}/extract"
+          tar -xzf "${stage}/dtk.tar.gz" -C "${stage}/extract"
+          version_file="$(find "${stage}/extract" -type f -path '*/.info/rocm_version' -print -quit)"
+          test -n "${version_file}"
+          rm -rf -- /opt/dtk
+          mkdir -p /opt/dtk
+          cp -a "${version_file%/.info/rocm_version}/." /opt/dtk/
+
+      - name: Build wheel
+        run: |
+          bash scripts/build_hcu.sh
+          MANYLINUX_OUTPUT_DIR="${PWD}/dist" bash scripts/build_hcu_manylinux.sh
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: torch-${{ matrix.config.id }}-py${{ matrix.config.python }}
+          path: source/dist/*manylinux*.whl
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  test:
+    name: ${{ inputs.suite }} test (${{ matrix.config.id }}, py${{ matrix.config.python }}, ${{ matrix.target.name }}, ${{ matrix.mode }})
+    needs: [preflight, build]
+    if: >-
+      ${{
+        always() && !inputs.publish &&
+        needs.preflight.outputs.should_run == 'true' &&
+        needs.build.result == 'success'
+      }}
+    runs-on: ${{ matrix.target.runner }}
+    timeout-minutes: >-
+      ${{ matrix.mode == 'full' && 4320 || matrix.mode == 'mr' && 720 || 240 }}
+    container:
+      image: "${{ vars.HARBOR_SITE }}/dev/dev:${{ matrix.config.image }}"
+      options: >-
+        --init --ipc=host --shm-size=64g
+        --ulimit stack=10485760:83886080 --ulimit core=0
+        --device=/dev/kfd --device=/dev/dri --group-add video
+        --security-opt seccomp=unconfined --cap-add SYS_PTRACE
+        --volume /opt/hyhal:/opt/hyhal:ro
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        config:
+          - id: dtk2604
+            directory: dtk26.04
+            package: DTK-26.04-rc4-centos8-x86_64.tar.gz
+            python: "3.10"
+            image: rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.10-mkl2024.2.0.664
+            aicc: "1.0.0"
+          - id: dtk2610
+            directory: dtk26.10
+            package: DTK-26.10-CentOS8.5-x86_64.tar.gz
+            python: "3.11"
+            image: rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.11-mkl2024.2.0.664
+            aicc: "2.0.0"
+          - id: dtk2610
+            directory: dtk26.10
+            package: DTK-26.10-CentOS8.5-x86_64.tar.gz
+            python: "3.12"
+            image: rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.12-mkl2024.2.0.664
+            aicc: "2.0.0"
+        target:
+          - name: nmz
+            runner: bw1100
+          - name: bw
+            runner: bw1000
+        mode: ${{ fromJSON(inputs.suite == 'full' && '["full"]' || '["mr", "nn"]') }}
+    env:
+      DTK_PKG_URL: "${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/${{ matrix.config.directory }}/${{ matrix.config.package }}"
+      PIP_INDEX_URL: "${{ vars.PYPI_URL }}/nightly/${{ matrix.config.id }}/+simple/"
+      HCU_CI_INDEX_URL: "${{ vars.PYPI_URL }}/nightly/${{ matrix.config.id }}/+simple/"
+      AICC_INSTALLER_URL: "${{ vars.RESOURCE_SERVER_URL }}/ai_cc/Nightly/hcu_llvm_installer.sh"
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: source
+          fetch-depth: 0
+          ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
+
+      - name: Merge pull request
+        if: inputs.merge_pr
+        env:
+          PR_BASE_SHA: ${{ inputs.pr_base_sha }}
+          PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
+        run: |
+          git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
+          git checkout --detach "${PR_BASE_SHA}"
+          git -c user.name=github-actions -c user.email=ci@github \
+            merge --no-ff --no-edit "${PR_HEAD_SHA}"
+
+      - name: Configure package index
+        run: |
+          host="${{ vars.PYPI_URL }}"
+          host="${host#*://}"
+          echo "PIP_TRUSTED_HOST=${host%%[:/]*}" >> "${GITHUB_ENV}"
+
+      - name: Install DTK
+        run: |
+          stage="$(mktemp -d)"
+          trap 'rm -rf -- "${stage}"' EXIT
+          wget --quiet --output-document="${stage}/dtk.tar.gz" -- "${DTK_PKG_URL}"
+          mkdir -p "${stage}/extract"
+          tar -xzf "${stage}/dtk.tar.gz" -C "${stage}/extract"
+          version_file="$(find "${stage}/extract" -type f -path '*/.info/rocm_version' -print -quit)"
+          test -n "${version_file}"
+          rm -rf -- /opt/dtk
+          mkdir -p /opt/dtk
+          cp -a "${version_file%/.info/rocm_version}/." /opt/dtk/
+
+      - name: Download wheel
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: torch-${{ matrix.config.id }}-py${{ matrix.config.python }}
+          path: source/dist
+
+      - name: Install test tools
+        env:
+          AICC_MAJOR_VERSION: ${{ matrix.config.aicc }}
+        run: |
+          installer="$(mktemp)"
+          trap 'rm -f -- "${installer}"' EXIT
+          wget --quiet --output-document="${installer}" -- "${AICC_INSTALLER_URL}"
+          bash "${installer}" --major "${AICC_MAJOR_VERSION}" --dtk-dir /opt/dtk
+          test -x /opt/dtk/bin/aicc
+          python3 -m pip install --no-cache-dir --upgrade --force-reinstall \
+            --index-url "${HCU_CI_INDEX_URL}" \
+            --trusted-host "${PIP_TRUSTED_HOST}" hcu-torch-ci
+
+      - name: Run tests
+        env:
+          TEST_DEVICES: ${{ matrix.mode == 'nn' && '0' || '0,1,2,3,4,5,6,7' }}
+          TEST_POLICY: ${{ matrix.mode == 'full' && 'report-only' || 'strict' }}
+        run: |
+          set +u
+          source /opt/dtk/env.sh
+          set -u
+          shopt -s nullglob
+          wheels=(dist/*manylinux*.whl)
+          shopt -u nullglob
+          test "${#wheels[@]}" -eq 1
+          hcu-torch-ci run --mode "${{ matrix.mode }}" --repo "${PWD}" \
+            --torch-wheel "${wheels[0]}" --devices "${TEST_DEVICES}" \
+            --report-dir "test-reports/${{ matrix.mode }}" --policy "${TEST_POLICY}"
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reports-${{ matrix.config.id }}-py${{ matrix.config.python }}-${{ matrix.target.name }}-${{ matrix.mode }}
+          path: source/test-reports
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    name: publish (${{ matrix.config.id }})
+    needs: [preflight, build]
+    if: >-
+      ${{
+        always() && inputs.publish && inputs.suite == 'pr' &&
+        needs.preflight.outputs.should_run == 'true' &&
+        needs.build.result == 'success'
+      }}
+    runs-on: bw1100
+    container:
+      image: "${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.10-mkl2024.2.0.664"
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - id: dtk2604
+            package: DTK-26.04-rc4-centos8-x86_64.tar.gz
+            python-1: "3.10"
+            python-2: "3.12"
+          - id: dtk2610
+            package: DTK-26.10-CentOS8.5-x86_64.tar.gz
+            python-1: "3.11"
+            python-2: "3.12"
+    env:
+      BUILD_PIP_INDEX_URL: "${{ vars.PYPI_URL }}/nightly/${{ matrix.config.id }}/+simple/"
+      DEVPI_URL: "${{ vars.PYPI_URL }}"
+      PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: source
+          fetch-depth: 0
+          ref: ${{ inputs.source_ref }}
+
+      - name: Configure package index
+        run: |
+          host="${{ vars.PYPI_URL }}"
+          host="${host#*://}"
+          echo "PIP_TRUSTED_HOST=${host%%[:/]*}" >> "${GITHUB_ENV}"
+
+      - name: Download first wheel
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: torch-${{ matrix.config.id }}-py${{ matrix.config['python-1'] }}
+          path: source/publish-dist
+
+      - name: Download second wheel
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: torch-${{ matrix.config.id }}-py${{ matrix.config['python-2'] }}
+          path: source/publish-dist
+
+      - name: Publish wheels
+        env:
+          DTK_PKG_NAME: ${{ matrix.config.package }}
+        run: |
+          python3 -m pip install --no-cache-dir --upgrade \
+            --index-url "${BUILD_PIP_INDEX_URL}" \
+            --trusted-host "${PIP_TRUSTED_HOST}" CIUpload
+          shopt -s nullglob
+          wheels=(publish-dist/*manylinux*.whl)
+          shopt -u nullglob
+          test "${#wheels[@]}" -eq 2
+          CIUpload NIGHTLY \
+            --devpi_url "${DEVPI_URL}" \
+            --password "${PYPI_PASSWORD}" \
+            --dtk_pkg_name "${DTK_PKG_NAME}" \
+            --record \
+            -f "${wheels[@]}"
