@@ -166,8 +166,7 @@ file(GLOB native_cuda_cpp "native/cuda/*.cpp")
 file(GLOB native_cuda_h "native/cuda/*.h" "native/cuda/*.cuh")
 file(GLOB native_cuda_linalg_cpp "native/cuda/linalg/*.cpp")
 file(GLOB native_lightop_h "native/lightop/*.h" "native/lightop/hip/*.h")
-#file(GLOB native_hip_h "native/hip/*.h" "native/hip/*.cuh" "native/hip/bgemm_kernels/*.h")
-file(GLOB native_hip_h "native/hip/*.h" "native/hip/*.cuh")
+file(GLOB native_hip_h "native/hip/*.h" "native/hip/*.cuh" "native/hip/bgemm_kernels/*.h")
 file(GLOB native_cudnn_cpp "native/cudnn/*.cpp")
 file(GLOB native_sparse_cuda_cu "native/sparse/cuda/*.cu")
 file(GLOB native_sparse_cuda_cpp "native/sparse/cuda/*.cpp")
@@ -180,8 +179,7 @@ file(GLOB native_nested_cuda_cpp "native/nested/cuda/*.cpp")
 file(GLOB native_lightop_cuda_cu "native/lightop/cuda/*.cu")
 file(GLOB native_lightop_cuda_cpp "native/lightop/cuda/*.cpp")
 
-file(GLOB native_hip_hip "native/hip/*.hip")
-#file(GLOB native_hip_hip "native/hip/*.hip" "native/hip/bgemm_kernels/*.hip")
+file(GLOB native_hip_hip "native/hip/*.hip" "native/hip/bgemm_kernels/*.hip")
 file(GLOB native_hip_cpp "native/hip/*.cpp")
 file(GLOB native_hip_linalg_cpp "native/hip/linalg/*.cpp")
 file(GLOB native_miopen_cpp "native/miopen/*.cpp")
@@ -233,12 +231,12 @@ if(USE_FLASH_ATTENTION)
         -fhip-new-launch-api
         -fgnuc-version=4.2.1
         -fno-implicit-modules
-        -fskip-odr-check-in-gmf
         -fcxx-exceptions
         -fexceptions
         -fcolor-diagnostics
         -faddrsig
         -fno-rounding-math
+        -Xclang
         -mconstructor-aliases
         -mllvm
         -amdgpu-internalize-symbols
@@ -288,6 +286,8 @@ if(USE_FLASH_ATTENTION)
         CK_TILE_FMHA_FWD_SPLITKV_API=1
         CK_TILE_FMHA_FWD_APPENDKV_API=1
         CK_TILE_FMHA_FWD_PAGEDKV_API=1
+        CK_TILE_FMHA_ENABLE_BWD_HEADERS=1
+        CK_TILE_FMHA_ENABLE_EXTENDED_FWD_HEADERS=1
         __GCC_HAVE_DWARF2_CFI_ASM=1
         USE_ROCM_CK_SDPA)
 
@@ -309,7 +309,7 @@ if(USE_FLASH_ATTENTION)
     target_include_directories(ck_sdpa PUBLIC
                                ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/include
                                ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/library/include
-                               ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/example/ck_tile/01_fmha
+                               ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/example_hcu/ck_tile/01_fmha
                                ${CMAKE_CURRENT_BINARY_DIR}/composable_kernel
                                ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/aiter/csrc/include
                                ${CMAKE_CURRENT_SOURCE_DIR}/native/transformers/hip/flash_attn/ck
@@ -611,7 +611,7 @@ if(USE_ROCM)
     list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/hip)
     list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/include)
     list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/library/include)
-    list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/example/ck_tile/01_fmha)
+    list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/composable_kernel/example_hcu/ck_tile/01_fmha)
     list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_BINARY_DIR}/composable_kernel)
     list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/aiter/csrc/include)
     # NOTE: The PyTorch build does not actually add_subdirectory

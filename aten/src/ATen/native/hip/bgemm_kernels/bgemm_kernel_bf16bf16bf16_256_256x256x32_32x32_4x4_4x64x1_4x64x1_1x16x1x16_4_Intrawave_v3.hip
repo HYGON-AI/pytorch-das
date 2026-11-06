@@ -17,8 +17,8 @@ void bgemm_kernel_bf16bf16bf16_256_256x256x32_32x32_4x4_4x64x1_4x64x1_1x16x1x16_
             32, // K_BLOCK
             8, // AK1
             8, // BK1
-            32, // WAVE_TILE_M
-            32, // WAVE_TILE_N
+            16, // WAVE_TILE_M
+            16, // WAVE_TILE_N
             4, // WAVE_MAP_M
             4, // WAVE_MAP_N
             S<4, 64, 1>, // ABLOCK_TRANSFER
@@ -46,8 +46,8 @@ void bgemm_kernel_bf16bf16bf16_256_256x256x32_32x32_4x4_4x64x1_4x64x1_1x16x1x16_
             32, // K_BLOCK
             8, // AK1
             8, // BK1
-            32, // WAVE_TILE_M
-            32, // WAVE_TILE_N
+            16, // WAVE_TILE_M
+            16, // WAVE_TILE_N
             4, // WAVE_MAP_M
             4, // WAVE_MAP_N
             S<4, 64, 1>, // ABLOCK_TRANSFER
@@ -75,8 +75,8 @@ void bgemm_kernel_bf16bf16bf16_256_256x256x32_32x32_4x4_4x64x1_4x64x1_1x16x1x16_
             32, // K_BLOCK
             8, // AK1
             8, // BK1
-            32, // WAVE_TILE_M
-            32, // WAVE_TILE_N
+            16, // WAVE_TILE_M
+            16, // WAVE_TILE_N
             4, // WAVE_MAP_M
             4, // WAVE_MAP_N
             S<4, 64, 1>, // ABLOCK_TRANSFER
@@ -104,8 +104,8 @@ void bgemm_kernel_bf16bf16bf16_256_256x256x32_32x32_4x4_4x64x1_4x64x1_1x16x1x16_
             32, // K_BLOCK
             8, // AK1
             8, // BK1
-            32, // WAVE_TILE_M
-            32, // WAVE_TILE_N
+            16, // WAVE_TILE_M
+            16, // WAVE_TILE_N
             4, // WAVE_MAP_M
             4, // WAVE_MAP_N
             S<4, 64, 1>, // ABLOCK_TRANSFER

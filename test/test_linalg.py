@@ -60,7 +60,7 @@ def blaslt_supported_device():
     if torch.cuda.is_available():
         if torch.version.hip:
             ROCM_VERSION = tuple(int(v) for v in torch.version.hip.split('.')[:2])
-            archs = ['gfx90a', 'gfx94']
+            archs = ['gfx90a', 'gfx94', 'gfx936', 'gfx938']
             if ROCM_VERSION >= (6, 3):
                 archs.extend(['gfx110', 'gfx120'])
             if ROCM_VERSION >= (6, 5):
