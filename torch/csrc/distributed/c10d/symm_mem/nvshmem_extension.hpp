@@ -30,6 +30,10 @@ at::Tensor nvshmem_broadcast(
     const int64_t root,
     const std::string& group_name);
 
+at::Tensor nvshmem_team(
+    const at::Tensor& input,
+    const std::string& group_name);
+
 TORCH_API void nvshmem_wait_for_signal(
     at::Tensor& sigpad,
     int64_t signal,

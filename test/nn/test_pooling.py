@@ -1069,14 +1069,15 @@ torch.cuda.synchronize()
             grad = torch.randn(
                 n,
                 c,
-                (h - kernel_size) // stride + 1,
-                (w - kernel_size) // stride + 1,
+                (h + 2 * padding - kernel_size) // stride + 1,
+                (w + 2 * padding - kernel_size) // stride + 1,
                 dtype=dtype,
                 device=device,
             )
             pool = torch.nn.AvgPool2d(
                 kernel_size,
                 stride=stride,
+                padding=padding,
                 count_include_pad=count_include_pad,
                 divisor_override=divisor_override,
             ).to(device)
@@ -1086,6 +1087,7 @@ torch.cuda.synchronize()
             ref_pool = torch.nn.AvgPool2d(
                 kernel_size,
                 stride=stride,
+                padding=padding,
                 count_include_pad=count_include_pad,
                 divisor_override=divisor_override,
             ).to(device)
@@ -1102,7 +1104,8 @@ torch.cuda.synchronize()
 
         helper(4, 8, 8, 8, 3)
         helper(4, 8, 8, 8, 3, count_include_pad=False, padding=1)
-        helper(4, 8, 8, 8, 3, count_include_pad=False, padding=2, stride=2)
+        helper(4, 8, 8, 8, 5, count_include_pad=False, padding=2, stride=2)
+        helper(4, 8, 8, 8, 3, padding=1)
         helper(4, 8, 8, 8, 3, divisor_override=42)
         helper(4, 8, 8, 8, 7)
         # ROCm 16GB MI25 hits OOM error. Clear caching allocator prior to running large subtest.
@@ -1110,8 +1113,10 @@ torch.cuda.synchronize()
             torch.cuda.empty_cache()
         helper(200, 512, 28, 28, 2)
         helper(4, 8, 7, 7, 3, stride=1)
-        helper(4, 8, 7, 7, 3, padding=2, stride=1)
+        helper(4, 8, 7, 7, 5, padding=2, stride=1)
         helper(10, 512, 31, 31, 3, stride=2)
+        helper(1, 7, 8, 8, 3, stride=2)
+        helper(1, 8, 8, 8, 3, stride=2)
         helper(1, 129, 8, 8, 3, stride=2)
 
     @onlyCPU
@@ -1285,7 +1290,40 @@ torch.cuda.synchronize()
         helper(200, 512, 28, 28, 2)
         helper(4, 8, 7, 7, 3, stride=1)
         helper(10, 512, 31, 31, 3, stride=2)
+        helper(1, 64, 8, 8, 3, stride=2)
+        helper(1, 96, 8, 8, 3, stride=2)
+        helper(1, 128, 8, 8, 3, stride=2)
         helper(1, 129, 8, 8, 3, stride=2)
+
+    @unittest.skipIf(not TEST_WITH_ROCM, "ROCm-only prefetch path")
+    @onlyCUDA
+    @dtypes(torch.float)
+    def test_max_pool2d_nhwc_prefetch_edges(self, device, dtype):
+        for channels in (96, 128, 129):
+            input = -torch.arange(channels * 7 * 7, device=device, dtype=dtype).reshape(
+                1, channels, 7, 7
+            )
+            input[:, :, 0, 0] = float("nan")
+            input[:, :, 2, 2] = 5
+            input[:, :, 2, 3] = 5
+            input = input.contiguous(memory_format=torch.channels_last)
+            reference = input.contiguous()
+
+            out, indices = F.max_pool2d(
+                input, kernel_size=3, stride=2, padding=1, return_indices=True
+            )
+            ref_out, ref_indices = F.max_pool2d(
+                reference,
+                kernel_size=3,
+                stride=2,
+                padding=1,
+                return_indices=True,
+            )
+
+            self.assertTrue(out.is_contiguous(memory_format=torch.channels_last))
+            self.assertTrue(indices.is_contiguous(memory_format=torch.channels_last))
+            self.assertEqual(out, ref_out)
+            self.assertEqual(indices, ref_indices)
 
     @onlyCPU
     @dtypes(torch.int32, torch.int64)

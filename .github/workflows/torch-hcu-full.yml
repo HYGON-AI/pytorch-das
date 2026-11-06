@@ -1,0 +1,32 @@
+name: torch-hcu-full
+run-name: "torch-hcu-full - ${{ github.event_name }} - ${{ github.ref_name || 'scheduled' }}"
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub cron is UTC: Beijing 00:00 every Saturday.
+    # The reusable workflow skips the full test when the branch has had no
+    # commits during the previous seven days.
+    - cron: "0 16 * * 5"
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    name: build and full test
+    uses: ./.github/workflows/_pytorch-pipeline.yml
+    with:
+      suite: full
+      source_ref: 2.12.0-dev
+      # DTK 26.10 is temporarily disabled; run the pipeline with DTK 26.04 only.
+      dtk_variants: >-
+        [
+          {
+            "id": "dtk2604",
+            "directory": "dtk26.04",
+            "package": "DTK-26.04-rc4-centos8-x86_64.tar.gz"
+          }
+        ]
+      merge_pr: false
+      publish: false

@@ -40,10 +40,6 @@ defaults:
     shell: bash
     working-directory: source
 
-concurrency:
-  group: pytorch-hcu-ci
-  cancel-in-progress: false
-
 env:
   RESOURCE_SERVER_URL: "${{ vars.RESOURCE_SERVER_URL }}"
   BUILD_IMAGE_PY310: "${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.10-mkl2024.2.0.664"
@@ -61,7 +57,7 @@ jobs:
       should_run: ${{ steps.context.outputs.should_run }}
     steps:
       - name: Checkout source for preflight
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source
           fetch-depth: 0
@@ -101,7 +97,7 @@ jobs:
       CONTAINER_NAME_PY312: "pytorch-build-dtk2604-py312-${{ github.run_id }}-${{ github.run_attempt }}"
     steps:
       - name: Checkout PyTorch source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source
           fetch-depth: 0
@@ -134,16 +130,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.12"]
     env:
       DTK_PKG_URL: "${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/dtk26.10/DTK-26.10-CentOS8.5-x86_64.tar.gz"
       DTK_PKG_NAME: "DTK-26.10-CentOS8.5-x86_64.tar.gz"
       LOCAL_RUN_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}/dtk2610"
-      CONTAINER_NAME_PY310: "pytorch-build-dtk2610-py310-${{ github.run_id }}-${{ github.run_attempt }}"
       CONTAINER_NAME_PY312: "pytorch-build-dtk2610-py312-${{ github.run_id }}-${{ github.run_attempt }}"
     steps:
       - name: Checkout PyTorch source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source
           fetch-depth: 0
@@ -204,7 +199,7 @@ jobs:
       TEST_POLICY: ${{ matrix.mode == 'full' && 'report-only' || 'strict' }}
     steps:
       - name: Checkout PyTorch source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source
           fetch-depth: 0
@@ -257,7 +252,7 @@ jobs:
       PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
     steps:
       - name: Checkout PyTorch source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source
           fetch-depth: 0
