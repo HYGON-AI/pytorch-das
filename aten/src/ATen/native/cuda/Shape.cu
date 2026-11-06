@@ -204,12 +204,13 @@ __global__ void CatArrayBatchedCopy_contig(
     CatArrInputTensorMetadata<T, IndexType, batch_size, stride_size> inputs,
     TensorSizeStride<IndexType, CAT_ARRAY_MAX_INPUT_DIMS> os,
     const int concatDim,
-    IndexType dimStride) {
+    IndexType dimStride,
+    bool hostCanFuseInputs,
+    int64_t hostInputRowVec,
+    int64_t hostOutputRowVec) {
 
     IndexType tid = blockIdx.x * blockDim.x + threadIdx.x;
     IndexType nElements = inputs.nElements[blockIdx.y];
-
-    if(tid >= nElements) return;
 
     const T* data = inputs.input[blockIdx.y];
     IndexType offset = inputs.offset[blockIdx.y];
@@ -217,6 +218,106 @@ __global__ void CatArrayBatchedCopy_contig(
     IndexType dataOffset = offset * dimStride;
 
     IndexType stride = gridDim.x * blockDim.x;
+
+    if constexpr (sizeof(T) == 2 || (sizeof(T) > 2 && sizeof(T) <= 8)) {
+      constexpr int kVecBytes = ALIGNED_VEC_LOAD_BYTES_16;
+      constexpr int kILP = kVecBytes / sizeof(T);
+
+      if (concatDim == Dims - 1 &&
+          dimSize > 0 &&
+          dimSize % kILP == 0 &&
+          os.tensorSize[concatDim] % kILP == 0 &&
+          offset % kILP == 0 &&
+          reinterpret_cast<uintptr_t>(data) % kVecBytes == 0 &&
+          reinterpret_cast<uintptr_t>(output) % kVecBytes == 0) {
+        constexpr IndexType kWarpSize = 32;
+        const IndexType lane = threadIdx.x & (kWarpSize - 1);
+        const IndexType warp =
+            (blockIdx.x * blockDim.x + threadIdx.x) / kWarpSize;
+        const IndexType warpStride = (stride >= kWarpSize) ? (stride / kWarpSize) : 1;
+        const IndexType inputRowVec = hostInputRowVec != 0 ? hostInputRowVec : (dimSize / kILP);
+        const IndexType outputRowVec = hostOutputRowVec;
+        const IndexType outputOffsetVec = offset / kILP;
+        const IndexType nRows = nElements / dimSize;
+        const bool inputRowVecDividesWarp =
+            inputRowVec <= kWarpSize && kWarpSize % inputRowVec == 0;
+        const IndexType rowsPerWarp = inputRowVecDividesWarp ?
+            kWarpSize / inputRowVec : 1;
+        const bool inputRowVecPow2 = (inputRowVec & (inputRowVec - 1)) == 0;
+        const char* inputChar = reinterpret_cast<const char*>(data);
+        auto* outputChar = reinterpret_cast<char*>(output);
+
+        const bool canFuseInputs = hostCanFuseInputs;
+
+        if (canFuseInputs && blockIdx.y == 0) {
+          const IndexType fusedInputRowVec = inputRowVec * gridDim.y;
+          const IndexType fusedRowsPerWarp = kWarpSize / fusedInputRowVec;
+          const bool fusedRowVecPow2 =
+              (fusedInputRowVec & (fusedInputRowVec - 1)) == 0;
+
+          for (IndexType rowGroup = warp; rowGroup * fusedRowsPerWarp < nRows;
+               rowGroup += warpStride) {
+            const IndexType rowInGroup = lane / fusedInputRowVec;
+            const IndexType fusedInner = fusedRowVecPow2 ?
+                lane & (fusedInputRowVec - 1) :
+                lane - rowInGroup * fusedInputRowVec;
+            const IndexType row = rowGroup * fusedRowsPerWarp + rowInGroup;
+            if (row < nRows) {
+              const IndexType inputIdx = fusedInner / inputRowVec;
+              const IndexType inner = fusedInner - inputIdx * inputRowVec;
+              const char* fusedInputChar =
+                  reinterpret_cast<const char*>(inputs.input[inputIdx]);
+              const IndexType inputVecOffset = row * inputRowVec + inner;
+              const IndexType outputVecOffset =
+                  row * outputRowVec + fusedInner;
+              auto vec = at::native::memory::ld_vec<kVecBytes>(
+                  fusedInputChar + static_cast<int64_t>(inputVecOffset) * kVecBytes);
+              at::native::memory::st_vec<kVecBytes>(
+                  outputChar + static_cast<int64_t>(outputVecOffset) * kVecBytes, vec);
+            }
+          }
+          return;
+        }
+
+        if (canFuseInputs) {
+          return;
+        }
+
+        if (inputRowVecDividesWarp) {
+          for (IndexType rowGroup = warp; rowGroup * rowsPerWarp < nRows;
+               rowGroup += warpStride) {
+            const IndexType rowInGroup = lane / inputRowVec;
+            const IndexType inner = inputRowVecPow2 ?
+                lane & (inputRowVec - 1) : lane - rowInGroup * inputRowVec;
+            const IndexType row = rowGroup * rowsPerWarp + rowInGroup;
+            if (row < nRows) {
+              const IndexType inputVecOffset = row * inputRowVec + inner;
+              const IndexType outputVecOffset =
+                  row * outputRowVec + outputOffsetVec + inner;
+              auto vec = at::native::memory::ld_vec<kVecBytes>(
+                  inputChar + static_cast<int64_t>(inputVecOffset) * kVecBytes);
+              at::native::memory::st_vec<kVecBytes>(
+                  outputChar + static_cast<int64_t>(outputVecOffset) * kVecBytes, vec);
+            }
+          }
+        } else {
+            const IndexType nVec = nRows * inputRowVec;
+            for (IndexType idx = tid; idx < nVec; idx += stride) {
+              const IndexType row = idx / inputRowVec;
+              const IndexType inner = idx - row * inputRowVec;
+              const IndexType outputVecOffset =
+                  row * outputRowVec + outputOffsetVec + inner;
+              auto vec = at::native::memory::ld_vec<kVecBytes>(
+                  inputChar + static_cast<int64_t>(idx) * kVecBytes);
+              at::native::memory::st_vec<kVecBytes>(
+                  outputChar + static_cast<int64_t>(outputVecOffset) * kVecBytes, vec);
+          }
+        }
+        return;
+      }
+    }
+
+    if(tid >= nElements) return;
 
     while( tid < nElements){
       IndexType elementOffset = CatArrIndexToOffset<IndexType, Dims>::compute(
@@ -501,6 +602,58 @@ void parallel_cat(const Tensor &out, const MaterializedITensorListRef& inputs, i
         cat_dim--;
       }
     }
+
+    // Host-side precomputation for CatArrayBatchedCopy_contig fast paths.
+    // The kernel used to (a) scan `gridDim.y` inputs per block to decide
+    // whether it could fuse inputs into a single warp-vectorized copy and
+    // (b) recompute inputRowVec/outputRowVec from metadata every block.
+    // All of that metadata is already known here, so we resolve it once on
+    // host and pass the result in as kernel arguments.
+    bool hostCanFuseInputs = false;
+    int64_t hostInputRowVec = 0;
+    int64_t hostOutputRowVec = 0;
+
+    if (isContig && batchCounter > 0 && cat_dim == nDimsLocal - 1 &&
+        (sizeof(scalar_t) == 2 ||
+         (sizeof(scalar_t) > 2 && sizeof(scalar_t) <= 8))) {
+      constexpr int kVecBytes = 16;
+      constexpr int kILP = kVecBytes / static_cast<int>(sizeof(scalar_t));
+      constexpr unsigned int kWarpSize = 32;
+
+      hostOutputRowVec = static_cast<int64_t>(outputParam.tensorSize[cat_dim]) / kILP;
+
+      const auto refDimSize = catMetaData.dimSize[0];
+      bool sameDim = true;
+      for (int k = 1; k < batchCounter; ++k) {
+        if (catMetaData.dimSize[k] != refDimSize) {
+          sameDim = false;
+          break;
+        }
+      }
+      if (sameDim && refDimSize > 0 && (refDimSize % kILP) == 0) {
+        hostInputRowVec = static_cast<int64_t>(refDimSize) / kILP;
+      }
+
+      if (batchCounter > 1 && hostInputRowVec != 0) {
+        const auto refNElements = catMetaData.nElements[0];
+        bool fuseOk = true;
+        for (int k = 0; k < batchCounter; ++k) {
+          fuseOk &= catMetaData.nElements[k] == refNElements;
+          fuseOk &= catMetaData.offset[k] ==
+              static_cast<unsigned int>(k) * refDimSize;
+          fuseOk &= reinterpret_cast<uintptr_t>(catMetaData.input[k]) %
+                        kVecBytes ==
+                    0;
+          if (!fuseOk) break;
+        }
+        const unsigned int fusedCandidate =
+            hostInputRowVec * static_cast<unsigned int>(batchCounter);
+        fuseOk &= fusedCandidate > 0 && fusedCandidate <= kWarpSize &&
+                  (kWarpSize % fusedCandidate) == 0;
+        hostCanFuseInputs = fuseOk;
+      }
+    }
+
     // Template Declarations for dim = 1, 2, 3, 4
 #define HANDLE_CASE(DIMS) \
     if (isInOutAligned) {\
@@ -519,7 +672,8 @@ void parallel_cat(const Tensor &out, const MaterializedITensorListRef& inputs, i
     } else if (isContig) {\
       CatArrayBatchedCopy_contig<scalar_t, unsigned int, DIMS, batch_size, stride_size><<<\
           catGrid, applyBlock, 0, stream.stream()>>>(\
-              data, catMetaData, outputParam, cat_dim, outputParam.tensorStride[cat_dim]);\
+              data, catMetaData, outputParam, cat_dim, outputParam.tensorStride[cat_dim], \
+              hostCanFuseInputs, hostInputRowVec, hostOutputRowVec);\
     } else {\
       CatArrayBatchedCopy<scalar_t, unsigned int, DIMS, batch_size, stride_size><<<\
           catGrid, applyBlock, 0, stream.stream()>>>(\
