@@ -10784,6 +10784,95 @@ class TestNNDeviceType(NNTestCase):
 
                     self.assertEqual(a_cuda.grad, a_cpu.grad)
 
+    @onlyCUDA
+    @dtypes(torch.float, torch.half)
+    @parametrize_test("align_corners", [False, True])
+    @parametrize_test("input_shape", [
+        (1, 32, 17, 19),
+        (2, 80, 13, 15),
+        (1, 128, 31, 29),
+    ])
+    def test_upsamplingBilinear2d_channels_last_sizes(self, device, dtype, align_corners, input_shape):
+        input_cpu = torch.randn(input_shape, dtype=dtype)
+        input_channels_last = input_cpu.to(device=device).contiguous(memory_format=torch.channels_last)
+        output_size = (input_shape[-2] * 2, input_shape[-1] * 2)
+
+        expected = F.interpolate(
+            input_cpu, size=output_size, mode="bilinear", align_corners=align_corners
+        )
+        actual = F.interpolate(
+            input_channels_last, size=output_size, mode="bilinear", align_corners=align_corners
+        )
+
+        self.assertTrue(input_channels_last.is_contiguous(memory_format=torch.channels_last))
+        self.assertTrue(actual.is_contiguous(memory_format=torch.channels_last))
+        self.assertEqual(actual.cpu(), expected)
+
+    @onlyCUDA
+    @dtypes(torch.float)
+    @parametrize_test("input_shape", [(0, 17, 5, 7), (1, 17, 5, 7), (1, 49, 5, 7)])
+    def test_upsamplingBilinear2d_channels_last_edges(self, device, dtype, input_shape):
+        input_cpu = torch.randn(input_shape, dtype=dtype)
+        input_channels_last = input_cpu.to(device=device).contiguous(
+            memory_format=torch.channels_last
+        )
+
+        expected = F.interpolate(
+            input_cpu, size=(9, 11), mode="bilinear", align_corners=False
+        )
+        actual = F.interpolate(
+            input_channels_last, size=(9, 11), mode="bilinear", align_corners=False
+        )
+
+        self.assertEqual(actual.cpu(), expected)
+
+    @onlyCUDA
+    @dtypes(torch.float)
+    def test_upsamplingBilinear2d_channels_last_unaligned(self, device, dtype):
+        shape = (1, 17, 5, 7)
+        strides = (17 * 5 * 7, 1, 7 * 17, 17)
+        storage = torch.empty(1 + math.prod(shape), device=device, dtype=dtype)
+        input_unaligned = torch.as_strided(
+            storage, shape, strides, storage_offset=1
+        )
+        input_unaligned.copy_(torch.randn(shape, device=device, dtype=dtype))
+        self.assertTrue(
+            input_unaligned.is_contiguous(memory_format=torch.channels_last)
+        )
+
+        expected = F.interpolate(
+            input_unaligned.cpu(),
+            size=(9, 11),
+            mode="bilinear",
+            align_corners=False,
+        )
+        actual = F.interpolate(
+            input_unaligned, size=(9, 11), mode="bilinear", align_corners=False
+        )
+
+        self.assertEqual(actual.cpu(), expected)
+
+    @onlyCUDA
+    @dtypes(torch.float)
+    @dtypesIfCUDA(torch.float, torch.half, torch.bfloat16)
+    @parametrize_test("align_corners", [False, True])
+    @parametrize_test("channels", [4, 32, 80, 128])
+    @parametrize_test("output_size", [(256, 256), (256, 512)])
+    def test_upsamplingBilinear2d_nchw_dispatch(self, device, dtype, align_corners, channels, output_size):
+        input_cpu = torch.randn((2, channels, 128, 128), dtype=dtype)
+        input_cuda = input_cpu.to(device=device)
+
+        expected = F.interpolate(
+            input_cpu, size=output_size, mode="bilinear", align_corners=align_corners
+        )
+        actual = F.interpolate(
+            input_cuda, size=output_size, mode="bilinear", align_corners=align_corners
+        )
+
+        atol = 1e-5 if dtype == torch.float else 2e-2 if dtype == torch.bfloat16 else 1e-2
+        rtol = 1e-4 if dtype == torch.float else 2e-2 if dtype == torch.bfloat16 else 1e-2
+        self.assertEqual(actual.cpu(), expected, atol=atol, rtol=rtol)
+
     @parametrize_test("antialias", [True, False])
     @parametrize_test("num_channels", [3, 5])
     @parametrize_test("mode", ["nearest", "nearest-exact", "bilinear", "bicubic", "lanczos"])

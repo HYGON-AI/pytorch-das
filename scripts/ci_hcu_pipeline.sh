@@ -14,6 +14,39 @@ require_env() {
     done
 }
 
+resolve_python_artifact_dir() {
+    local configured_root="$1" python_tag="$2"
+    local run_root dtk_id attempt candidate
+    local -a wheels
+
+    [[ "${GITHUB_RUN_ATTEMPT}" =~ ^[0-9]+$ ]] || \
+        die "invalid GITHUB_RUN_ATTEMPT: ${GITHUB_RUN_ATTEMPT}"
+    run_root="$(dirname "$(dirname "${configured_root}")")"
+    dtk_id="$(basename "${configured_root}")"
+
+    for ((attempt = GITHUB_RUN_ATTEMPT; attempt >= 1; attempt--)); do
+        if (( attempt == GITHUB_RUN_ATTEMPT )); then
+            candidate="${configured_root}/dist/${python_tag}"
+        else
+            candidate="${run_root}/${attempt}/${dtk_id}/dist/${python_tag}"
+        fi
+        shopt -s nullglob
+        wheels=("${candidate}"/*manylinux*.whl)
+        shopt -u nullglob
+        if (( ${#wheels[@]} == 1 )); then
+            if (( attempt != GITHUB_RUN_ATTEMPT )); then
+                echo "Reusing ${python_tag} build artifacts from run attempt ${attempt}: ${candidate}" >&2
+            fi
+            printf '%s\n' "${candidate}"
+            return 0
+        fi
+        (( ${#wheels[@]} == 0 )) || \
+            die "expected one ${python_tag} manylinux wheel in ${candidate}, found ${#wheels[@]}"
+    done
+
+    die "cannot find ${python_tag} build artifacts for run ${GITHUB_RUN_ID} through attempt ${GITHUB_RUN_ATTEMPT}"
+}
+
 set_pip_trusted_host() {
     local host="${BUILD_PIP_INDEX_URL#*://}"
     host="${host%%/*}"
@@ -190,20 +223,20 @@ install_aicc() {
 command_test() {
     local mode="${1:-}" devices="${2:-}" policy="${3:-}"
     local artifact_root="${BUILD_ARTIFACT_ROOT:-${LOCAL_RUN_ROOT:-}}"
+    local artifact_dir
     require_env GITHUB_RUN_ID GITHUB_RUN_ATTEMPT DTK_PKG_URL \
         SOURCE_REPO_URL SOURCE_SHA BUILD_IMAGE_PY310 CONTAINER_NAME \
         LOCAL_RUN_ROOT HCU_CI_INDEX_URL BUILD_PIP_INDEX_URL \
         RESOURCE_SERVER_URL
     set_pip_trusted_host
 
-    [[ -d "${artifact_root}/dist/py310" ]] || \
-        die "build wheel directory does not exist: ${artifact_root}/dist/py310"
+    artifact_dir="$(resolve_python_artifact_dir "${artifact_root}" py310)"
     mkdir -p "${LOCAL_RUN_ROOT}/logs" "${LOCAL_RUN_ROOT}/reports"
 
     start_container "${CONTAINER_NAME}" "${BUILD_IMAGE_PY310}" 3.10
     copy_source "${CONTAINER_NAME}"
     docker exec "${CONTAINER_NAME}" mkdir -p /pytorch/dist
-    docker cp "${artifact_root}/dist/py310/." "${CONTAINER_NAME}:/pytorch/dist/"
+    docker cp "${artifact_dir}/." "${CONTAINER_NAME}:/pytorch/dist/"
     install_aicc
     docker exec \
         --env BUILD_PIP_INDEX_URL \
@@ -221,15 +254,23 @@ command_test() {
 }
 
 command_publish() {
-    local publish_wheels
-    require_env PYPI_PASSWORD DEVPI_URL DTK_PKG_NAME SOURCE_SHA \
+    local artifact_dir python_tag
+    local -a publish_wheels python_wheels
+    require_env GITHUB_RUN_ID GITHUB_RUN_ATTEMPT \
+        PYPI_PASSWORD DEVPI_URL DTK_PKG_NAME SOURCE_SHA \
         CONTAINER_NAME LOCAL_RUN_ROOT BUILD_IMAGE_PY310 \
         BUILD_PIP_INDEX_URL
     set_pip_trusted_host
 
-    mapfile -t publish_wheels < <(find "${LOCAL_RUN_ROOT}/dist" \
-        -mindepth 2 -maxdepth 2 -type f -name '*manylinux*.whl' -print)
-    [[ "${#publish_wheels[@]}" -eq 2 ]] || die "expected two manylinux wheels to publish"
+    mkdir -p "${LOCAL_RUN_ROOT}"
+    publish_wheels=()
+    for python_tag in py310 py312; do
+        artifact_dir="$(resolve_python_artifact_dir "${LOCAL_RUN_ROOT}" "${python_tag}")"
+        shopt -s nullglob
+        python_wheels=("${artifact_dir}"/*manylinux*.whl)
+        shopt -u nullglob
+        publish_wheels+=("${python_wheels[0]}")
+    done
 
     start_container "${CONTAINER_NAME}" "${BUILD_IMAGE_PY310}" 3.10
     copy_source "${CONTAINER_NAME}"
