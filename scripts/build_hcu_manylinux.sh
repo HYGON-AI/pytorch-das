@@ -1,97 +1,110 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 # SPDX-License-Identifier: BSD-3-Clause
 
-
-### 将 scripts/build_hcu.sh 生成的 wheel 修复为 manylinux wheel。
-### 运行前须安装 DTK，并确保当前 Python 环境已安装对应的 torch。
-
-set -e
-
-export PYTORCH_ROOT="${PYTORCH_ROOT:-/workspace/pytorch}"
-export DTK_ROOT="${DTK_ROOT:-/opt/dtk}"
-export MANYLINUX_OUTPUT_DIR="${MANYLINUX_OUTPUT_DIR:-${PYTORCH_ROOT}}"
-
-if [ ! -f "${DTK_ROOT}/env.sh" ]; then
-    echo "ERROR: DTK is not installed at ${DTK_ROOT}" >&2
-    echo "Install DTK first, or set DTK_ROOT to the DTK installation directory." >&2
-    exit 1
-fi
-if [ ! -d "${PYTORCH_ROOT}" ]; then
-    echo "ERROR: PYTORCH_ROOT does not exist: ${PYTORCH_ROOT}" >&2
-    exit 1
-fi
-
+# HCU PyTorch 2.14 manylinux packaging.
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PYTORCH_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+DTK_ROOT="${DTK_ROOT:-/opt/dtk}"
+ROCM_PATH="${DTK_ROOT}"
+test -f "${DTK_ROOT}/env.sh"
+set +u
 source "${DTK_ROOT}/env.sh"
+set -u
 cd "${PYTORCH_ROOT}"
+python3 -m pip install auditwheel patchelf
+DTK_BUILD_VERSION="$(tr -d '.[:space:]' < "${DTK_ROOT}/.info/rocm_version")"
+MKL_LIBRARY_DIR="${MKL_LIBRARY_DIR:-/opt/intel/oneapi/mkl/latest/lib}"
+if [[ ! -d "${MKL_LIBRARY_DIR}" ]]; then
+  MKL_LIBRARY_DIR=/opt/intel/mkl/lib/intel64_lin
+fi
+# Generate the manylinux wheel.
+echo "========== Generating manylinux wheel =========="
+mapfile -t wheel_candidates < <(find dist -maxdepth 1 -type f -name '*.whl' -print)
+if [[ "${#wheel_candidates[@]}" -ne 1 ]]; then
+  echo "ERROR: expected exactly one input wheel in dist/, found ${#wheel_candidates[@]}." >&2
+  exit 1
+fi
 
-if [ -d /opt/intel/mkl/lib/intel64_lin ]; then
-    export MKL_LIB_DIR=/opt/intel/mkl/lib/intel64_lin
-elif [ -d /opt/intel/oneapi/mkl/latest/lib ]; then
-    export MKL_LIB_DIR=/opt/intel/oneapi/mkl/latest/lib
+glibc_version_info="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
+if [[ ! "${glibc_version_info}" =~ ([0-9]+\.[0-9]+) ]]; then
+  glibc_version_info="$(ldd --version 2>&1 || true)"
+fi
+if [[ "${glibc_version_info}" =~ ([0-9]+\.[0-9]+) ]]; then
+  glibc_version="${BASH_REMATCH[1]}"
 else
-    echo "ERROR: cannot find MKL lib directory" >&2
-    exit 1
+  echo "ERROR: unable to determine glibc version for the manylinux tag." >&2
+  exit 1
+fi
+PLATFORM="manylinux_${glibc_version/./_}_x86_64"
+export LD_LIBRARY_PATH="${PYTORCH_ROOT}/torch/lib:${MKL_LIBRARY_DIR}:${ROCM_PATH}/magma/lib:${LD_LIBRARY_PATH:-}"
+
+# DTK 26.10 updates SONAME suffixes between packages, so its approved
+# exclusion set uses wildcard suffixes.
+selected_auditwheel_excludes=(
+      'libgalaxyhip.so*'
+      'libMIOpen.so*'
+      'librccl.so*'
+      'libhipblas.so*'
+      'libhipblaslt.so*'
+      'libhipfft.so*'
+      'libhiprand.so*'
+      'libhiprtc.so*'
+      'libhipsolver.so*'
+      'libhipsparse.so*'
+      'libhipnn.so*'
+      'libhipprof*'
+      'librocblas.so*'
+      'librocsolver.so*'
+      'librocfft.so*'
+      'librocrand.so*'
+      'librocsparse.so*'
+      'librocm_smi64.so*'
+      'libroctracer64.so*'
+      'libroctx64.so*'
+      'librocfft-device-*.so*'
+      'libhsa-runtime64.so*'
+      'libamdhip64.so*'
+      'libamd_comgr.so*'
+      'libhsakmt.so*'
+      'libc10.so*'
+      'libc10_hip.so*'
+      'libtorch_cpu.so*'
+      'libtorch_hip.so*'
+      'libtorch_python.so*'
+      'libtorch.so*'
+      'libtorchaudio*'
+      '_torchaudio*'
+      'libavcodec*'
+      'libavdevice*'
+      'libavfilter*'
+      'libavformat*'
+      'libavutil*'
+      'libsox*'
+      'libomp.so*'
+      'libnuma.so*'
+      'libibverbs*'
+      'libnl*'
+      'libmpi*'
+      'libpmix*'
+)
+
+auditwheel_excludes=()
+for library in "${selected_auditwheel_excludes[@]}"; do
+  auditwheel_excludes+=(--exclude "${library}")
+done
+echo "========== auditwheel exclusions selected for DTK ${DTK_BUILD_VERSION:-unknown} =========="
+auditwheel repair \
+  --plat "${PLATFORM}" \
+  "${auditwheel_excludes[@]}" \
+  --wheel-dir dist/ \
+  "${wheel_candidates[0]}"
+
+mapfile -t repaired_wheels < <(find dist -maxdepth 1 -type f -name '*manylinux*.whl' -print)
+if [[ "${#repaired_wheels[@]}" -ne 1 ]]; then
+  echo "ERROR: expected exactly one repaired manylinux wheel, found ${#repaired_wheels[@]}." >&2
+  exit 1
 fi
 
-TORCH_LOCATION=$(python3 -m pip show torch | awk -F': ' '/^Location:/ {print $2}')
-if [ -z "${TORCH_LOCATION}" ]; then
-    echo "ERROR: torch is not installed in the current Python environment" >&2
-    exit 1
-fi
-export TORCH_LOCATION
-export LD_LIBRARY_PATH="${TORCH_LOCATION}/torch/lib:${ROCM_PATH}/magma/lib:${MKL_LIB_DIR}:${LD_LIBRARY_PATH:-}"
-
-python3 -m pip install patchelf auditwheel
-PLATFORM=$(ldd --version | awk '{print $NF}' | head -n1 | awk -F "." '{print "manylinux_"$1"_"$2"_x86_64"}')
-export PLATFORM
-
-shopt -s nullglob
-WHEELS=("${PYTORCH_ROOT}"/dist/torch*.whl)
-if [ "${#WHEELS[@]}" -eq 0 ]; then
-    echo "ERROR: cannot find torch wheel under ${PYTORCH_ROOT}/dist" >&2
-    echo "Run scripts/build_hcu.sh first." >&2
-    exit 1
-fi
-mkdir -p "${MANYLINUX_OUTPUT_DIR}"
-
-auditwheel repair --plat ${PLATFORM} \
-    --exclude "libgalaxyhip.so*" \
-    --exclude "libMIOpen.so*" \
-    --exclude "librccl.so*" \
-    --exclude "libhipblas.so*" \
-    --exclude "libhipfft.so*" \
-    --exclude "libhiprand.so*" \
-    --exclude "libhipsolver.so*" \
-    --exclude "libhipsparse.so*" \
-    --exclude "libhipnn.so*" \
-    --exclude "librocblas.so*" \
-    --exclude "librocsolver.so*" \
-    --exclude "librocfft.so*" \
-    --exclude "librocrand.so*" \
-    --exclude "librocsparse.so*" \
-    --exclude "librocm_smi64.so*" \
-    --exclude "librocfft-device-*.so*" \
-    --exclude "libc10.so*" \
-    --exclude "libc10_hip.so*" \
-    --exclude "libtorch_cpu.so*" \
-    --exclude "libtorch_hip.so*" \
-    --exclude "libtorch_python.so*" \
-    --exclude "libtorch.so*" \
-    --exclude "libtorchaudio*" \
-    --exclude "_torchaudio*" \
-    --exclude "libavcodec*" \
-    --exclude "libavdevice*" \
-    --exclude "libavfilter*" \
-    --exclude "libavformat*" \
-    --exclude "libavutil*" \
-    --exclude "libsox*" \
-    --exclude "libhipblaslt.so*" \
-    --exclude "libnuma.so*" \
-    --exclude "libibverbs*" \
-    --exclude "libnl*"  \
-    --exclude "libmpi*" \
-    --exclude "libpmix*" \
-    --exclude "libhipprof*" \
-    -w "${MANYLINUX_OUTPUT_DIR}" \
-    "${WHEELS[@]}"
+echo "========== Build complete =========="
