@@ -35,22 +35,23 @@ permissions:
 defaults:
   run:
     shell: bash
-    working-directory: source
+    working-directory: source-2.13
 
 env:
   RESOURCE_SERVER_URL: "${{ vars.RESOURCE_SERVER_URL }}"
+  WHEEL_ROOT: /ci_public/pytorch-das/2.13/${{ github.run_id }}
 
 jobs:
   preflight:
     name: preflight
-    runs-on: bw1100
+    runs-on: hygon-cpu
     outputs:
       should_run: ${{ steps.context.outputs.should_run }}
     steps:
       - name: Checkout source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.13
           fetch-depth: 0
           ref: ${{ inputs.source_ref }}
 
@@ -74,15 +75,10 @@ jobs:
     name: build (${{ matrix.config.id }}, py${{ matrix.config.python }})
     needs: preflight
     if: needs.preflight.outputs.should_run == 'true'
-    runs-on: bw1100
+    runs-on: hygon-build
+    timeout-minutes: 180
     container:
       image: "${{ vars.HARBOR_SITE }}/dev/dev:${{ matrix.config.image }}"
-      options: >-
-        --init --ipc=host --shm-size=64g
-        --ulimit stack=10485760:83886080 --ulimit core=0
-        --device=/dev/kfd --device=/dev/dri --group-add video
-        --security-opt seccomp=unconfined --cap-add SYS_PTRACE
-        --volume /opt/hyhal:/opt/hyhal:ro
     strategy:
       fail-fast: false
       matrix:
@@ -127,7 +123,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.13
           fetch-depth: 0
           ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
 
@@ -166,14 +162,14 @@ jobs:
           bash scripts/build_hcu.sh
           MANYLINUX_OUTPUT_DIR="${PWD}/dist" bash scripts/build_hcu_manylinux.sh
 
-      - name: Upload wheel
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: torch-${{ matrix.config.id }}-py${{ matrix.config.python }}
-          path: source/dist/*manylinux*.whl
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
+      - name: Archive wheel to shared storage
+        run: |
+          archive_dir="${WHEEL_ROOT}/${GITHUB_RUN_ATTEMPT}/${{ matrix.config.id }}/py${{ matrix.config.python }}"
+          shopt -s nullglob
+          wheels=(dist/*manylinux*.whl)
+          (( ${#wheels[@]} == 1 )) || { echo "Expected one manylinux wheel, found ${#wheels[@]}" >&2; exit 1; }
+          mkdir -p "${archive_dir}"
+          cp -a -- "${wheels[0]}" "${archive_dir}/"
 
   test:
     name: ${{ inputs.suite }} test (${{ matrix.config.id }}, py${{ matrix.config.python }}, ${{ matrix.target.name }}, ${{ matrix.mode }})
@@ -184,17 +180,12 @@ jobs:
         needs.preflight.outputs.should_run == 'true' &&
         needs.build.result == 'success'
       }}
-    runs-on: ${{ matrix.target.runner }}
+    runs-on: ${{ matrix.target.name == 'nmz' && (matrix.mode == 'nn' && 'hygon-bw1100-1card' || 'hygon-bw1100-8card') || matrix.target.runner }}
     timeout-minutes: >-
-      ${{ matrix.mode == 'full' && 4320 || matrix.mode == 'mr' && 720 || 240 }}
+      ${{ matrix.mode == 'full' && 4320 || matrix.mode == 'mr' && 720 || matrix.target.name == 'nmz' && 90 || 240 }}
     container:
       image: "${{ vars.HARBOR_SITE }}/dev/dev:${{ matrix.config.image }}"
-      options: >-
-        --init --ipc=host --shm-size=64g
-        --ulimit stack=10485760:83886080 --ulimit core=0
-        --device=/dev/kfd --device=/dev/dri --group-add video
-        --security-opt seccomp=unconfined --cap-add SYS_PTRACE
-        --volume /opt/hyhal:/opt/hyhal:ro
+      options: ${{ matrix.target.name != 'nmz' && '--init --ipc=host --shm-size=64g --ulimit stack=10485760:83886080 --ulimit core=0 --device=/dev/kfd --device=/dev/dri --group-add video --security-opt seccomp=unconfined --cap-add SYS_PTRACE --volume /opt/hyhal:/opt/hyhal:ro --volume /ci_public:/ci_public:ro' || '' }}
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -233,7 +224,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.13
           fetch-depth: 0
           ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
 
@@ -267,11 +258,18 @@ jobs:
           mkdir -p /opt/dtk
           cp -a "${version_file%/.info/rocm_version}/." /opt/dtk/
 
-      - name: Download wheel
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: torch-${{ matrix.config.id }}-py${{ matrix.config.python }}
-          path: source/dist
+      - name: Copy wheel from shared storage
+        run: |
+          mkdir -p dist
+          for ((attempt = GITHUB_RUN_ATTEMPT; attempt >= 1; attempt--)); do
+            for wheel in "${WHEEL_ROOT}/${attempt}/${{ matrix.config.id }}/py${{ matrix.config.python }}/"*manylinux*.whl; do
+              [[ -f "${wheel}" ]] || continue
+              echo "Using attempt ${attempt}: ${wheel}"
+              cp -a -- "${wheel}" dist/
+              exit 0
+            done
+          done
+          echo "No wheel found for ${{ matrix.config.id }} py${{ matrix.config.python }} in this run" >&2; exit 1
 
       - name: Install test tools
         env:
@@ -291,9 +289,7 @@ jobs:
           TEST_DEVICES: ${{ matrix.mode == 'nn' && '0' || '0,1,2,3,4,5,6,7' }}
           TEST_POLICY: ${{ matrix.mode == 'full' && 'report-only' || 'strict' }}
         run: |
-          set +u
           source /opt/dtk/env.sh
-          set -u
           shopt -s nullglob
           wheels=(dist/*manylinux*.whl)
           shopt -u nullglob
@@ -307,7 +303,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: reports-${{ matrix.config.id }}-py${{ matrix.config.python }}-${{ matrix.target.name }}-${{ matrix.mode }}
-          path: source/test-reports
+          path: source-2.13/test-reports
           if-no-files-found: ignore
           retention-days: 7
 
@@ -323,6 +319,7 @@ jobs:
     runs-on: bw1100
     container:
       image: "${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.10-mkl2024.2.0.664"
+      options: --volume /ci_public:/ci_public:ro
     strategy:
       fail-fast: false
       matrix:
@@ -343,7 +340,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.13
           fetch-depth: 0
           ref: ${{ inputs.source_ref }}
 
@@ -353,32 +350,31 @@ jobs:
           host="${host#*://}"
           echo "PIP_TRUSTED_HOST=${host%%[:/]*}" >> "${GITHUB_ENV}"
 
-      - name: Download first wheel
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: torch-${{ matrix.config.id }}-py${{ matrix.config['python-1'] }}
-          path: source/publish-dist
-
-      - name: Download second wheel
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: torch-${{ matrix.config.id }}-py${{ matrix.config['python-2'] }}
-          path: source/publish-dist
+      - name: Copy wheels from shared storage
+        run: |
+          mkdir -p publish-dist
+          for python_version in "${{ matrix.config['python-1'] }}" "${{ matrix.config['python-2'] }}"; do
+            found=false
+            for ((attempt = GITHUB_RUN_ATTEMPT; attempt >= 1; attempt--)); do
+              for wheel in "${WHEEL_ROOT}/${attempt}/${{ matrix.config.id }}/py${python_version}/"*manylinux*.whl; do
+                [[ -f "${wheel}" ]] || continue
+                echo "Using attempt ${attempt}: ${wheel}"
+                cp -a -- "${wheel}" publish-dist/
+                found=true; break 2
+              done
+            done
+            [[ "${found}" == true ]] || { echo "No py${python_version} wheel found for ${{ matrix.config.id }}" >&2; exit 1; }
+          done
 
       - name: Publish wheels
         env:
           DTK_PKG_NAME: ${{ matrix.config.package }}
         run: |
-          python3 -m pip install --no-cache-dir --upgrade \
-            --index-url "${BUILD_PIP_INDEX_URL}" \
-            --trusted-host "${PIP_TRUSTED_HOST}" CIUpload
+          python3 -m pip install --no-cache-dir --upgrade --index-url "${BUILD_PIP_INDEX_URL}" --trusted-host "${PIP_TRUSTED_HOST}" CIUpload
           shopt -s nullglob
           wheels=(publish-dist/*manylinux*.whl)
           shopt -u nullglob
           test "${#wheels[@]}" -eq 2
-          CIUpload NIGHTLY \
-            --devpi_url "${DEVPI_URL}" \
-            --password "${PYPI_PASSWORD}" \
-            --dtk_pkg_name "${DTK_PKG_NAME}" \
-            --record \
-            -f "${wheels[@]}"
+          [[ "${DTK_PKG_NAME}" =~ ^DTK-([0-9]+)\.([0-9]+)(-rc[0-9]+)?- ]] || { echo "Cannot parse DTK version: ${DTK_PKG_NAME}" >&2; exit 1; }
+          dtk_version="${BASH_REMATCH[1]}${BASH_REMATCH[2]}${BASH_REMATCH[3]:-}"
+          CIUpload NIGHTLY --dtk_version "${dtk_version}" -f "${wheels[@]}" --devpi_url "${DEVPI_URL}" --password "${PYPI_PASSWORD}" --record
