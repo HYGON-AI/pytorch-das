@@ -55,6 +55,23 @@ set_pip_trusted_host() {
     export BUILD_PIP_TRUSTED_HOST="${BUILD_PIP_TRUSTED_HOST:-${host}}"
 }
 
+install_dtk_current() (
+    local dtk_stage version_file dtk_source
+    dtk_stage="$(mktemp -d /tmp/pytorch-dtk.XXXXXX)"
+    trap 'rm -rf -- "${dtk_stage}"' EXIT
+    mkdir -p "${dtk_stage}/extract"
+    if ! wget --quiet --tries=3 --timeout=120 \
+        --output-document="${dtk_stage}/dtk.tar.gz" -- "${DTK_PKG_URL}" || \
+        ! tar -xzf "${dtk_stage}/dtk.tar.gz" -C "${dtk_stage}/extract"; then
+        die "failed to install DTK from ${DTK_PKG_URL}"
+    fi
+    version_file="$(find "${dtk_stage}/extract" -type f -path '*/.info/rocm_version' -print -quit)"
+    [[ -n "${version_file}" ]] || die "DTK package has no version file"
+    dtk_source="${version_file%/.info/rocm_version}"
+    mkdir -p /opt/dtk
+    cp -a "${dtk_source}/." /opt/dtk/
+)
+
 start_container() {
     local container="$1" image="$2" expected_python="$3"
     local actual_python
@@ -173,6 +190,22 @@ command_build() {
         "${LOCAL_RUN_ROOT}/logs" \
         "${LOCAL_RUN_ROOT}/reports"
 
+    if [[ "${HCU_CI_IN_K8S:-}" == 1 ]]; then
+        [[ "$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" == "${python_version}" ]] || \
+            die "job image does not provide Python ${python_version}"
+        install_dtk_current
+        PIP_INDEX_URL="${BUILD_PIP_INDEX_URL}" \
+        PIP_TRUSTED_HOST="${BUILD_PIP_TRUSTED_HOST}" \
+        PYTHONNOUSERSITE=1 bash scripts/build_hcu.sh \
+            2>&1 | tee "${LOCAL_RUN_ROOT}/logs/build-${python_tag}.log"
+        shopt -s nullglob
+        local -a wheels=(dist/*manylinux*.whl)
+        shopt -u nullglob
+        (( ${#wheels[@]} == 1 )) || die "expected one manylinux wheel"
+        cp -a -- "${wheels[0]}" "${LOCAL_RUN_ROOT}/dist/${python_tag}/"
+        return
+    fi
+
     build_one "${container}" "${image}" "${python_version}" "${python_tag}"
 }
 
@@ -232,6 +265,35 @@ command_test() {
 
     artifact_dir="$(resolve_python_artifact_dir "${artifact_root}" py310)"
     mkdir -p "${LOCAL_RUN_ROOT}/logs" "${LOCAL_RUN_ROOT}/reports"
+
+    if [[ "${HCU_CI_IN_K8S:-}" == 1 ]]; then
+        install_dtk_current
+        mkdir -p dist
+        cp -a -- "${artifact_dir}/"*manylinux*.whl dist/
+        shopt -s nullglob
+        local -a wheels=(dist/*manylinux*.whl)
+        shopt -u nullglob
+        (( ${#wheels[@]} == 1 )) || die "expected one manylinux wheel for test"
+        local installer major_version
+        installer="$(mktemp)"
+        major_version="${AICC_MAJOR_VERSION:-1.0.0}"
+        wget --quiet --tries=3 --timeout=120 \
+            --output-document="${installer}" -- "${AICC_INSTALLER_URL:-${RESOURCE_SERVER_URL}/ai_cc/Nightly/hcu_llvm_installer.sh}"
+        bash "${installer}" --major "${major_version}" --dtk-dir /opt/dtk
+        rm -f -- "${installer}"
+        python3 -m pip install --no-cache-dir --upgrade --force-reinstall \
+            --index-url "${HCU_CI_INDEX_URL}" \
+            --extra-index-url "${BUILD_PIP_INDEX_URL}" \
+            --trusted-host "${BUILD_PIP_TRUSTED_HOST}" hcu-torch-ci
+        set +u
+        source /opt/dtk/env.sh
+        set -u
+        hcu-torch-ci run --mode "${mode}" --repo "${PWD}" \
+            --torch-wheel "${wheels[0]}" \
+            --devices "${devices}" --report-dir "test-reports/${mode}" \
+            --policy "${policy}" 2>&1 | tee "${LOCAL_RUN_ROOT}/logs/test-${mode}.log"
+        return
+    fi
 
     start_container "${CONTAINER_NAME}" "${BUILD_IMAGE_PY310}" 3.10
     copy_source "${CONTAINER_NAME}"
@@ -302,20 +364,26 @@ command_publish() {
                 -f "${wheels[@]}"
             shopt -s nullglob; repaired=(output/*manylinux*.whl); shopt -u nullglob
             [[ "${#repaired[@]}" -eq 2 ]]
-            CIUpload NIGHTLY \
-                --devpi_url "${DEVPI_URL}" \
-                --password "${password}" \
-                --dtk_pkg_name "${DTK_PKG_NAME}" \
-                --record \
-                --repo /pytorch \
-                -f "${repaired[@]}"
+            [[ "${DTK_PKG_NAME}" =~ ^DTK-([0-9]+)\.([0-9]+)(-rc[0-9]+)?- ]] || {
+                echo "ERROR: cannot parse DTK version from ${DTK_PKG_NAME}" >&2; exit 1;
+            }
+            nightly_dtk_version="${BASH_REMATCH[1]}${BASH_REMATCH[2]}${BASH_REMATCH[3]:-}"
+            CIUpload NIGHTLY --dtk_version "${nightly_dtk_version}" -f "${repaired[@]}" \
+                --devpi_url "${DEVPI_URL}" --password "${password}" --record --repo /pytorch
         '
 }
 
 command_collect() {
     require_env LOCAL_RUN_ROOT CONTAINER_NAME
-    docker cp "${CONTAINER_NAME}:/pytorch/test-reports/." \
-        "${LOCAL_RUN_ROOT}/reports/" 2>/dev/null || true
+    if [[ "${HCU_CI_IN_K8S:-}" == 1 ]]; then
+        mkdir -p "${LOCAL_RUN_ROOT}/reports"
+        if [[ -d test-reports ]]; then
+            cp -a test-reports/. "${LOCAL_RUN_ROOT}/reports/"
+        fi
+    else
+        docker cp "${CONTAINER_NAME}:/pytorch/test-reports/." \
+            "${LOCAL_RUN_ROOT}/reports/" 2>/dev/null || true
+    fi
     if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
         while IFS= read -r summary; do
             cat "${summary}" >> "${GITHUB_STEP_SUMMARY}"
@@ -325,6 +393,7 @@ command_collect() {
 }
 
 command_cleanup() {
+    [[ "${HCU_CI_IN_K8S:-}" != 1 ]] || return 0
     local container
     for container in "${CONTAINER_NAME:-}" "${CONTAINER_NAME_PY310:-}" "${CONTAINER_NAME_PY312:-}"; do
         [[ -n "${container}" ]] || continue
