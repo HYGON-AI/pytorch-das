@@ -42,6 +42,7 @@ from torch.testing._internal.inductor_utils import IS_H100, requires_triton
 
 
 shmem_backend = shmem_triton.get_shmem_backend_module()
+TEST_WITH_DTK = TEST_WITH_ROCM and shmem_backend._IS_DTK
 
 
 def requires_h100():
@@ -479,9 +480,14 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         flag = out_hdl.get_signal_pad(rank, (1,), dtype=torch.int64).fill_(0)
 
         peer = 1 - rank
-        NVSHMEM_SIGNAL_SET = 0  # value defined by NVSHMEM for atomic set
-        SIGNAL_VAL = 1  # Signal completion value
+        NVSHMEM_SIGNAL_SET = (
+            0 if TEST_WITH_ROCM else 9
+        )  # value defined by NVSHMEM for atomic set
+        SIGNAL_VAL = 1 + NVSHMEM_SIGNAL_SET  # Signal completion value
         NVSHMEM_CMP_EQ = 0  # compare equal for signal wait until
+
+        # Barrier so rank 1's pad zeroing cannot erase rank 0's incoming signal.
+        dist.barrier()
 
         if rank == 0:
             # Rank 0 puts into Rank 1
@@ -535,11 +541,14 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         flag = out_hdl.get_signal_pad(rank, (1,), dtype=torch.int64).fill_(0)
 
         peer = 1 - rank
-        # NVSHMEM_SIGNAL_ADD = 5  (nvshmem_common.h)
+        # NVSHMEM_SIGNAL_ADD = 10  (nvshmem_common.h)
         # ROCSHMEM_SIGNAL_ADD = 1 (rocshmem_common.hpp enum ROCSHMEM_SIGNAL_OPS)
-        NVSHMEM_SIGNAL_ADD = 1 if TEST_WITH_ROCM else 5
-        SIGNAL_VAL = 16  # val + NVSHMEM_SIGNAL_ADD
+        NVSHMEM_SIGNAL_ADD = 1 if TEST_WITH_ROCM else 10
+        SIGNAL_VAL = val + NVSHMEM_SIGNAL_ADD
         NVSHMEM_CMP_EQ = 0
+
+        # Barrier so rank 1's pad zeroing cannot erase rank 0's incoming signal.
+        dist.barrier()
 
         if rank == 0:
             # Rank 0 puts into Rank 1
@@ -626,7 +635,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
 
         # NVSHMEM constants from documentation
         NVSHMEM_CMP_EQ = 0  # equal comparison
-        NVSHMEM_SIGNAL_SET = 0  # atomic set operation
+        NVSHMEM_SIGNAL_SET = 0 if TEST_WITH_ROCM else 9  # atomic set operation
 
         # Message configuration
         msg_size_bytes = 8
@@ -634,7 +643,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         numel = msg_size_bytes // dtype.itemsize
 
         val_to_put = 123  # arbitrary test value
-        COMPLETION_FLAG_VAL = 1
+        COMPLETION_FLAG_VAL = 1 + NVSHMEM_SIGNAL_SET
 
         # Producer (rank 0) prepares the data to send
         inp = symm_mem.empty(numel, dtype=dtype, device=self.device).fill_(val_to_put)
@@ -645,6 +654,9 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         # Use the signal pad for synchronization, as in previous tests
         flag_dtype = torch.int64
         flag = out_hdl.get_signal_pad(rank, (1,), dtype=flag_dtype).fill_(0)
+
+        # Barrier so rank 1's pad zeroing cannot erase rank 0's incoming signal.
+        dist.barrier()
 
         if rank == 0:
             # Producer (rank 0): Puts data into rank 1's `out` buffer and then sets the flag
@@ -872,7 +884,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             torch.tensor([expected_remote], device=self.device, dtype=dtype),
         )
 
-    @skipIfRocmVersionLessThan((10, 2))
+    @skipIfRocmVersionLessThan((0, 0) if TEST_WITH_DTK else (10, 2))
     @requires_triton()
     @requires_h100()
     @parametrize("nelems_per_pe", [2, 64, 1024])
@@ -917,7 +929,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             actual = dst[i * nelems_per_pe : (i + 1) * nelems_per_pe]
             torch.testing.assert_close(actual, torch.full_like(actual, expected))
 
-    @skipIfRocmVersionLessThan((10, 2))
+    @skipIfRocmVersionLessThan((0, 0) if TEST_WITH_DTK else (10, 2))
     @requires_triton()
     @requires_h100()
     @parametrize("nelems", [2, 64, 1024])
@@ -966,8 +978,10 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         expected = torch.arange(100, 100 + nelems, dtype=dtype, device=self.device)
         torch.testing.assert_close(dst, expected)
 
-    @skip_but_pass_in_sandcastle_if(not TEST_WITH_ROCM, "rocSHMEM-only team check")
-    @skipIfRocmVersionLessThan((10, 2))
+    @skip_but_pass_in_sandcastle_if(
+        not TEST_WITH_ROCM or TEST_WITH_DTK, "ROCm WORLD-team wrapper check"
+    )
+    @skipIfRocmVersionLessThan((0, 0) if TEST_WITH_DTK else (10, 2))
     @requires_triton()
     @parametrize("op", ["alltoall", "broadcast"])
     def test_triton_rocshmem_runtime_nonworld_team(self, op: str) -> None:
@@ -988,8 +1002,10 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         self.assertNotEqual(status.item(), 0)
         self.assertEqual(dst, torch.full_like(dst, -1))
 
-    @skip_but_pass_in_sandcastle_if(not TEST_WITH_ROCM, "rocSHMEM-only team check")
-    @skipIfRocmVersionLessThan((10, 2))
+    @skip_but_pass_in_sandcastle_if(
+        not TEST_WITH_ROCM or TEST_WITH_DTK, "ROCm WORLD-team wrapper check"
+    )
+    @skipIfRocmVersionLessThan((0, 0) if TEST_WITH_DTK else (10, 2))
     @requires_triton()
     @parametrize("op", ["alltoall", "broadcast"])
     def test_triton_rocshmem_constexpr_nonworld_team(self, op: str) -> None:

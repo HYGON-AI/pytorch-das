@@ -23,6 +23,9 @@ from torch.utils._triton import has_triton
 
 
 logger = logging.getLogger(__name__)
+_IS_DTK = getattr(torch.version, "dtk", None) is not None or ".dtk" in getattr(
+    torch.version, "__hcu_version__", ""
+)
 
 
 class RocshmemLibFinder:
@@ -63,6 +66,11 @@ class RocshmemLibFinder:
         lib_name = f"librocshmem_device_{arch}.bc"
 
         search_paths = []
+        rocshmem_home = os.environ.get("ROCSHMEM_HOME")
+        if rocshmem_home:
+            search_paths.append(os.path.join(rocshmem_home, "lib64"))
+        if _IS_DTK:
+            search_paths.append("/opt/rocshmem/lib64")
         rocm_home = os.environ.get("ROCM_HOME") or os.environ.get("ROCM_PATH")
         if rocm_home:
             search_paths.append(os.path.join(rocm_home, "lib"))
@@ -164,14 +172,20 @@ def _get_team_world_wrappers_path() -> str:
     import triton
 
     cache_dir = triton.knobs.cache.dir
-    digest = hashlib.sha256(_TEAM_WORLD_WRAPPERS_LL.encode()).hexdigest()[:16]
+    wrappers = _TEAM_WORLD_WRAPPERS_LL
+    if _IS_DTK:
+        wrappers = wrappers.replace(
+            "@ROCSHMEM_TEAM_WORLD = external addrspace(4) constant ptr",
+            "@ROCSHMEM_TEAM_WORLD = external addrspace(4) global ptr",
+        )
+    digest = hashlib.sha256(wrappers.encode()).hexdigest()[:16]
     path = os.path.join(cache_dir, f"torch_rocshmem_wrappers_{digest}.ll")
     if not os.path.isfile(path):
         os.makedirs(cache_dir, exist_ok=True)
         with tempfile.NamedTemporaryFile(
             "w", dir=cache_dir, suffix=".ll", delete=False
         ) as f:
-            f.write(_TEAM_WORLD_WRAPPERS_LL)
+            f.write(wrappers)
         # NamedTemporaryFile is 0600; other users sharing the cache dir must read it.
         os.chmod(f.name, 0o644)
         os.replace(f.name, path)
@@ -244,6 +258,7 @@ if has_triton():
     _ROCM_VERSION = tuple(int(v) for v in (torch.version.rocm or "0.0").split(".")[:2])
     # ROCm < 10.1 ships rocSHMEM < 3.7.0, whose device reduce breaks when n_pes * nreduce > 1024.
     _ROCSHMEM_REDUCE_SIZE_LIMITED = tl.constexpr(_ROCM_VERSION < (10, 1))
+    _ROCSHMEM_DTK = tl.constexpr(_IS_DTK)
     _ROCSHMEM_HAS_ALLTOALL_BROADCAST = tl.constexpr(_ROCM_VERSION >= (10, 2))
 
     # -----------------------------------------------------------------------
@@ -538,6 +553,8 @@ if has_triton():
         """
         All-to-all exchange between all PEs.
 
+        Team 0 selects ROCSHMEM_TEAM_WORLD through the device wrapper.
+
         Calls the work-group scoped ``rocshmem_ctx_alltoallmem_wg`` on the default
         context. Requires ROCm >= 10.2.
 
@@ -563,7 +580,7 @@ if has_triton():
             ```
         """
         tl.static_assert(
-            _ROCSHMEM_HAS_ALLTOALL_BROADCAST,
+            _ROCSHMEM_DTK or _ROCSHMEM_HAS_ALLTOALL_BROADCAST,
             "rocshmem alltoall requires ROCm >= 10.2 device bitcode.",
         )
         tl.static_assert(dest.type == source.type)
@@ -599,6 +616,8 @@ if has_triton():
         """
         Broadcast data from a root PE to all PEs.
 
+        Team 0 selects ROCSHMEM_TEAM_WORLD through the device wrapper.
+
         Calls the work-group scoped ``rocshmem_ctx_broadcastmem_wg`` on the default
         context. Requires ROCm >= 10.2.
 
@@ -623,7 +642,7 @@ if has_triton():
             ```
         """
         tl.static_assert(
-            _ROCSHMEM_HAS_ALLTOALL_BROADCAST,
+            _ROCSHMEM_DTK or _ROCSHMEM_HAS_ALLTOALL_BROADCAST,
             "rocshmem broadcast requires ROCm >= 10.2 device bitcode.",
         )
         tl.static_assert(dest.type == source.type)
@@ -707,7 +726,7 @@ if has_triton():
         dtype_to_rocshmem = {
             "int16": "short",
             "int32": "int",
-            "int64": "long",
+            "int64": "longlong" if _IS_DTK else "long",
             "fp32": "float",
             "fp64": "double",
         }

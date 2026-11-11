@@ -76,7 +76,7 @@ device_type = "cuda"
 device_module = torch.get_device_module(device_type)
 
 
-# @requires_nvshmem()
+@requires_nvshmem()
 @requires_cuda_p2p_access()
 class NVSHMEMSymmetricMemoryTest(MultiProcContinuousTest):
     def _init_device(self) -> None:
@@ -563,7 +563,7 @@ class NVSHMEMSignalNegativeTest(MultiProcessTestCase):
 
 
 @instantiate_parametrized_tests
-# @requires_nvshmem()
+@requires_nvshmem()
 @requires_cuda_p2p_access()
 class NVSHMEMAll2AllTest(MultiProcContinuousTest):
     def _init_device(self) -> None:
@@ -964,7 +964,7 @@ def dispatch_then_combine(device, align: int, group) -> None:
 
 
 @instantiate_parametrized_tests
-# @requires_nvshmem()
+@requires_nvshmem()
 @requires_cuda_p2p_access()
 class DispatchCombineTest(MultiProcContinuousTest):
     def _init_device(self) -> None:
@@ -989,7 +989,7 @@ class DispatchCombineTest(MultiProcContinuousTest):
 
 
 @instantiate_parametrized_tests
-# @requires_nvshmem()
+@requires_nvshmem()
 @requires_cuda_p2p_access()
 class DispatchCombineInSubgroups(MultiProcContinuousTest):
     def _init_device(self) -> None:
@@ -1021,7 +1021,7 @@ class DispatchCombineInSubgroups(MultiProcContinuousTest):
 
 
 @instantiate_parametrized_tests
-# @requires_nvshmem()
+@requires_nvshmem()
 @requires_cuda_p2p_access()
 class NVSHMEMTileCommTest(MultiProcContinuousTest):
     def _init_device(self) -> None:
