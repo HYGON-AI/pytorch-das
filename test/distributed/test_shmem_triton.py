@@ -42,6 +42,7 @@ from torch.testing._internal.inductor_utils import IS_H100, requires_triton
 
 
 shmem_backend = shmem_triton.get_shmem_backend_module()
+TEST_WITH_DTK = TEST_WITH_ROCM and shmem_backend._IS_DTK
 
 
 def requires_h100():
@@ -264,8 +265,7 @@ def my_alltoall_kernel(
     src,
     nelems_per_pe,
 ):
-    team = tl.load(team_handle)
-    shmem_backend.alltoall(team, dst, src, nelems_per_pe)
+    shmem_backend.alltoall(team_handle, dst, src, nelems_per_pe)
 
 
 @requires_shmem
@@ -277,8 +277,7 @@ def my_broadcast_kernel(
     nelems,
     pe_root,
 ):
-    team = tl.load(team_handle)
-    shmem_backend.broadcast(team, dst, src, nelems, pe_root)
+    shmem_backend.broadcast(team_handle, dst, src, nelems, pe_root)
 
 
 @requires_shmem
@@ -327,7 +326,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         return torch.device(device_type, self.rank)
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     def test_triton_put(self) -> None:
         torch.manual_seed(42 + self.rank)
         self._init_device()
@@ -378,7 +377,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             )
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     @parametrize("nbi", [False, True])  # Test both blocking and nonblocking interfaces
     def test_triton_get(self, nbi: bool) -> None:
         torch.manual_seed(42 + self.rank)
@@ -417,7 +416,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             )
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     def test_triton_get_ring(self) -> None:
         torch.manual_seed(42 + self.rank)
         self._init_device()
@@ -457,7 +456,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         )
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     def test_triton_put_signal_set(self) -> None:
         torch.manual_seed(42 + self.rank)
         self._init_device()
@@ -518,7 +517,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             )
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     def test_triton_put_signal_add(self) -> None:
         torch.manual_seed(42 + self.rank)
         self._init_device()
@@ -577,7 +576,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             )
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     def test_triton_wait_until(self) -> None:
         torch.manual_seed(42 + self.rank)
         self._init_device()
@@ -627,7 +626,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             )
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     def test_triton_signal_wait_until(self) -> None:
         self._init_device()
         group_name = dist.distributed_c10d._get_default_group().group_name
@@ -689,7 +688,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             )
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     def test_triton_fence(self) -> None:
         """
         Rank 0 performs two put operations into Rank 1's buffers with a fence
@@ -763,7 +762,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             )
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     def test_triton_quiet(self) -> None:
         torch.manual_seed(42 + self.rank)
         self._init_device()
@@ -811,7 +810,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         dist.barrier()
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     def test_triton_barrier(self) -> None:
         torch.manual_seed(42 + self.rank)
         self._init_device()
@@ -844,7 +843,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             )
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     def test_triton_sync(self) -> None:
         torch.manual_seed(42 + self.rank)
         self._init_device()
@@ -885,7 +884,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             torch.tensor([expected_remote], device=self.device, dtype=dtype),
         )
 
-    @skipIfRocmVersionLessThan((10, 2))
+    @skipIfRocmVersionLessThan((0, 0) if TEST_WITH_DTK else (10, 2))
     @requires_triton()
     @requires_h100()
     @parametrize("nelems_per_pe", [2, 64, 1024])
@@ -930,7 +929,7 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             actual = dst[i * nelems_per_pe : (i + 1) * nelems_per_pe]
             torch.testing.assert_close(actual, torch.full_like(actual, expected))
 
-    @skipIfRocmVersionLessThan((10, 2))
+    @skipIfRocmVersionLessThan((0, 0) if TEST_WITH_DTK else (10, 2))
     @requires_triton()
     @requires_h100()
     @parametrize("nelems", [2, 64, 1024])
@@ -979,8 +978,10 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         expected = torch.arange(100, 100 + nelems, dtype=dtype, device=self.device)
         torch.testing.assert_close(dst, expected)
 
-    @skip_but_pass_in_sandcastle_if(not TEST_WITH_ROCM, "rocSHMEM-only team check")
-    @skipIfRocmVersionLessThan((10, 2))
+    @skip_but_pass_in_sandcastle_if(
+        not TEST_WITH_ROCM or TEST_WITH_DTK, "ROCm WORLD-team wrapper check"
+    )
+    @skipIfRocmVersionLessThan((0, 0) if TEST_WITH_DTK else (10, 2))
     @requires_triton()
     @parametrize("op", ["alltoall", "broadcast"])
     def test_triton_rocshmem_runtime_nonworld_team(self, op: str) -> None:
@@ -1001,8 +1002,10 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         self.assertNotEqual(status.item(), 0)
         self.assertEqual(dst, torch.full_like(dst, -1))
 
-    @skip_but_pass_in_sandcastle_if(not TEST_WITH_ROCM, "rocSHMEM-only team check")
-    @skipIfRocmVersionLessThan((10, 2))
+    @skip_but_pass_in_sandcastle_if(
+        not TEST_WITH_ROCM or TEST_WITH_DTK, "ROCm WORLD-team wrapper check"
+    )
+    @skipIfRocmVersionLessThan((0, 0) if TEST_WITH_DTK else (10, 2))
     @requires_triton()
     @parametrize("op", ["alltoall", "broadcast"])
     def test_triton_rocshmem_constexpr_nonworld_team(self, op: str) -> None:
@@ -1012,16 +1015,16 @@ class SHMEMTritonTest(MultiProcContinuousTest):
             my_collective_constexpr_team_kernel[(1,)](buf, buf, 4, TEAM=1, OP=op)
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     @parametrize(
         "dtype",
         [
-            # torch.int8,
+            torch.int8,
             torch.int16,
             torch.int32,
             torch.int64,
-            # torch.uint8,
-            # torch.float16,
+            torch.uint8,
+            torch.float16,
             torch.float32,
             torch.float64,
             torch.bfloat16,
@@ -1075,18 +1078,18 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         self.assertEqual(dst, torch.tensor(expected, device=self.device, dtype=dtype))
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     @parametrize(
         "dtype",
         [
-            # torch.int8,
+            torch.int8,
             torch.int16,
             torch.int32,
             torch.int64,
-            # torch.float16,
+            torch.float16,
             torch.float32,
             torch.float64,
-            # torch.bfloat16,
+            torch.bfloat16,
         ],
     )
     def test_triton_minmax_reduce(self, dtype) -> None:
@@ -1161,15 +1164,15 @@ class SHMEMTritonTest(MultiProcContinuousTest):
         )
 
     @requires_triton()
-    # @requires_h100()
+    @requires_h100()
     @parametrize(
         "dtype",
         [
-            # torch.int8,
+            torch.int8,
             torch.int16,
             torch.int32,
             torch.int64,
-            # torch.float16,
+            torch.float16,
             torch.float32,
             torch.float64,
             torch.bfloat16,

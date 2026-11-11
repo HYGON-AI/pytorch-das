@@ -21,10 +21,12 @@
 #include <hip/hip_runtime.h>
 #include <algorithm>
 #include <cstdlib>
+#include <string_view>
 #include <vector>
 #include <ATen/ceil_div.h>
 #include <ATen/hip/HIPContext.h>
 #include <c10/hip/HIPGuard.h>
+#include <c10/util/Exception.h>
 
 #include <torch/csrc/distributed/c10d/symm_mem/env.hpp>
 #include <torch/csrc/distributed/c10d/symm_mem/nvshmem_extension.hpp>
@@ -98,9 +100,30 @@ int a2av_tile_size(c10::DeviceIndex device_index) {
 extern "C" void rocshmem_init() __attribute__((weak));
 
 bool is_nvshmem_available() {
+#ifdef PYTORCH_DTK_VERSION
+  int device;
+  hipDeviceProp_t_v2 properties{};
+  if (hipGetDevice(&device) != hipSuccess ||
+      hipGetDeviceProperties_v2(&properties, device) != hipSuccess) {
+    return false;
+  }
+  std::string_view arch(properties.gcnArchName);
+  arch = arch.substr(0, arch.find(':'));
+  if (arch != "gfx936" && arch != "gfx938") {
+    TORCH_WARN_ONCE(
+        "\nrocSHMEM is unavailable on device ",
+        device,
+        " (",
+        properties.gcnArchName,
+        "). Supported architectures for DTK builds: gfx936, gfx938.");
+    return false;
+  }
+  return true;
+#else
   static const bool ok =
       parse_rocshmem_version_ge(rocshmem::VERSION, 3, 5, 0);
   return ok;
+#endif
 }
 
 void nvshmemx_cumodule_init(uintptr_t module) {
@@ -123,23 +146,6 @@ at::Tensor nvshmem_broadcast(at::Tensor& input, const int64_t root, const std::s
   auto stream = at::cuda::getCurrentCUDAStream();
   rocshmem_broadcastmem_on_stream(team, buffer_ptr, buffer_ptr, buffer_size, root, stream);
   return input;
-}
-
-at::Tensor nvshmem_team(const at::Tensor& input, const std::string& group_name) {
-  auto input_hdl = c10d::symmetric_memory::rendezvous(input, group_name);
-  auto& team_manager = TeamManager::get(input.device());
-  auto team = team_manager.get_team(group_name, input_hdl->get_rank_to_global_rank());
-  uintptr_t team_bits = reinterpret_cast<uintptr_t>(team);
-
-  auto out = at::empty({1}, input.options().dtype(at::kLong));
-  auto stream = at::cuda::getCurrentCUDAStream(input.device().index());
-  C10_CUDA_CHECK(hipMemcpyAsync(
-      out.data_ptr<int64_t>(),
-      &team_bits,
-      sizeof(team_bits),
-      hipMemcpyHostToDevice,
-      stream));
-  return out;
 }
 
 void nvshmem_put(at::Tensor& tensor, const int64_t peer) {
@@ -308,10 +314,8 @@ __global__ void exchangeSplitAndOffset(int64_t* input_splits, int64_t* out_split
   if (tid < npes) {
     // tid is peer index within team, but put calls require global rank
     int peer_global = rocshmem_team_translate_pe(team, tid, ROCSHMEM_TEAM_WORLD);
-    // rocshmem_int64_p(source_offsets + mype, peer_offsets[tid], peer_global);
-    // rocshmem_int64_p(output_splits + mype, input_splits[tid], peer_global);
-    rocshmem_putmem(output_splits + mype, input_splits + tid, sizeof(int64_t), peer_global);
-    rocshmem_putmem(source_offsets + mype, peer_offsets + tid, sizeof(int64_t), peer_global);
+    rocshmem_int64_p(source_offsets + mype, peer_offsets[tid], peer_global);
+    rocshmem_int64_p(output_splits + mype, input_splits[tid], peer_global);
   }
   rocshmem_barrier_wg();
 }
@@ -566,10 +570,8 @@ __global__ void exchangeSplitAndOffset_2d(int64_t* in_splits_offsets, int64_t* o
     auto split_val = input_splits[tid];
     CUDA_KERNEL_ASSERT(split_val >= 0 && "split value is negative\n");
     auto peer_global = rocshmem_team_translate_pe(team, peer, ROCSHMEM_TEAM_WORLD);
-    // rocshmem_int64_p(source_offsets + dst_offset, input_offsets[tid], peer_global);
-    // rocshmem_int64_p(output_splits + dst_offset, split_val, peer_global);
-    rocshmem_putmem(source_offsets + dst_offset, input_offsets + tid, sizeof(int64_t), peer_global);
-    rocshmem_putmem(output_splits + dst_offset, input_splits + tid, sizeof(int64_t), peer_global);
+    rocshmem_int64_p(source_offsets + dst_offset, input_offsets[tid], peer_global);
+    rocshmem_int64_p(output_splits + dst_offset, split_val, peer_global);
   }
   rocshmem_barrier_wg();
 }
@@ -930,7 +932,6 @@ void release_nvshmem_team_pool(const std::string& group_name) {
 
 TORCH_LIBRARY_IMPL(symm_mem, CUDA, m) {
   m.impl("nvshmem_broadcast", c10d::nvshmem_extension::nvshmem_broadcast);
-  m.impl("nvshmem_team", c10d::nvshmem_extension::nvshmem_team);
   m.impl("nvshmem_put", c10d::nvshmem_extension::nvshmem_put);
   m.impl("nvshmem_get", c10d::nvshmem_extension::nvshmem_get);
   m.impl("nvshmem_wait_for_signal", c10d::nvshmem_extension::nvshmem_wait_for_signal);
