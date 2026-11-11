@@ -2494,6 +2494,47 @@ class TestReductions(TestCase):
         run_test(torch.zeros(64, 61, dtype=dtype, device=device))
         run_test(torch.zeros(64, 1, dtype=dtype, device=device))
 
+    @onlyCUDA
+    @dtypes(torch.half, torch.bfloat16, torch.float, torch.double)
+    def test_argmax_small_k_rocm(self, device, dtype):
+        if torch.version.hip is None:
+            self.skipTest("ROCm-only small-K argmax path")
+
+        for rows, k in ((1024, 2), (1024, 32), (65536, 33), (65536, 64)):
+            values = torch.zeros((rows, k), device=device, dtype=dtype)
+            values[:, 1] = 5
+            values[:, -1] = 5
+            values[::2, 0] = float("nan")
+            values[::2, 1] = float("nan")
+            expected = torch.ones(rows, device=device, dtype=torch.long)
+            expected[::2] = 0
+
+            actual = values.argmax(dim=-1)
+            actual_keepdim = values.argmax(dim=-1, keepdim=True)
+
+            self.assertEqual(actual.dtype, torch.int64)
+            self.assertEqual(actual, expected)
+            self.assertEqual(actual_keepdim, expected.unsqueeze(-1))
+
+        for rows, k in ((1023, 32), (65535, 33)):
+            values = torch.randn((rows, k), device=device, dtype=dtype)
+            self.assertEqual(
+                values.argmax(dim=-1).cpu(), values.cpu().argmax(dim=-1)
+            )
+
+        noncontiguous = torch.randn((19, 1024), device=device, dtype=dtype).t()
+        self.assertFalse(noncontiguous.is_contiguous())
+        self.assertEqual(
+            noncontiguous.argmax(dim=-1).cpu(),
+            noncontiguous.cpu().argmax(dim=-1),
+        )
+
+        non_last_dim = torch.randn((19, 1024), device=device, dtype=dtype)
+        self.assertEqual(
+            non_last_dim.argmax(dim=0).cpu(),
+            non_last_dim.cpu().argmax(dim=0),
+        )
+
     @onlyOn(["cuda", "xpu"])
     def test_argminmax_large_axis(self, device):
         # Regression test for gh-32863

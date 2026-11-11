@@ -9,6 +9,7 @@
 #include <ATen/native/cuda/LaunchUtils.h>
 #include <ATen/native/cuda/UpSample.cuh>
 #include <ATen/native/cuda/KernelUtils.cuh>
+#include <ATen/native/cuda/MemoryAccess.cuh>
 #include <ATen/cuda/detail/KernelUtils.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
@@ -112,6 +113,105 @@ __global__ void upsample_nearest2d_nhwc_out_frame(
 
     odata[index] = idata[idx_cl(n, h1, w1, c, height1, width1, channels)];
   }
+}
+
+template <typename scalar_t, nn_compute_source_index_fn_t nn_compute_source_index_fn, int c_tile, int vec_size>
+C10_LAUNCH_BOUNDS_1(1024)
+__global__ void upsample_nearest2d_nhwc_tile_vec_out_frame(
+    const scalar_t* idata,
+    scalar_t* odata,
+    const size_t channels,
+    const size_t height1,
+    const size_t width1,
+    const size_t height2,
+    const size_t width2,
+    float height_scale,
+    float width_scale,
+    const size_t channel_tiles,
+    const size_t out_numel) {
+
+    const int64_t index = ((int64_t) blockIdx.x) * blockDim.x + threadIdx.x;
+
+    if (index < out_numel) {
+      const size_t pixel_idx = index / channel_tiles;
+      const size_t tile_idx = index % channel_tiles;
+      const size_t c_start = tile_idx * c_tile;
+      const size_t c_end = std::min(c_start + (size_t)c_tile, channels);
+      const auto w2 = pixel_idx % width2;
+      const auto h2 = (pixel_idx / width2) % height2;
+      const auto n  = pixel_idx / (height2 * width2);
+
+      const size_t h1 = height1 == height2 ? h2 : nn_compute_source_index_fn(height_scale, h2, height1);
+      const size_t w1 = width1 == width2 ? w2 : nn_compute_source_index_fn(width_scale, w2, width1);
+
+      size_t input_offset = ((size_t)n * height1 * width1 + h1 * width1 + w1) * channels;
+      size_t output_offset = ((size_t)n * height2 * width2 + h2 * width2 + w2) * channels;
+
+      auto c = c_start;
+      #pragma unroll
+      for(; c + vec_size <= c_end; c += vec_size){
+          auto vec = memory::load_vector<vec_size>(idata + input_offset + c, 0);
+          reinterpret_cast<memory::aligned_vector<scalar_t, vec_size>*>(odata + output_offset + c)[0] = vec;
+      }
+      #pragma unroll
+      for(; c < c_end; c++)
+      {
+          odata[output_offset + c] = idata[input_offset + c];
+      }
+    }
+}
+
+template <typename scalar_t, nn_compute_source_index_fn_t nn_compute_source_index_fn, int c_tile, int vec_size, int pixel_num_per_block>
+C10_LAUNCH_BOUNDS_1(1024)
+__global__ void upsample_nearest2d_nhwc_tile_vec_shared_out_frame(
+    const scalar_t* idata, 
+    scalar_t* odata,
+    const size_t channels,
+    const size_t height1, 
+    const size_t width1,
+    const size_t height2, 
+    const size_t width2,
+    float height_scale, 
+    float width_scale,
+    const size_t pixel_num,
+    const size_t channel_tiles,
+    const size_t channel_tiles_per_block,
+    const size_t tile_blocks
+) {
+    const auto tile_block = blockIdx.x % tile_blocks;
+    const auto pixel_block = blockIdx.x / tile_blocks;
+    const auto local_tile = threadIdx.x % channel_tiles_per_block;
+    const auto local_pixel = threadIdx.x / channel_tiles_per_block;
+    const auto pixel_idx = pixel_block * pixel_num_per_block + local_pixel;
+
+    __shared__ size_t h1[pixel_num_per_block];
+    __shared__ size_t w1[pixel_num_per_block];
+    __shared__ size_t h2[pixel_num_per_block];
+    __shared__ size_t w2[pixel_num_per_block];
+
+    if (local_tile == 0 && pixel_idx < pixel_num) {
+        h2[local_pixel] = (pixel_idx / width2) % height2;
+        w2[local_pixel] = pixel_idx % width2;
+        h1[local_pixel] = height1 == height2? h2[local_pixel] : nn_compute_source_index_fn(height_scale, h2[local_pixel], height1);
+        w1[local_pixel] = width1 == width2? w2[local_pixel]: nn_compute_source_index_fn(width_scale, w2[local_pixel], width1);
+    }
+    __syncthreads();
+    const size_t tile_idx = tile_block * channel_tiles_per_block + local_tile;
+    if (pixel_idx >= pixel_num || tile_idx >= channel_tiles) return;
+
+    const auto n = pixel_idx / (height2 * width2);
+    const size_t  c_start = tile_idx * c_tile;
+    const size_t  c_end = std::min(c_start + (size_t)c_tile, channels);
+    const size_t input_offset = ((size_t)n * height1 * width1 + h1[local_pixel] * width1 + w1[local_pixel]) * channels;
+    const size_t output_offset = ((size_t)n * height2 * width2 + h2[local_pixel] * width2 + w2[local_pixel]) * channels;
+
+    auto c = c_start;
+    for(; c + vec_size <= c_end; c += vec_size){
+        auto vec = memory::load_vector<vec_size>(idata + input_offset + c, 0);
+        reinterpret_cast<memory::aligned_vector<scalar_t, vec_size>*>(odata + output_offset + c)[0] = vec;
+    }
+    for (; c < c_end; ++c)
+        odata[output_offset + c] = idata[input_offset + c];
 }
 
 // see NOTE [ Nearest neighbor upsampling kernel implementation ]
@@ -241,7 +341,7 @@ static void upsample_nearest2d_out_cuda_template(
   }
 
   // heuristic: only use channels_last path when it's faster than the contiguous path
-  if (memory_format == at::MemoryFormat::ChannelsLast && channels >= 4 && \
+  if (memory_format == at::MemoryFormat::ChannelsLast && \
         output.is_contiguous(memory_format)) {
     at::Tensor input = input_.contiguous(at::MemoryFormat::ChannelsLast);
 
@@ -249,28 +349,130 @@ static void upsample_nearest2d_out_cuda_template(
       "upsample_nearest_nhwc only supports input tensors with less than 2^63 - 1 elements, but got ", input.sizes());
     TORCH_CHECK(output.numel() < std::numeric_limits<int64_t>::max(),
       "upsample_nearest_nhwc only supports output tensors with less than 2^63 - 1 elements, but got ", output.sizes());
-
-    const int64_t num_kernels = output.numel();
-    const int64_t num_threads = std::min(at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock, 1024);
-
-    AT_DISPATCH_FLOATING_TYPES_AND3(ScalarType::Half, ScalarType::BFloat16, ScalarType::Byte, input.scalar_type(), "upsample_nearest2d_nhwc_out_frame", [&] {
-      const scalar_t* idata = input.const_data_ptr<scalar_t>();
-      scalar_t* odata = output.mutable_data_ptr<scalar_t>();
-      upsample_nearest2d_nhwc_out_frame<scalar_t, nn_compute_source_index_fn>
-        <<<ceil_div(num_kernels, num_threads), num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-          idata,
-          odata,
-          channels,
-          input_height,
-          input_width,
-          output_height,
-          output_width,
-          height_scale,
-          width_scale,
-          output.numel()
-      );
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-    });
+    
+    int64_t num_kernels = output.numel();
+    const int64_t num_threads = ::min(at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock, 1024);    
+    const int num_cu = at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+    const int64_t theoretical_max_thread = num_cu * num_threads;
+    if(num_kernels <= theoretical_max_thread){
+      AT_DISPATCH_FLOATING_TYPES_AND3(ScalarType::Half, ScalarType::BFloat16, ScalarType::Byte, input.scalar_type(), "upsample_nearest2d_nhwc_out_frame", [&] {
+          const scalar_t* idata = input.const_data_ptr<scalar_t>();
+          scalar_t* odata = output.mutable_data_ptr<scalar_t>();
+          upsample_nearest2d_nhwc_out_frame<scalar_t, nn_compute_source_index_fn>
+            <<<ceil_div(num_kernels, num_threads), num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+              idata,
+              odata,
+              channels,
+              input_height,
+              input_width,
+              output_height,
+              output_width,
+              height_scale,
+              width_scale,
+              output.numel()
+          );
+          C10_CUDA_KERNEL_LAUNCH_CHECK();
+        });
+    }else{
+      constexpr int c_tile = 4;
+      constexpr int vec = 4;
+      int channel_tiles = (channels + c_tile - 1) / c_tile;
+      const size_t pixel_num =
+          static_cast<size_t>(nbatch) * output_height * output_width;
+      constexpr size_t min_shared_pixel_num = 16 * 1024;
+      if (channel_tiles >= 32 && pixel_num >= min_shared_pixel_num) {
+        constexpr int pixels_per_block = 4;
+        int channel_tiles_per_block = std::min<int>(channel_tiles, 1024 / c_tile);
+        int tile_blocks = (channel_tiles + channel_tiles_per_block - 1) / channel_tiles_per_block;
+        size_t pixel_blocks = (pixel_num + pixels_per_block - 1) / pixels_per_block;
+        const int64_t shared_num_threads = channel_tiles_per_block * pixels_per_block;
+        const int64_t num_blocks = pixel_blocks * tile_blocks;
+        AT_DISPATCH_FLOATING_TYPES_AND3(ScalarType::Half, ScalarType::BFloat16, ScalarType::Byte, input.scalar_type(), "upsample_nearest2d_nhwc_tile_vec_shared_out_frame", [&] {
+          const scalar_t* idata = input.const_data_ptr<scalar_t>();
+          scalar_t* odata = output.mutable_data_ptr<scalar_t>();
+          using VecT = memory::aligned_vector<scalar_t, vec>;
+          const bool can_vec4 =
+              channels % vec == 0 &&
+              reinterpret_cast<uintptr_t>(idata) % alignof(VecT) == 0 &&
+              reinterpret_cast<uintptr_t>(odata) % alignof(VecT) == 0;
+          if (can_vec4) {
+            upsample_nearest2d_nhwc_tile_vec_shared_out_frame<scalar_t, nn_compute_source_index_fn, c_tile, vec, pixels_per_block>
+              <<<num_blocks, shared_num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                idata,
+                odata,
+                channels,
+                input_height,
+                input_width,
+                output_height,
+                output_width,
+                height_scale,
+                width_scale,
+                pixel_num,
+                channel_tiles,
+                channel_tiles_per_block,
+                tile_blocks
+            );
+          } else {
+            upsample_nearest2d_nhwc_out_frame<scalar_t, nn_compute_source_index_fn>
+              <<<ceil_div(output.numel(), num_threads), num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                idata,
+                odata,
+                channels,
+                input_height,
+                input_width,
+                output_height,
+                output_width,
+                height_scale,
+                width_scale,
+                output.numel()
+            );
+          }
+          C10_CUDA_KERNEL_LAUNCH_CHECK();
+        });
+      }else{
+        num_kernels = nbatch * output_height * output_width * channel_tiles;
+        AT_DISPATCH_FLOATING_TYPES_AND3(ScalarType::Half, ScalarType::BFloat16, ScalarType::Byte, input.scalar_type(), "upsample_nearest2d_nhwc_tile_vec_out_frame", [&] {
+          const scalar_t* idata = input.const_data_ptr<scalar_t>();
+          scalar_t* odata = output.mutable_data_ptr<scalar_t>();
+          using VecT = memory::aligned_vector<scalar_t, vec>;
+          const bool can_vec4 =
+              channels % vec == 0 &&
+              reinterpret_cast<uintptr_t>(idata) % alignof(VecT) == 0 &&
+              reinterpret_cast<uintptr_t>(odata) % alignof(VecT) == 0;
+          if (can_vec4) {
+            upsample_nearest2d_nhwc_tile_vec_out_frame<scalar_t, nn_compute_source_index_fn, c_tile, vec>
+              <<<ceil_div(num_kernels, num_threads), num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                idata,
+                odata,
+                channels,
+                input_height,
+                input_width,
+                output_height,
+                output_width,
+                height_scale,
+                width_scale,
+                channel_tiles,
+                num_kernels
+            );
+          } else {
+            upsample_nearest2d_nhwc_out_frame<scalar_t, nn_compute_source_index_fn>
+              <<<ceil_div(output.numel(), num_threads), num_threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                idata,
+                odata,
+                channels,
+                input_height,
+                input_width,
+                output_height,
+                output_width,
+                height_scale,
+                width_scale,
+                output.numel()
+            );
+          }
+          C10_CUDA_KERNEL_LAUNCH_CHECK();
+        });
+      }
+    }
   }
   else {
     // This is needed for non-contiguous tensors.
