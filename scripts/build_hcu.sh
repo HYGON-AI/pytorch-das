@@ -135,10 +135,14 @@ set +u
 source "${DTK_ROOT}/env.sh"
 set -u
 
+if ldd "$(command -v python3)" 2>/dev/null | grep -Fq 'libpython3.10.so'; then
+    export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64:${LD_LIBRARY_PATH:-}"
+fi
+
 ### 设置 PyTorch 编译所需的 DTK/ROCm 环境
 export ROCM_PATH="${DTK_ROOT}"
 export HIP_PATH="${ROCM_PATH}/hip"
-export AMDGPU_TARGETS="${AMDGPU_TARGETS:-gfx906;gfx926;gfx928;gfx936;gfx938}"
+export PYTORCH_ROCM_ARCH="${AMDGPU_TARGETS}"
 export PYTHON_VERSION="$(python3 -c 'import platform; print(platform.python_version())')"
 export PATH="${ROCM_PATH}/bin:${ROCM_PATH}/llvm/bin:${ROCM_PATH}/hcc/bin:${ROCM_PATH}/hip/bin:${ROCM_PATH}/miopen/bin:${PATH}"
 export HIPCC_COMPILE_FLAGS_APPEND="${HIPCC_COMPILE_FLAGS_APPEND:-} --gcc-toolchain=$(dirname "$(dirname "$(readlink -f "$(command -v g++)")")")"
@@ -305,7 +309,16 @@ fi
 echo ">>>>>>>>>>third party<<<<<<<<<<"
 cd "${WORK_SPACE}"
 git config --global --add safe.directory "${WORK_SPACE}"
-git submodule update --init --recursive
+for attempt in 1 2 3; do
+    if git submodule update --init --recursive; then
+        break
+    fi
+    if [ "${attempt}" -eq 3 ]; then
+        echo "ERROR: git submodule update failed after 3 attempts" >&2
+        exit 1
+    fi
+    sleep 5
+done
 
 cd "${WORK_SPACE}"
 if [ ! -f tools/third_party/apply_patches.sh ]; then
@@ -433,7 +446,6 @@ USE_ROCM_CK_GEMM=0 \
 USE_ROCM_CK_SDPA=0 \
 USE_CUFILE=0 \
 USE_NINJA=ON \
-PYTORCH_ROCM_ARCH=${AMDGPU_TARGETS} \
 python3 setup.py install --user bdist_wheel
 
 ### 编译后出包到 pytorch/dist 文件夹下

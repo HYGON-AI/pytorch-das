@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source-2.13
-          fetch-depth: 0
+          fetch-depth: 1
           ref: ${{ inputs.source_ref }}
 
       - name: Check pipeline context
@@ -124,7 +124,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source-2.13
-          fetch-depth: 0
+          fetch-depth: 1
           ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
 
       - name: Merge pull request
@@ -225,7 +225,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source-2.13
-          fetch-depth: 0
+          fetch-depth: 1
           ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
 
       - name: Merge pull request
@@ -341,7 +341,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: source-2.13
-          fetch-depth: 0
+          fetch-depth: 1
           ref: ${{ inputs.source_ref }}
 
       - name: Configure package index
