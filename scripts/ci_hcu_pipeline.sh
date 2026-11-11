@@ -191,6 +191,9 @@ command_build() {
         "${LOCAL_RUN_ROOT}/reports"
 
     if [[ "${HCU_CI_IN_K8S:-}" == 1 ]]; then
+        if [[ "${python_version}" == 3.10 ]]; then
+            export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64:${LD_LIBRARY_PATH:-}"
+        fi
         [[ "$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" == "${python_version}" ]] || \
             die "job image does not provide Python ${python_version}"
         install_dtk_current
@@ -267,6 +270,7 @@ command_test() {
     mkdir -p "${LOCAL_RUN_ROOT}/logs" "${LOCAL_RUN_ROOT}/reports"
 
     if [[ "${HCU_CI_IN_K8S:-}" == 1 ]]; then
+        export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64:${LD_LIBRARY_PATH:-}"
         install_dtk_current
         mkdir -p dist
         cp -a -- "${artifact_dir}/"*manylinux*.whl dist/
