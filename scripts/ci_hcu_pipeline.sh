@@ -55,14 +55,14 @@ set_pip_trusted_host() {
     export BUILD_PIP_TRUSTED_HOST="${BUILD_PIP_TRUSTED_HOST:-${host}}"
 }
 
-install_dtk_current() {
+install_dtk_current() (
     local dtk_stage version_file dtk_source
     dtk_stage="$(mktemp -d /tmp/pytorch-dtk.XXXXXX)"
+    trap 'rm -rf -- "${dtk_stage}"' EXIT
     mkdir -p "${dtk_stage}/extract"
     if ! wget --quiet --tries=3 --timeout=120 \
         --output-document="${dtk_stage}/dtk.tar.gz" -- "${DTK_PKG_URL}" || \
         ! tar -xzf "${dtk_stage}/dtk.tar.gz" -C "${dtk_stage}/extract"; then
-        rm -rf -- "${dtk_stage}"
         die "failed to install DTK from ${DTK_PKG_URL}"
     fi
     version_file="$(find "${dtk_stage}/extract" -type f -path '*/.info/rocm_version' -print -quit)"
@@ -70,8 +70,7 @@ install_dtk_current() {
     dtk_source="${version_file%/.info/rocm_version}"
     mkdir -p /opt/dtk
     cp -a "${dtk_source}/." /opt/dtk/
-    rm -rf -- "${dtk_stage}"
-}
+)
 
 start_container() {
     local container="$1" image="$2" expected_python="$3"
