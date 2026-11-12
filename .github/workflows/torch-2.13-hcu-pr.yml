@@ -1,0 +1,33 @@
+name: torch-2.13-hcu-pr
+run-name: "torch-2.13-hcu-pr - ${{ github.event_name }} - ${{ github.event.pull_request.number }}"
+
+on:
+  pull_request_target:
+    branches: [2.13.0-dev]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: >-
+    ${{ github.event.action != 'labeled' || github.event.label.name == 'ready-hcu' }}
+
+jobs:
+  authorize-pr:
+    uses: ./.github/workflows/_authorize-hcu-pr.yml
+
+  pipeline:
+    name: PyTorch 2.13 build and test
+    needs: authorize-pr
+    if: needs.authorize-pr.result == 'success' && needs.authorize-pr.outputs.authorized == 'true'
+    uses: HYGON-AI/pytorch-das/.github/workflows/github-ci.yml@2.13.0-dev
+    with:
+      suite: pr
+      source_ref: ${{ github.event.pull_request.base.sha }}
+      merge_pr: true
+      pr_base_sha: ${{ github.event.pull_request.base.sha }}
+      pr_head_sha: ${{ github.event.pull_request.head.sha }}
+      publish: false
