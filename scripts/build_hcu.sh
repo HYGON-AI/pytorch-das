@@ -446,9 +446,13 @@ USE_ROCM_CK_GEMM=0 \
 USE_ROCM_CK_SDPA=0 \
 USE_CUFILE=0 \
 USE_NINJA=ON \
-python3 setup.py install --user bdist_wheel
+python3 -m build --wheel --no-isolation
 
-### 编译后出包到 pytorch/dist 文件夹下
-cd "${WORK_SPACE}"
-echo ">>>>>>>>>>wheel<<<<<<<<<<"
-USE_NCCL=0 python3 -m pip wheel . -w ./dist --no-deps --no-build-isolation
+shopt -s nullglob
+WHEELS=("${DISTDIR}"/*-linux_x86_64.whl)
+shopt -u nullglob
+if [ "${#WHEELS[@]}" -ne 1 ]; then
+    echo "ERROR: expected one Linux wheel under ${DISTDIR}, found ${#WHEELS[@]}" >&2
+    exit 1
+fi
+python3 -m pip install --no-deps --force-reinstall "${WHEELS[0]}"
