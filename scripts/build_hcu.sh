@@ -221,101 +221,29 @@ fi
 ### 更新第三方库并应用仓库补丁
 echo ">>>>>>>>>>third party<<<<<<<<<<"
 cd "${WORK_SPACE}"
+# 清理旧子模块工作区和缓存，避免残留源码与当前提交指定的版本混用。
+git submodule deinit --force --all || true
+GIT_MODULES_DIR="$(git rev-parse --git-dir)/modules"
+rm -rf -- "${GIT_MODULES_DIR}"
 
-SUBMODULE_MAX_ATTEMPTS="${SUBMODULE_MAX_ATTEMPTS:-3}"
-SUBMODULE_JOBS="${SUBMODULE_JOBS:-4}"
-if [[ ! "${SUBMODULE_MAX_ATTEMPTS}" =~ ^[1-9][0-9]*$ || ! "${SUBMODULE_JOBS}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "ERROR: SUBMODULE_MAX_ATTEMPTS and SUBMODULE_JOBS must be positive integers" >&2
-    exit 1
-fi
-
-# setup.py 的 check_submodules() 要求每个子模块目录至少存在以下文件之一。
-# 在此复刻同一条判据，使问题在子模块阶段暴露并重试，而不是等到 build_wheel 才失败。
-SUBMODULE_MARKERS=(CMakeLists.txt Makefile setup.py LICENSE LICENSE.md LICENSE.txt)
-
-# 未就绪子模块 = gitlink 未初始化(-) ∪ 已初始化但工作区缺文件。
-# 只查 gitlink 不够：checkout 中断会留下「已初始化但目录为空」的中间态，
-# 此时 status 前缀不是 '-'，旧逻辑会误判为成功。
-list_unready_submodules() {
-    local uninitialized initialized_empty
-    uninitialized="$(git submodule status --recursive | awk '$1 ~ /^-/ { print $2 }')" || return 1
-    initialized_empty="$(git submodule foreach --recursive --quiet "
-        for marker in ${SUBMODULE_MARKERS[*]}; do
-            [ -e \"\$marker\" ] && exit 0
-        done
-        echo \"\$displaypath\"
-        exit 0
-    ")" || return 1
-    printf '%s\n%s\n' "${uninitialized}" "${initialized_empty}" | sed '/^$/d' | sort -u
-}
-
-reset_unready_submodules() {
-    local submodule_path
-    while IFS= read -r submodule_path; do
-        case "${submodule_path}" in
-            "" | /* | .. | ../* | */../* | */..) continue ;;
-        esac
-        rm -rf -- "${WORK_SPACE:?}/${submodule_path}"
-    done
-}
-
-# 归位工作区残留与本地改动。保留 .git/modules 缓存：删缓存会导致 75 个子模块全量重克隆。
-# 需要彻底重建缓存时显式设置 SUBMODULE_CLEAN_CACHE=1。
-if [ "${SUBMODULE_CLEAN_CACHE:-0}" = "1" ]; then
-    echo "Dropping submodule cache (SUBMODULE_CLEAN_CACHE=1)"
-    git submodule deinit --force --all || true
-    rm -rf -- "$(git rev-parse --git-dir)/modules"
-fi
-git submodule sync --recursive
-git submodule foreach --recursive --quiet \
-    'git reset --hard --quiet && git clean -xdffq' || true
-
-# 镜像站大仓库经常以 curl 56/18 断流收尾。限制低速连接让 git 主动放弃并重试，
-# 而不是在一个已死的连接上耗尽超时。
-GIT_TRANSPORT_CONFIG=(
-    -c "http.version=HTTP/1.1"
-    -c "http.lowSpeedLimit=1000"
-    -c "http.lowSpeedTime=60"
-    -c "submodule.fetchJobs=${SUBMODULE_JOBS}"
-)
-
-submodule_ready=0
+SUBMODULE_MAX_ATTEMPTS=3
 for ((attempt = 1; attempt <= SUBMODULE_MAX_ATTEMPTS; attempt++)); do
     echo "Updating git submodules (attempt ${attempt}/${SUBMODULE_MAX_ATTEMPTS})"
-
-    git "${GIT_TRANSPORT_CONFIG[@]}" submodule update --init --recursive \
-        --jobs "${SUBMODULE_JOBS}" || true
-
-    unready=""
-    if unready="$(list_unready_submodules)"; then
-        if [ -z "${unready}" ]; then
-            submodule_ready=1
+    git submodule sync --recursive
+    if git -c http.version=HTTP/1.1 submodule update --init --recursive; then
+        missing_submodules="$(git submodule status --recursive | awk '$1 ~ /^-/ { print $2 }')"
+        if [ -z "${missing_submodules}" ]; then
             break
         fi
-    else
-        unready=""
+        echo "ERROR: uninitialized submodules remain: ${missing_submodules}" >&2
     fi
-
-    if (( attempt < SUBMODULE_MAX_ATTEMPTS )); then
-        if [ -n "${unready:-}" ]; then
-            echo "Resetting unready submodule worktrees:" >&2
-            printf '%s\n' "${unready}" | sed 's/^/    /' >&2
-            reset_unready_submodules <<< "${unready}"
-        else
-            echo "WARNING: unable to validate submodules; retrying the recursive update" >&2
-        fi
-        backoff=$((attempt * 10))
-        echo "WARNING: submodules still unready; retrying in ${backoff} seconds" >&2
-        sleep "${backoff}"
+    if (( attempt == SUBMODULE_MAX_ATTEMPTS )); then
+        echo "ERROR: failed to update git submodules after ${SUBMODULE_MAX_ATTEMPTS} attempts" >&2
+        exit 1
     fi
+    echo "WARNING: submodule update failed; retrying in $((attempt * 10)) seconds" >&2
+    sleep "$((attempt * 10))"
 done
-
-if [ "${submodule_ready}" != "1" ]; then
-    echo "ERROR: submodules not ready after ${SUBMODULE_MAX_ATTEMPTS} attempts:" >&2
-    list_unready_submodules | sed 's/^/    /' >&2 || true
-    exit 1
-fi
-echo "All submodules ready"
 
 cd "${WORK_SPACE}"
 if [ ! -f tools/third_party/apply_patches.sh ]; then
