@@ -31,10 +31,11 @@ permissions:
 defaults:
   run:
     shell: bash
-    working-directory: source
+    working-directory: source-2.14.1
 
 env:
   RESOURCE_SERVER_URL: ${{ vars.RESOURCE_SERVER_URL }}
+  WHEEL_ROOT: /ci_public/pytorch-das/2.14.1/${{ github.run_id }}
   DTK_PKG_URL: ${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/dtk26.10/DTK-26.10-CentOS8.5-x86_64.tar.gz
   PIP_INDEX_URL: ${{ vars.PYPI_URL }}/nightly/dtk2610/+simple/
   BUILD_PIP_INDEX_URL: ${{ vars.PYPI_URL }}/nightly/dtk2610/+simple/
@@ -43,13 +44,13 @@ env:
 
 jobs:
   preflight:
-    runs-on: bw1100
+    runs-on: hygon-cpu
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.14.1
           fetch-depth: 0
           ref: ${{ inputs.source_ref }}
       - id: check
@@ -64,29 +65,22 @@ jobs:
   build:
     needs: preflight
     if: needs.preflight.outputs.should_run == 'true'
-    runs-on: bw1100
-    timeout-minutes: 120
+    runs-on: hygon-build
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10", "3.12"]
+        python: ["3.12"]
     container:
       image: ${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py${{ matrix.python }}-mkl2024.2.0.664
-      options: >-
-        --init --ipc=host --shm-size=64g
-        --ulimit stack=10485760:83886080 --ulimit core=0
-        --device=/dev/kfd --device=/dev/dri --group-add video
-        --security-opt seccomp=unconfined --cap-add SYS_PTRACE
-        --volume /opt/hyhal:/opt/hyhal:ro
     env:
       USE_ROCM: "1"
-      MAX_JOBS: "32"
       MAGMA_URL: ${{ vars.RESOURCE_SERVER_URL }}/thirdparty/pytorch/magma_v2.8.0-hip_DTK26.10/MAGMA-v2.8.0_hip.dtk26.10-16Oct2026.tar.gz
       MAGMA_SHA256: ebd3f355981ee9f7b5405ab53a826c85741ff076821372e3eba6324e09dfd9f5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.14.1
           fetch-depth: 0
           ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
       - name: Merge pull request
@@ -95,6 +89,7 @@ jobs:
           PR_BASE_SHA: ${{ inputs.pr_base_sha }}
           PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
         run: |
+          git config --global --add safe.directory "${PWD}"
           git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
           git checkout --detach "${PR_BASE_SHA}"
           git -c user.name=github-actions -c user.email=ci@github merge --no-ff --no-edit "${PR_HEAD_SHA}"
@@ -103,12 +98,6 @@ jobs:
           host="${{ vars.PYPI_URL }}"
           host="${host#*://}"
           echo "PIP_TRUSTED_HOST=${host%%[:/]*}" >> "${GITHUB_ENV}"
-          if [[ "${{ matrix.python }}" == "3.10" ]]; then
-            python_lib="$(find /usr/local -maxdepth 3 -name 'libpython3.10.so.1.0' -print -quit 2>/dev/null)"
-            test -n "${python_lib}"
-            dirname "${python_lib}" > /etc/ld.so.conf.d/python.conf
-            ldconfig
-          fi
       - name: Install DTK
         run: |
           if [[ ! -f /opt/dtk/env.sh ]]; then
@@ -119,29 +108,26 @@ jobs:
         run: |
           bash scripts/build_hcu.sh
           bash scripts/build_hcu_manylinux.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: torch-dtk2610-py${{ matrix.python }}
-          path: |
-            source/dist/*.whl
-            source/build/bin/
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
-
+      - name: Archive wheel to shared storage
+        run: |
+          archive_dir="${WHEEL_ROOT}/${GITHUB_RUN_ATTEMPT}/dtk2610/py${{ matrix.python }}"
+          shopt -s nullglob
+          wheels=(dist/*manylinux*.whl)
+          (( ${#wheels[@]} == 1 )) || { echo "Expected one manylinux wheel, found ${#wheels[@]}" >&2; exit 1; }
+          mkdir -p "${archive_dir}"
+          cp -a -- "${wheels[0]}" "${archive_dir}/"
+          if [[ -d build/bin ]]; then
+            mkdir -p "${archive_dir}/build"
+            cp -a -- build/bin "${archive_dir}/build/"
+          fi
   test:
     needs: [preflight, build]
     if: needs.preflight.outputs.should_run == 'true' && needs.build.result == 'success'
-    runs-on: ${{ matrix.target.runner }}
-    timeout-minutes: ${{ inputs.suite == 'full' && 4320 || matrix.mode == 'mr' && 720 || 240 }}
+    runs-on: ${{ matrix.target.name == 'nmz' && (matrix.mode == 'nn' && 'hygon-bw1100-1card' || 'hygon-bw1100-8card') || matrix.target.runner }}
+    timeout-minutes: ${{ inputs.suite == 'full' && 4320 || matrix.mode == 'mr' && 720 || matrix.target.name == 'nmz' && 90 || 240 }}
     container:
       image: ${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.12-mkl2024.2.0.664
-      options: >-
-        --init --ipc=host --shm-size=64g
-        --ulimit stack=10485760:83886080 --ulimit core=0
-        --device=/dev/kfd --device=/dev/dri --group-add video
-        --security-opt seccomp=unconfined --cap-add SYS_PTRACE
-        --volume /opt/hyhal:/opt/hyhal:ro
+      options: ${{ matrix.target.name != 'nmz' && '--init --ipc=host --shm-size=64g --ulimit stack=10485760:83886080 --ulimit core=0 --device=/dev/kfd --device=/dev/dri --group-add video --security-opt seccomp=unconfined --cap-add SYS_PTRACE --volume /opt/hyhal:/opt/hyhal:ro --volume /ci_public:/ci_public:ro' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -154,7 +140,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.14.1
           fetch-depth: 0
           ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
       - name: Merge pull request
@@ -163,6 +149,7 @@ jobs:
           PR_BASE_SHA: ${{ inputs.pr_base_sha }}
           PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
         run: |
+          git config --global --add safe.directory "${PWD}"
           git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
           git checkout --detach "${PR_BASE_SHA}"
           git -c user.name=github-actions -c user.email=ci@github merge --no-ff --no-edit "${PR_HEAD_SHA}"
@@ -175,15 +162,25 @@ jobs:
             wget --quiet --output-document=- -- "${DTK_PKG_URL}" | tar -xzf - -C /opt
             mv /opt/dtk-* /opt/dtk
           fi
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: torch-dtk2610-py3.12
-          path: source
+      - name: Copy wheel from shared storage
+        run: |
+          mkdir -p dist
+          for ((attempt = GITHUB_RUN_ATTEMPT; attempt >= 1; attempt--)); do
+            candidate="${WHEEL_ROOT}/${attempt}/dtk2610/py3.12"
+            for wheel in "${candidate}/"*manylinux*.whl; do
+              [[ -f "${wheel}" ]] || continue
+              echo "Using attempt ${attempt}: ${wheel}"
+              cp -a -- "${wheel}" dist/
+              if [[ -d "${candidate}/build/bin" ]]; then
+                mkdir -p build; cp -a -- "${candidate}/build/bin" build/
+              fi
+              exit 0
+            done
+          done
+          echo "No py3.12 wheel found for dtk2610 in this run" >&2; exit 1
       - name: Install test tools
         run: |
-          set +u
           source /opt/dtk/env.sh
-          set -u
           installer="$(mktemp)"
           trap 'rm -f -- "${installer}"' EXIT
           wget --quiet --output-document="${installer}" -- "${AICC_INSTALLER_URL}"
@@ -196,9 +193,7 @@ jobs:
           TEST_MODE: ${{ matrix.mode }}
           TEST_DEVICES: ${{ matrix.mode == 'nn' && '0' || '0,1,2,3,4,5,6,7' }}
         run: |
-          set +u
           source /opt/dtk/env.sh
-          set -u
           shopt -s nullglob
           wheels=(dist/*manylinux*.whl)
           shopt -u nullglob
@@ -217,7 +212,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: reports-dtk2610-py3.12-${{ matrix.target.name }}-${{ matrix.mode }}
-          path: source/test-reports
+          path: source-2.14.1/test-reports
           if-no-files-found: ignore
           retention-days: 7
 
@@ -227,32 +222,42 @@ jobs:
     runs-on: bw1100
     container:
       image: ${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.12-mkl2024.2.0.664
+      options: --volume /ci_public:/ci_public:ro
     env:
       DEVPI_URL: ${{ vars.PYPI_URL }}
       PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.14.1
           ref: ${{ inputs.source_ref }}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: torch-dtk2610-py3.10
-          path: source/publish-dist
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: torch-dtk2610-py3.12
-          path: source/publish-dist
+      - name: Copy wheels from shared storage
+        run: |
+          mkdir -p publish-dist/dist
+          found=false
+          for ((attempt = GITHUB_RUN_ATTEMPT; attempt >= 1; attempt--)); do
+            for wheel in "${WHEEL_ROOT}/${attempt}/dtk2610/py3.12/"*manylinux*.whl; do
+              [[ -f "${wheel}" ]] || continue
+              echo "Using attempt ${attempt}: ${wheel}"
+              cp -a -- "${wheel}" publish-dist/dist/
+              found=true; break 2
+            done
+          done
+          [[ "${found}" == true ]] || { echo "No py3.12 wheel found for dtk2610" >&2; exit 1; }
       - name: Publish wheel
         run: |
           python3 -m pip install --no-cache-dir --upgrade CIUpload
           shopt -s nullglob
           wheels=(publish-dist/dist/*manylinux*.whl)
           shopt -u nullglob
-          test "${#wheels[@]}" -eq 2
+          test "${#wheels[@]}" -eq 1
+          dtk_package="${DTK_PKG_URL##*/}"
+          [[ "${dtk_package}" =~ ^DTK-([0-9]+)\.([0-9]+)(-rc[0-9]+)?- ]] || { echo "Cannot parse DTK version: ${dtk_package}" >&2; exit 1; }
+          dtk_version="${BASH_REMATCH[1]}${BASH_REMATCH[2]}${BASH_REMATCH[3]:-}"
           for wheel in "${wheels[@]}"; do
-            CIUpload REPAIR --dtk_version 2610 --git_commit "$(git rev-parse --short=6 HEAD)" \
+            CIUpload REPAIR --dtk_version "${dtk_version}" --git_commit "$(git rev-parse --short=6 HEAD)" \
               --outputdir output -f "${wheel}"
           done
-          CIUpload NIGHTLY --devpi_url "${DEVPI_URL}" --password "${PYPI_PASSWORD}" \
-            --dtk_pkg_name DTK-26.10-CentOS8.5-x86_64.tar.gz --record -f output/*manylinux*.whl
+          shopt -s nullglob; repaired=(output/*manylinux*.whl); shopt -u nullglob
+          test "${#repaired[@]}" -eq 1
+          CIUpload NIGHTLY --dtk_version "${dtk_version}" -f "${repaired[@]}" --devpi_url "${DEVPI_URL}" --password "${PYPI_PASSWORD}" --record

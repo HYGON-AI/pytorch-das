@@ -108,8 +108,10 @@ pip_install_build() {
 
 # Install build dependencies.
 echo "========== Installing build dependencies =========="
-pip_install_build --upgrade pip
-pip_install_build -r .ci/docker/requirements-ci.txt
+CI_REQUIREMENTS="$(mktemp)"
+trap 'rm -f -- "${CI_REQUIREMENTS}"' EXIT
+awk '!/^[[:space:]]*pip==/' .ci/docker/requirements-ci.txt > "${CI_REQUIREMENTS}"
+pip_install_build -r "${CI_REQUIREMENTS}"
 pip_install_build -r requirements.txt
 pip_install_build \
   xdoctest==1.1.3 \
@@ -133,7 +135,17 @@ fi
 
 # Prepare third-party sources.
 echo "========== Preparing third-party sources =========="
-git submodule update --init --recursive
+git config --global --add safe.directory "${PYTORCH_ROOT}"
+for attempt in 1 2 3; do
+  if git submodule update --init --recursive; then
+    break
+  fi
+  if [[ "${attempt}" -eq 3 ]]; then
+    echo "ERROR: git submodule update failed after 3 attempts" >&2
+    exit 1
+  fi
+  sleep 5
+done
 bash tools/third_party/apply_patches.sh
 
 # Prepare MAGMA.
