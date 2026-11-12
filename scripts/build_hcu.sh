@@ -108,8 +108,10 @@ pip_install_build() {
 
 # Install build dependencies.
 echo "========== Installing build dependencies =========="
-pip_install_build --upgrade pip
-pip_install_build -r .ci/docker/requirements-ci.txt
+CI_REQUIREMENTS="$(mktemp)"
+trap 'rm -f -- "${CI_REQUIREMENTS}"' EXIT
+awk '!/^[[:space:]]*pip==/' .ci/docker/requirements-ci.txt > "${CI_REQUIREMENTS}"
+pip_install_build -r "${CI_REQUIREMENTS}"
 pip_install_build -r requirements.txt
 pip_install_build \
   xdoctest==1.1.3 \
@@ -133,9 +135,18 @@ fi
 
 # Prepare third-party sources.
 echo "========== Preparing third-party sources =========="
-#更换HYGON-AI/composable_kernel-das.git
-git -c submodule.external/composable_kernel.update=none \
-  submodule update --init --recursive
+git config --global --add safe.directory "${PYTORCH_ROOT}"
+for attempt in 1 2 3; do
+  if git -c submodule.external/composable_kernel.update=none \
+    submodule update --init --recursive; then
+    break
+  fi
+  if [[ "${attempt}" -eq 3 ]]; then
+    echo "ERROR: git submodule update failed after 3 attempts" >&2
+    exit 1
+  fi
+  sleep 5
+done
 
 CK_REPO="${CK_REPO:-https://github.com/HYGON-AI/composable_kernel-das.git}"
 CK_COMMIT="${CK_COMMIT:-061d6ddadad580b627d1451cfb2d8a545887a942}"
