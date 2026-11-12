@@ -133,7 +133,22 @@ fi
 
 # Prepare third-party sources.
 echo "========== Preparing third-party sources =========="
-git submodule update --init --recursive
+#更换HYGON-AI/composable_kernel-das.git
+git -c submodule.external/composable_kernel.update=none \
+  submodule update --init --recursive
+
+CK_REPO="${CK_REPO:-https://github.com/HYGON-AI/composable_kernel-das.git}"
+CK_COMMIT="${CK_COMMIT:-061d6ddadad580b627d1451cfb2d8a545887a942}"
+CK_DIR="third_party/mslk/external/composable_kernel"
+if [[ ! -d "${CK_DIR}/.git" ]]; then
+  rm -rf "${CK_DIR}"
+  git clone "${CK_REPO}" "${CK_DIR}"
+fi
+if ! git -C "${CK_DIR}" rev-parse --verify --quiet "${CK_COMMIT}^{commit}" >/dev/null; then
+  git -C "${CK_DIR}" fetch "${CK_REPO}" "${CK_COMMIT}"
+fi
+git -C "${CK_DIR}" checkout --force --detach "${CK_COMMIT}"
+cd "${PYTORCH_ROOT}"
 bash tools/third_party/apply_patches.sh
 
 # Prepare MAGMA.

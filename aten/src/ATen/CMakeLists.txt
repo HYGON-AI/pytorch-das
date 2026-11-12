@@ -482,6 +482,8 @@ IF(USE_MSLK)
       HIP_ARCHITECTURES "${_mslk_hip_arches}")
     target_compile_options(mslk PRIVATE $<$<COMPILE_LANGUAGE:HIP>:${MSLK_EXTRA_HIP_FLAGS}> ${HIP_CXX_FLAGS})
     target_compile_definitions(mslk PRIVATE MSLK_NO_EXTENDED_SHAPES)
+    target_compile_definitions(mslk PRIVATE MSLK_NO_EXTENDED_SHAPES CK_EXPERIMENTAL_BIT_INT_EXTENSION)
+    target_compile_options(mslk PRIVATE $<$<COMPILE_LANGUAGE:HIP>:-Wno-bit-int-extension>)
 
     target_include_directories(mslk PRIVATE
       # MSLK version of Composable Kernel is used due to some customizations
