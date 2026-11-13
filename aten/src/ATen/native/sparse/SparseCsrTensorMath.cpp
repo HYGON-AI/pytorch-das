@@ -665,6 +665,27 @@ Tensor& addmm_out_sparse_compressed_cpu(
   }
 #endif
 
+#if AT_USE_HSPARSE()
+  // HSPARSE spmm takes CSR operands only; the dispatcher normalizes CSC
+  // operands. A CSC result is computed into a materialized CSR tensor because
+  // an in-place update cannot resize a transposed view of the result.
+  if ((mat1.layout() == kSparseCsr || mat1.layout() == kSparseCsc) &&
+      (mat2.layout() == kSparseCsr || mat2.layout() == kSparseCsc)) {
+    if (result.layout() == kSparseCsc) {
+      auto csr_result = result.to_sparse_csr();
+      sparse::impl::mkl::addmm_out_sparse_csr(mat1, mat2, beta, alpha, csr_result);
+      auto csc_result = csr_result.to_sparse_csc();
+      get_sparse_csr_impl(result)->set_member_tensors(
+          csc_result.ccol_indices(),
+          csc_result.row_indices(),
+          csc_result.values(),
+          csc_result.sizes());
+    } else {
+      sparse::impl::mkl::addmm_out_sparse_csr(mat1, mat2, beta, alpha, result);
+    }
+    return result;
+  }
+#endif
 #if !AT_USE_MKL_SPARSE()
   // The custom impl addmm_out_sparse_csr_native_cpu only supports CSR @
   // strided -> strided

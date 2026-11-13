@@ -167,4 +167,12 @@ IMPLEMENT_VML_MKL(log2, Log2)
 #endif
 
 } // namespace
+
 } // namespace at::vml
+
+// Hygon vML stubs specialize at::vml::v<op>, so they must live in the
+// at::vml namespace; the header opens it itself. Including it outside the
+// namespace keeps <hml_vml.h> (a third-party C header) out of at::vml.
+#if AT_HML_ENABLED()
+#include <ATen/cpu/hml/vml_hml.h>
+#endif

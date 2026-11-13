@@ -6,7 +6,7 @@
 // needs some build fixes.
 // Macros source:
 // https://web.archive.org/web/20191012035921/http://nadeausoftware.com/articles/2012/01/c_c_tip_how_use_compiler_predefined_macros_detect_operating_system
-#if !AT_MKL_ENABLED() || defined(__APPLE__) || \
+#if !(AT_MKL_ENABLED() || AT_HML_ENABLED()) || defined(__APPLE__) || \
     defined(__MACH__)
 
 
@@ -29,11 +29,16 @@ Tensor& _sparse_mm_mkl_(
 
 #else // AT_MKL_ENABLED
 
+#if AT_MKL_ENABLED()
 #include <ATen/mkl/Descriptors.h>
 #include <ATen/mkl/Exceptions.h>
 #include <ATen/mkl/Limits.h>
 #include <mkl.h>
 #include <mkl_spblas.h>
+#endif
+#if AT_HML_ENABLED()
+#include <hml_sparse.h>
+#endif
 
 #include <ATen/Dispatch.h>
 #include <ATen/ExpandUtils.h>
@@ -47,6 +52,7 @@ static constexpr ScalarType TORCH_INT_TYPE = at::kLong;
 static constexpr ScalarType TORCH_INT_TYPE = at::kInt;
 #endif
 
+#if AT_MKL_ENABLED()
 class SparseCsrMKLInterface {
  private:
   sparse_matrix_t A{nullptr};
@@ -175,6 +181,12 @@ class SparseCsrMKLInterface {
     mkl_sparse_destroy(A);
   }
 };
+#endif // AT_MKL_ENABLED
+
+#if AT_HML_ENABLED()
+#include <ATen/native/hml/HMLSparseCsrLinearAlgebra.inc>
+#endif
+
 
 template <typename scalar_t>
 static inline void sparse_mm_mkl_template(
@@ -188,13 +200,22 @@ static inline void sparse_mm_mkl_template(
     const Scalar& beta,
     IntArrayRef size,
     IntArrayRef dense_size) {
-  SparseCsrMKLInterface mkl_impl(
+#if AT_HML_ENABLED()
+  SparseCsrHMLInterface sparse_impl(
+      col_indices.data_ptr<HML_INT>(),
+      crow_indices.data_ptr<HML_INT>(),
+      values.data_ptr<scalar_t>(),
+      size[0],
+      size[1]);
+#elif AT_MKL_ENABLED()
+  SparseCsrMKLInterface sparse_impl(
       col_indices.data_ptr<MKL_INT>(),
       crow_indices.data_ptr<MKL_INT>(),
       values.data_ptr<scalar_t>(),
       size[0],
       size[1]);
-  mkl_impl.sparse_mm(
+#endif
+  sparse_impl.sparse_mm(
       res.data_ptr<scalar_t>(),
       dense.data_ptr<scalar_t>(),
       alpha.to<scalar_t>(),
@@ -238,6 +259,9 @@ Tensor& _sparse_mm_mkl_(
           "Pytorch is compiled with MKL ILP64 and will convert col_indices dtype to int64.");
     }
   }
+  TORCH_CHECK(
+      sparse_.layout() == kSparseCsr,
+      "HSPARSE only supports CSR layout for sparse mm");
   AT_DISPATCH_FLOATING_TYPES(
       dense.scalar_type(), "addmm_sparse_csr_dense", [&] {
         sparse_mm_mkl_template<scalar_t>(

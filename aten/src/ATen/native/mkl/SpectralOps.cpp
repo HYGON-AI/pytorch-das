@@ -17,7 +17,7 @@
 #include <ATen/ops/empty.h>
 #endif
 
-#if AT_MKL_ENABLED() || AT_POCKETFFT_ENABLED()
+#if AT_MKL_ENABLED() || AT_POCKETFFT_ENABLED() || AT_HML_ENABLED()
 #include <ATen/Parallel.h>
 #include <ATen/TensorIterator.h>
 
@@ -324,6 +324,8 @@ Tensor _fft_c2c_mkl(const Tensor& self, IntArrayRef dim, int64_t normalization, 
 
 }
 
+#elif AT_HML_ENABLED()
+#include <ATen/native/hml/HMLSpectralOps.inc>
 #elif AT_MKL_ENABLED()
 
 #include <algorithm>
