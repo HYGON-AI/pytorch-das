@@ -18,7 +18,7 @@ namespace c10d::nvshmem_extension {
 // Check if NVSHMEM is available
 TORCH_API bool is_nvshmem_available();
 
-// Initializes the device state in CUmodule so that it’s able to perform NVSHMEM
+// Initializes the device state in hipModule_t so that it’s able to perform NVSHMEM
 // operations.
 TORCH_API void nvshmemx_cumodule_init(uintptr_t module);
 
@@ -36,10 +36,6 @@ TORCH_API void nvshmem_get_out(
 at::Tensor nvshmem_broadcast(
     at::Tensor& input,
     const int64_t root,
-    const std::string& group_name);
-
-at::Tensor nvshmem_team(
-    const at::Tensor& input,
     const std::string& group_name);
 
 TORCH_API void nvshmem_wait_for_signal(

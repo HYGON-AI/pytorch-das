@@ -46,26 +46,29 @@ AllocationRef::AllocationRef(
       is_multicast(is_multicast) {}
 
 AllocationRef::~AllocationRef() {
-  if (is_finalizing()) {
+  if (should_skip_cuda_cleanup(device_idx)) {
     return;
   }
   c10::cuda::CUDAGuard guard(device_idx);
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
 #if !defined(USE_ROCM) && defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
-  // Leak the cuda allocations during static deinitialization
   auto driver_api = c10::cuda::DriverAPI::get();
-  C10_CUDA_DRIVER_CHECK(
-      driver_api->cuMemUnmap_(reinterpret_cast<CUdeviceptr>(ptr), block_size));
+  C10_CUDA_DRIVER_CHECK_WARN(
+      driver_api->cuMemUnmap_(reinterpret_cast<CUdeviceptr>(ptr), block_size),
+      "SymmetricMemory: failed to unmap allocation during teardown");
 #if defined(CUDART_SUPPORTS_MULTICAST)
   if (is_multicast) {
-    C10_CUDA_DRIVER_CHECK(
-        driver_api->cuMulticastUnbind_(handle, device_idx, 0, block_size));
+    C10_CUDA_DRIVER_CHECK_WARN(
+        driver_api->cuMulticastUnbind_(handle, device_idx, 0, block_size),
+        "SymmetricMemory: failed to unbind multicast during teardown");
   }
 #endif
-  C10_CUDA_DRIVER_CHECK(driver_api->cuMemRelease_(handle));
+  C10_CUDA_DRIVER_CHECK_WARN(
+      driver_api->cuMemRelease_(handle),
+      "SymmetricMemory: failed to release allocation during teardown");
 #elif defined(USE_ROCM)
-  C10_CUDA_CHECK(hipMemUnmap(reinterpret_cast<hipDeviceptr_t>(ptr), block_size));
-  C10_CUDA_CHECK(hipMemRelease(handle));
+  C10_CUDA_CHECK_WARN(
+      hipMemUnmap(reinterpret_cast<hipDeviceptr_t>(ptr), block_size));
+  C10_CUDA_CHECK_WARN(hipMemRelease(handle));
 #else
   TORCH_CHECK(
       false, "CUDASymmetricMemory requires PYTORCH_C10_DRIVER_API_SUPPORTED");
@@ -197,29 +200,6 @@ void CUDASymmetricMemory::barrier(int channel, size_t timeout_ms) {
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
-static __global__ void put_signal_kernel(
-    uint32_t** signal_pads,
-    int dst_rank,
-    int channel,
-    int rank,
-    int world_size,
-    size_t timeout_ms) {
-  if (threadIdx.x == 0) {
-    bool success = try_put_signal<std::memory_order_release>(
-        signal_pads[dst_rank] + world_size * channel + rank, timeout_ms);
-    if (!success) {
-      printf(
-          "[FATAL] CUDASymmetricMemory::put_signal: rank %d failed to send signal "
-          "to rank %d on channel %d after %lu microseconds\n",
-          rank,
-          dst_rank,
-          channel,
-          timeout_ms);
-      trap();
-    }
-  }
-}
-
 void CUDASymmetricMemory::put_signal(
     int dst_rank,
     int channel,
@@ -253,34 +233,6 @@ void CUDASymmetricMemory::put_signal(
       world_size_,
       timeout_ms);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
-}
-
-static __global__ void wait_signal_kernel(
-    uint32_t** signal_pads,
-    int src_rank,
-    int channel,
-    int rank,
-    int world_size,
-    size_t timeout_ms) {
-  if (threadIdx.x == 0) {
-    bool success = try_wait_signal<std::memory_order_acquire>(
-        signal_pads[rank] + world_size * channel + src_rank, timeout_ms);
-    if (!success) {
-      printf(
-          "[FATAL] CUDASymmetricMemory::wait_signal rank %d failed to receive signal "
-          "from rank %d on channel %d after %lu microseconds\n",
-          rank,
-          src_rank,
-          channel,
-          timeout_ms);
-#if !defined(USE_ROCM)
-      __trap();
-#else
-      assert(0);
-#endif
-    }
-  }
-  __threadfence_system();
 }
 
 void CUDASymmetricMemory::wait_signal(
