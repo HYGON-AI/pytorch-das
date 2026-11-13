@@ -375,6 +375,7 @@ USE_GFLAGS=1 \
 USE_ROCM_CK_GEMM=0 \
 USE_ROCM_CK_SDPA=0 \
 USE_CUFILE=0 \
+USE_HIPFILE=0 \
 USE_NINJA=ON \
 python3 -m build --wheel --no-isolation
 
