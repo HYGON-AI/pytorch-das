@@ -17,8 +17,8 @@ void bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_
             64, // K_BLOCK
             8, // AK1
             8, // BK1
-            32, // WAVE_TILE_M
-            32, // WAVE_TILE_N
+            16, // WAVE_TILE_M
+            16, // WAVE_TILE_N
             2, // WAVE_MAP_M
             2, // WAVE_MAP_N
             S<8, 32, 1>, // ABLOCK_TRANSFER
@@ -29,8 +29,8 @@ void bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_
             8, // BBLOCK_TRANSFER_SSPV_K1
             1, // CSHUFFLE_MXDL_PWPS
             1,// CSHUFFLE_NXDL_PWPS
-            S<1, 16, 1, 16>, // CSHUFFLEBLOCK_TRANSFER
-            S<4>, // CDESHUFFLEBLOCK_TRANSFER
+            S<1, 32, 1, 8>, // CSHUFFLEBLOCK_TRANSFER
+            S<2>, // CDESHUFFLEBLOCK_TRANSFER
             ck::BlockGemmPipelineScheduler::Intrawave, // LOOP_SCHED
             ck::BlockGemmPipelineVersion::v3, // PIPELINE_VERSION
             ck::tensor_operation::device::GemmSpecialization::Default,
@@ -46,8 +46,8 @@ void bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_
             64, // K_BLOCK
             8, // AK1
             8, // BK1
-            32, // WAVE_TILE_M
-            32, // WAVE_TILE_N
+            16, // WAVE_TILE_M
+            16, // WAVE_TILE_N
             2, // WAVE_MAP_M
             2, // WAVE_MAP_N
             S<8, 32, 1>, // ABLOCK_TRANSFER
@@ -58,8 +58,8 @@ void bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_
             8, // BBLOCK_TRANSFER_SSPV_K1
             1, // CSHUFFLE_MXDL_PWPS
             1,// CSHUFFLE_NXDL_PWPS
-            S<1, 16, 1, 16>, // CSHUFFLEBLOCK_TRANSFER
-            S<4>, // CDESHUFFLEBLOCK_TRANSFER
+            S<1, 32, 1, 8>, // CSHUFFLEBLOCK_TRANSFER
+            S<2>, // CDESHUFFLEBLOCK_TRANSFER
             ck::BlockGemmPipelineScheduler::Intrawave, // LOOP_SCHED
             ck::BlockGemmPipelineVersion::v3, // PIPELINE_VERSION
             ck::tensor_operation::device::GemmSpecialization::Default,
@@ -75,8 +75,8 @@ void bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_
             64, // K_BLOCK
             8, // AK1
             8, // BK1
-            32, // WAVE_TILE_M
-            32, // WAVE_TILE_N
+            16, // WAVE_TILE_M
+            16, // WAVE_TILE_N
             2, // WAVE_MAP_M
             2, // WAVE_MAP_N
             S<8, 32, 1>, // ABLOCK_TRANSFER
@@ -87,8 +87,8 @@ void bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_
             8, // BBLOCK_TRANSFER_SSPV_K1
             1, // CSHUFFLE_MXDL_PWPS
             1,// CSHUFFLE_NXDL_PWPS
-            S<1, 16, 1, 16>, // CSHUFFLEBLOCK_TRANSFER
-            S<4>, // CDESHUFFLEBLOCK_TRANSFER
+            S<1, 32, 1, 8>, // CSHUFFLEBLOCK_TRANSFER
+            S<2>, // CDESHUFFLEBLOCK_TRANSFER
             ck::BlockGemmPipelineScheduler::Intrawave, // LOOP_SCHED
             ck::BlockGemmPipelineVersion::v3, // PIPELINE_VERSION
             ck::tensor_operation::device::GemmSpecialization::Default,
@@ -104,8 +104,8 @@ void bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_
             64, // K_BLOCK
             8, // AK1
             8, // BK1
-            32, // WAVE_TILE_M
-            32, // WAVE_TILE_N
+            16, // WAVE_TILE_M
+            16, // WAVE_TILE_N
             2, // WAVE_MAP_M
             2, // WAVE_MAP_N
             S<8, 32, 1>, // ABLOCK_TRANSFER
@@ -116,8 +116,8 @@ void bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_
             8, // BBLOCK_TRANSFER_SSPV_K1
             1, // CSHUFFLE_MXDL_PWPS
             1,// CSHUFFLE_NXDL_PWPS
-            S<1, 16, 1, 16>, // CSHUFFLEBLOCK_TRANSFER
-            S<4>, // CDESHUFFLEBLOCK_TRANSFER
+            S<1, 32, 1, 8>, // CSHUFFLEBLOCK_TRANSFER
+            S<2>, // CDESHUFFLEBLOCK_TRANSFER
             ck::BlockGemmPipelineScheduler::Intrawave, // LOOP_SCHED
             ck::BlockGemmPipelineVersion::v3, // PIPELINE_VERSION
             ck::tensor_operation::device::GemmSpecialization::Default,

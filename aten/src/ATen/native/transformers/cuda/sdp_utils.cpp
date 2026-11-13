@@ -27,7 +27,7 @@
 #if USE_ROCM
 #if defined(USE_FLASH_ATTENTION) && defined(USE_MEM_EFF_ATTENTION)
 #include <ATen/native/transformers/hip/aotriton_versions.h>
-#include <aotriton/flash.h>
+// #include <aotriton/flash.h>                // avoid aotriton
 #define USE_ROCM_ATTENTION 1
 #endif
 #else
@@ -378,11 +378,16 @@ bool check_mem_efficient_hardware_support(sdp_params const& params, bool debug) 
   using sm50 = SMVersion<5, 0>;
   using sm121 = SMVersion<12, 1>;
 #if USE_ROCM
- #if USE_AOTRITON_FA
+#if defined(USE_ROCM_CK_SDPA)
+  if (at::globalContext().getROCmFAPreferredBackend() == at::ROCmFABackend::Ck) {
+    return true;
+  }
+#endif
+#if USE_AOTRITON_FA
   return true;
- #else
+#else
   return false;
-  #endif
+#endif
 /*
 #if USE_ROCM_ATTENTION
   if (at::cuda::device_count() == 0) {
