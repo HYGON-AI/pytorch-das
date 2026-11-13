@@ -52,7 +52,12 @@ from torch.testing._internal.common_distributed import (
     requires_accelerator_dist_backend,
     skip_if_lt_x_gpu,
 )
-from torch.testing._internal.common_utils import MI350_ARCH, skipIfRocmArch, skipIfXpu
+from torch.testing._internal.common_utils import (
+    MI350_ARCH,
+    skipIfRocmArch,
+    skipIfXpu,
+    TEST_WITH_ROCM,
+)
 from torch.testing._internal.inductor_utils import HAS_GPU
 from torch.testing._internal.triton_utils import requires_cuda_and_triton
 
@@ -67,9 +72,13 @@ except Exception:
     _transformers_version = (0, 0)
 
 # https://github.com/huggingface/transformers/issues/44188
-# expectedFailure only applies to transformers >= 5.2 which introduced the bug
+# expectedFailure only applies to transformers >= 5.2 which introduced the bug.
+# The accuracy failure only shows up with the CUDA fused SDPA backends
+# (flash / mem-efficient / cuDNN); ROCm passes, so do not expect a failure there.
 _expectedFailureIf_transformers_ge_5_2 = (
-    unittest.expectedFailure if _transformers_version >= (5, 2) else lambda fn: fn
+    unittest.expectedFailure
+    if _transformers_version >= (5, 2) and not TEST_WITH_ROCM
+    else lambda fn: fn
 )
 
 

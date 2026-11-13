@@ -11173,8 +11173,10 @@ get_out().sum().backward()
                 # On Windows, opening the subprocess with the default CWD makes `import torch`
                 # fail, so just set CWD to this script's directory
                 cwd=os.path.dirname(os.path.realpath(__file__)),
-                # It is ok to have an extra long timeout here as a timeout means the test failed
-                timeout=20,
+                # It is ok to have an extra long timeout here as a timeout means the test failed.
+                # On ROCm the first GPU init in a fresh process (triggered by backward)
+                # takes ~16-19s, so the default 20s budget is too tight.
+                timeout=60 if torch.version.hip else 20,
             )
         except subprocess.TimeoutExpired as e:
             self.fail(
