@@ -183,6 +183,18 @@ class TestTensorCreation(TestCase):
             expected2 = torch.tensor([[1, 2, 1, 2], [3, 4, 3, 4]], dtype=dt, device=device)
             self.assertEqual(torch.cat((x, x), 1), expected2)
 
+    @onlyCUDA
+    def test_cat_last_dim_contiguous_small_grid(self, device):
+        inputs = [
+            torch.arange(8, device=device, dtype=torch.float32).reshape(1, 8),
+            torch.arange(8, 16, device=device, dtype=torch.float32).reshape(1, 8),
+        ]
+
+        result = torch.cat(inputs, dim=-1)
+        expected = torch.cat([tensor.cpu() for tensor in inputs], dim=-1)
+
+        self.assertEqual(result.cpu(), expected)
+
     def test_fill_all_dtypes_and_devices(self, device):
         for dt in all_types_complex_float8_and(torch.half, torch.bool, torch.bfloat16, torch.chalf):
             for x in [torch.tensor((10, 10), dtype=dt, device=device),

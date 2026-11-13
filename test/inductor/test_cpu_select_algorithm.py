@@ -2900,6 +2900,10 @@ class TestSelectAlgorithm(BaseTestSelectAlgorithm):
         x = torch.randn(bs, Mdim, Kdim).to(dtype=dtype)
         w = torch.randn(bs, Kdim, Ndim).to(dtype=dtype)
         other = torch.randn(bs, Mdim, Ndim).to(dtype=dtype)
+        if epilogue == "div":
+            other = torch.where(
+                other >= 0, other.clamp_min(0.5), other.clamp_max(-0.5)
+            )
         mod = M(epilogue, other).to(dtype=dtype).eval()
         with verify(dtype) as (atol, rtol):
             self.common(mod, (x, w), atol=atol, rtol=rtol)
