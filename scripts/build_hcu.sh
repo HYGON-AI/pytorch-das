@@ -137,7 +137,8 @@ fi
 echo "========== Preparing third-party sources =========="
 git config --global --add safe.directory "${PYTORCH_ROOT}"
 for attempt in 1 2 3; do
-  if git submodule update --init --recursive; then
+  if git -c submodule.external/composable_kernel.update=none \
+    submodule update --init --recursive; then
     break
   fi
   if [[ "${attempt}" -eq 3 ]]; then
@@ -146,6 +147,19 @@ for attempt in 1 2 3; do
   fi
   sleep 5
 done
+
+CK_REPO="${CK_REPO:-https://github.com/HYGON-AI/composable_kernel-das.git}"
+CK_COMMIT="${CK_COMMIT:-061d6ddadad580b627d1451cfb2d8a545887a942}"
+CK_DIR="third_party/mslk/external/composable_kernel"
+if [[ ! -d "${CK_DIR}/.git" ]]; then
+  rm -rf "${CK_DIR}"
+  git clone "${CK_REPO}" "${CK_DIR}"
+fi
+if ! git -C "${CK_DIR}" rev-parse --verify --quiet "${CK_COMMIT}^{commit}" >/dev/null; then
+  git -C "${CK_DIR}" fetch "${CK_REPO}" "${CK_COMMIT}"
+fi
+git -C "${CK_DIR}" checkout --force --detach "${CK_COMMIT}"
+cd "${PYTORCH_ROOT}"
 bash tools/third_party/apply_patches.sh
 
 # Prepare MAGMA.

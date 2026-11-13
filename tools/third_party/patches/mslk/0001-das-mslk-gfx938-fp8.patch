@@ -1,7 +1,35 @@
-diff -ruN a/csrc/gemm/ck/fp8_rowwise_grouped/fp8_rowwise_grouped_gemm.hip b/csrc/gemm/ck/fp8_rowwise_grouped/fp8_rowwise_grouped_gemm.hip
---- a/csrc/gemm/ck/fp8_rowwise_grouped/fp8_rowwise_grouped_gemm.hip	2026-10-13 17:45:36.864792961 +0800
-+++ b/csrc/gemm/ck/fp8_rowwise_grouped/fp8_rowwise_grouped_gemm.hip	2026-10-13 17:45:36.871792962 +0800
-@@ -481,7 +481,7 @@
+From f7766741fc764d9db2fd40f3e8a88517daa26b16 Mon Sep 17 00:00:00 2001
+From: sangyl <18991928358@163.com>
+Date: Fri, 6 Nov 2026 17:54:44 +0800
+Subject: [PATCH] [das]modify(csrc): Change the  kernel for gfx938
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+添加gfx938架构，并更新gfx938所支持的kernel
+---
+ .../fp8_rowwise_grouped/fp8_rowwise_grouped_gemm.hip |  2 +-
+ ...16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_interwave_v1.hip | 12 ++++++------
+ ...16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v3.hip |  8 ++++----
+ ...16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_intrawave_v3.hip | 10 +++++-----
+ ...8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1.hip | 12 ++++++------
+ ...8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip | 12 ++++++------
+ ...x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip | 12 ++++++------
+ ...x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip | 10 +++++-----
+ ...4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_interwave_v1.hip | 10 +++++-----
+ ...8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3.hip | 10 +++++-----
+ ...8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip | 12 ++++++------
+ ...8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip | 12 ++++++------
+ ...x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip | 12 ++++++------
+ ...x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip | 10 +++++-----
+ ...16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip | 10 +++++-----
+ 15 files changed, 77 insertions(+), 77 deletions(-)
+
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/fp8_rowwise_grouped_gemm.hip b/csrc/gemm/ck/fp8_rowwise_grouped/fp8_rowwise_grouped_gemm.hip
+index 13ceaef..acc816a 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/fp8_rowwise_grouped_gemm.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/fp8_rowwise_grouped_gemm.hip
+@@ -481,7 +481,7 @@ void set_dynamic_kernel_args(
  static std::pair<at::ScalarType, std::string> get_float8_e4m3_dtype() {
    if (at::detail::getCUDAHooks().isGPUArch({"gfx942"})) {
      return std::make_pair(at::kFloat8_e4m3fnuz, "float8_e4m3fnuz");
@@ -10,130 +38,376 @@ diff -ruN a/csrc/gemm/ck/fp8_rowwise_grouped/fp8_rowwise_grouped_gemm.hip b/csrc
      return std::make_pair(at::kFloat8_e4m3fn, "float8_e4m3fn");
    } else {
      std::string gcn_arch_name = at::cuda::getCurrentDeviceProperties()->gcnArchName;
-diff -ruN a/external/composable_kernel/include/ck/ck.hpp b/external/composable_kernel/include/ck/ck.hpp
---- a/external/composable_kernel/include/ck/ck.hpp	2026-10-13 17:45:36.845792961 +0800
-+++ b/external/composable_kernel/include/ck/ck.hpp	2026-10-13 17:45:36.877792962 +0800
-@@ -50,7 +50,7 @@
- #endif
- 
- // define general macros for various architectures
--#if defined(__gfx908__) || defined(__gfx90a__) || defined(__gfx942__) || defined(__gfx950__)
-+#if defined(__gfx908__) || defined(__gfx90a__) || defined(__gfx942__) || defined(__gfx950__) || defined(__gfx938__)
- #define __gfx9__
- #endif
- #if defined(__gfx942__) || defined(__gfx950__)
-diff -ruN a/external/composable_kernel/include/ck/utility/amd_xdlops.hpp b/external/composable_kernel/include/ck/utility/amd_xdlops.hpp
---- a/external/composable_kernel/include/ck/utility/amd_xdlops.hpp	2026-10-13 17:45:36.851792961 +0800
-+++ b/external/composable_kernel/include/ck/utility/amd_xdlops.hpp	2026-10-13 17:45:36.879792962 +0800
-@@ -10,6 +10,87 @@
- #define __gfx94__
- #endif
- 
-+#if defined(__gfx938__)
-+// gfx938 (Hygon HCU) has no MFMA; its fp8 matrix instruction is
-+// __builtin_hcu_mmac_f32_16x16x32_fp8_fp8 (OCP e4m3). Operand layout matches
-+// MFMA 16x16x32, but the result layout is lane l, reg i -> D[l % 16][l / 16 + 4 * i]
-+// instead of C[4 * (l / 16) + i][l % 16]. The helpers below reproduce the MFMA
-+// register layouts so the rest of CK is unchanged.
-+namespace hcu_mma {
-+typedef int hcu_int2_t __attribute__((vector_size(8)));
-+typedef float hcu_float4_t __attribute__((ext_vector_type(4)));
-+typedef float hcu_float16_t __attribute__((ext_vector_type(16)));
-+
-+__device__ inline int shfl(int v, int src_lane)
-+{
-+    return __builtin_amdgcn_ds_bpermute(src_lane << 2, v);
-+}
-+
-+__device__ inline float shfl(float v, int src_lane)
-+{
-+    return __builtin_bit_cast(float,
-+                              __builtin_amdgcn_ds_bpermute(src_lane << 2, __builtin_bit_cast(int, v)));
-+}
-+
-+// Same register layout as __builtin_amdgcn_mfma_f32_16x16x32_fp8_fp8.
-+// Swapping A/B transposes the result; permuting A rows by (g + 4i) -> (4g + i)
-+// turns the strided result layout into the MFMA one.
-+__device__ inline hcu_float4_t mfma_f32_16x16x32_fp8_fp8(hcu_int2_t a, hcu_int2_t b, hcu_float4_t c)
-+{
-+    const int lane = __lane_id();
-+    const int src  = (lane & ~15) | ((lane & 3) << 2) | ((lane >> 2) & 3);
-+    hcu_int2_t a_perm;
-+    a_perm[0] = shfl(a[0], src);
-+    a_perm[1] = shfl(a[1], src);
-+    return __builtin_hcu_mmac_f32_16x16x32_fp8_fp8(b, a_perm, c);
-+}
-+
-+// Same register layout as __builtin_amdgcn_mfma_f32_32x32x16_fp8_fp8, emulated
-+// with four 16x16x32 instructions (K = 16 placed in lanes 0-31, lanes 32-63 zero).
-+__device__ inline hcu_float16_t mfma_f32_32x32x16_fp8_fp8(hcu_int2_t a, hcu_int2_t b, hcu_float16_t c)
-+{
-+    const int lane          = __lane_id();
-+    const bool k_lo         = lane < 32;
-+    const hcu_float4_t zero = {0.f, 0.f, 0.f, 0.f};
-+
-+    // Split the 32 rows of A / B into two 16-row blocks in 16x16x32 operand layout.
-+    hcu_int2_t a_blk[2], b_blk[2];
-+    for(int blk = 0; blk < 2; ++blk)
-+    {
-+        const int src  = ((lane >> 4) & 1) * 32 + blk * 16 + (lane & 15);
-+        const int a0   = shfl(a[0], src);
-+        const int a1   = shfl(a[1], src);
-+        const int b0   = shfl(b[0], src);
-+        const int b1   = shfl(b[1], src);
-+        a_blk[blk][0] = k_lo ? a0 : 0;
-+        a_blk[blk][1] = k_lo ? a1 : 0;
-+        b_blk[blk][0] = k_lo ? b0 : 0;
-+        b_blk[blk][1] = k_lo ? b1 : 0;
-+    }
-+
-+    hcu_float4_t r[2][2];
-+    for(int mb = 0; mb < 2; ++mb)
-+        for(int nb = 0; nb < 2; ++nb)
-+            r[mb][nb] = mfma_f32_16x16x32_fp8_fp8(a_blk[mb], b_blk[nb], zero);
-+
-+    // MFMA 32x32 result: lane l, reg 4g + i -> C[8g + 4(l / 32) + i][l % 32]
-+    const bool n_hi = (lane >> 4) & 1;
-+    for(int g = 0; g < 4; ++g)
-+    {
-+        const int mb  = g >> 1;
-+        const int src = 16 * (2 * (g & 1) + (lane >> 5)) + (lane & 15);
-+        for(int i = 0; i < 4; ++i)
-+        {
-+            const float v0 = shfl(r[mb][0][i], src);
-+            const float v1 = shfl(r[mb][1][i], src);
-+            c[4 * g + i] += n_hi ? v1 : v0;
-+        }
-+    }
-+    return c;
-+}
-+} // namespace hcu_mma
-+#endif
-+
- // fp32
- template <index_t MPerWave, index_t NPerWave>
- struct intrin_mfma_f32_32x32x1f32;
-@@ -1402,6 +1483,11 @@
-                 0,
-                 0,
-                 0);
-+#elif defined(__gfx938__)
-+        reg_c.template AsType<float16_t>()(Number<0>{}) = hcu_mma::mfma_f32_32x32x16_fp8_fp8(
-+            bit_cast<hcu_mma::hcu_int2_t>(reg_a),
-+            bit_cast<hcu_mma::hcu_int2_t>(reg_b),
-+            reg_c.template AsType<float16_t>()[Number<0>{}]);
- #else
-         vector_type<f8_t, 8> reg_a_v(reg_a);
-         vector_type<f8_t, 8> reg_b_v(reg_b);
-@@ -1433,6 +1519,11 @@
-             0,
-             0,
-             0);
-+#elif defined(__gfx938__)
-+        reg_c.template AsType<float4_t>()(Number<0>{}) = hcu_mma::mfma_f32_16x16x32_fp8_fp8(
-+            bit_cast<hcu_mma::hcu_int2_t>(reg_a),
-+            bit_cast<hcu_mma::hcu_int2_t>(reg_b),
-+            reg_c.template AsType<float4_t>()[Number<0>{}]);
- #else
-         vector_type<f8_t, 8> reg_a_v(reg_a);
-         vector_type<f8_t, 8> reg_b_v(reg_b);
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_128x32x64x256_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_interwave_v1.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_128x32x64x256_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_interwave_v1.hip
+index 070ba30..6ba98b4 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_128x32x64x256_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_interwave_v1.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_128x32x64x256_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_interwave_v1.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_128x32x64x256_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_int
+       32,
+       64,
+       256,
+-      32,
+-      32,
+-      1,
+-      1,
++      16,
++      16,
++      2,
++      2,
+       S<16, 8, 1>,
+       S<16, 8, 1>,
+       S<1, 16, 1, 8>,
+       S<8, 8, 1>,
+-      1,
+-      1,
++      2,
++      2,
+       ck::BlockGemmPipelineScheduler::Interwave,
+       ck::BlockGemmPipelineVersion::v1>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_128x64x64x256_32x32_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v3.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_128x64x64x256_32x32_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v3.hip
+index e58def3..fa30da5 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_128x64x64x256_32x32_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v3.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_128x64x64x256_32x32_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v3.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_128x64x64x256_32x32_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_int
+       64,
+       64,
+       256,
+-      32,
+-      32,
+-      1,
++      16,
++      16,
+       2,
++      4,
+       S<16, 8, 1>,
+       S<16, 8, 1>,
+       S<1, 16, 1, 8>,
+       S<8, 8, 1>,
+-      1,
+       2,
++      4,
+       ck::BlockGemmPipelineScheduler::Intrawave,
+       ck::BlockGemmPipelineVersion::v3>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_128x64x64x256_32x32_2x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_intrawave_v3.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_128x64x64x256_32x32_2x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_intrawave_v3.hip
+index 2802dbf..a6ce494 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_128x64x64x256_32x32_2x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_intrawave_v3.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_128x64x64x256_32x32_2x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_intrawave_v3.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_128x64x64x256_32x32_2x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_int
+       64,
+       64,
+       256,
+-      32,
+-      32,
++      16,
++      16,
++      4,
+       2,
+-      1,
+       S<16, 8, 1>,
+       S<16, 8, 1>,
+       S<1, 16, 1, 8>,
+       S<8, 8, 1>,
+-      1,
+-      1,
++      2,
++      2,
+       ck::BlockGemmPipelineScheduler::Intrawave,
+       ck::BlockGemmPipelineVersion::v3>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1.hip
+index 8bdd859..acbd246 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_i
+       128,
+       128,
+       128,
+-      32,
+-      32,
+-      2,
+-      2,
++      16,
++      16,
++      4,
++      4,
+       S<8, 32, 1>,
+       S<8, 32, 1>,
+       S<1, 32, 1, 8>,
+       S<8, 8, 1>,
+-      1,
+-      1,
++      2,
++      2,
+       ck::BlockGemmPipelineScheduler::Interwave,
+       ck::BlockGemmPipelineVersion::v1>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
+index db35541..9e8f1db 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_i
+       128,
+       128,
+       128,
+-      32,
+-      32,
+-      2,
+-      2,
++      16,
++      16,
++      4,
++      4,
+       S<8, 32, 1>,
+       S<8, 32, 1>,
+       S<1, 32, 1, 8>,
+       S<8, 8, 1>,
+-      1,
+-      1,
++      2,
++      2,
+       ck::BlockGemmPipelineScheduler::Intrawave,
+       ck::BlockGemmPipelineVersion::v3>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x128x256_32x32_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x128x256_32x32_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
+index eb3c5df..69dc77f 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x128x256_32x32_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x128x256_32x32_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_256x128x128x256_32x32_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1
+       128,
+       128,
+       256,
+-      32,
+-      32,
+-      2,
+-      2,
++      16,
++      16,
++      4,
++      4,
+       S<16, 16, 1>,
+       S<16, 16, 1>,
+       S<1, 32, 1, 8>,
+       S<8, 8, 1>,
+-      1,
+-      1,
++      2,
++      2,
+       ck::BlockGemmPipelineScheduler::Intrawave,
+       ck::BlockGemmPipelineVersion::v3>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x256x128_32x32_4x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x256x128_32x32_4x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip
+index cffe47a..ccd8ecd 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x256x128_32x32_4x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x128x256x128_32x32_4x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_256x128x256x128_32x32_4x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_
+       128,
+       256,
+       128,
+-      32,
+-      32,
++      16,
++      16,
++      8,
+       4,
+-      2,
+       S<8, 32, 1>,
+       S<8, 32, 1>,
+       S<1, 16, 1, 16>,
+       S<8, 8, 1>,
+-      1,
+-      1,
++      2,
++      2,
+       ck::BlockGemmPipelineScheduler::Intrawave,
+       ck::BlockGemmPipelineVersion::v3>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x128x64_32x32_4x2_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_interwave_v1.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x128x64_32x32_4x2_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_interwave_v1.hip
+index 5a737f3..7e9d601 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x128x64_32x32_4x2_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_interwave_v1.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x128x64_32x32_4x2_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_interwave_v1.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_256x256x128x64_32x32_4x2_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_in
+       256,
+       128,
+       64,
+-      32,
+-      32,
++      16,
++      16,
++      8,
+       4,
+-      2,
+       S<4, 64, 1>,
+       S<4, 64, 1>,
+       S<1, 32, 1, 8>,
+       S<8, 8, 1>,
+-      1,
+-      1,
++      2,
++      2,
+       ck::BlockGemmPipelineScheduler::Interwave,
+       ck::BlockGemmPipelineVersion::v1>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x160x128_32x32_2x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x160x128_32x32_2x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3.hip
+index 47156c6..74cca29 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x160x128_32x32_2x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x160x128_32x32_2x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_256x256x160x128_32x32_2x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_i
+       256,
+       160,
+       128,
+-      32,
+-      32,
+-      2,
+-      5,
++      16,
++      16,
++      4,
++      10,
+       S<8, 32, 1>,
+       S<8, 32, 1>,
+       S<1, 64, 1, 4>,
+       S<8, 8, 1>,
++      4,
+       2,
+-      1,
+       ck::BlockGemmPipelineScheduler::Intrawave,
+       ck::BlockGemmPipelineVersion::v3>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x192x128_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x192x128_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
+index f35e010..f208181 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x192x128_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x192x128_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_256x256x192x128_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_i
+       256,
+       192,
+       128,
+-      32,
+-      32,
+-      4,
+-      3,
++      16,
++      16,
++      8,
++      6,
+       S<8, 32, 1>,
+       S<8, 32, 1>,
+       S<1, 32, 1, 8>,
+       S<8, 8, 1>,
+-      1,
+-      1,
++      2,
++      2,
+       ck::BlockGemmPipelineScheduler::Intrawave,
+       ck::BlockGemmPipelineVersion::v3>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x256x128_32x32_4x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x256x128_32x32_4x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
+index d52f0f6..d95ee88 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x256x128_32x32_4x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x256x128_32x32_4x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_256x256x256x128_32x32_4x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_i
+       256,
+       256,
+       128,
+-      32,
+-      32,
+-      4,
+-      4,
++      16,
++      16,
++      8,
++      8,
+       S<8, 32, 1>,
+       S<8, 32, 1>,
+       S<1, 32, 1, 8>,
+       S<8, 8, 1>,
+-      1,
+-      1,
++      2,
++      2,
+       ck::BlockGemmPipelineScheduler::Intrawave,
+       ck::BlockGemmPipelineVersion::v3>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x256x128_32x32_8x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x256x128_32x32_8x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip
+index c0673e7..13abe5b 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x256x128_32x32_8x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x256x256x128_32x32_8x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_256x256x256x128_32x32_8x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_
+       256,
+       256,
+       128,
+-      32,
+-      32,
+-      8,
+-      2,
++      16,
++      16,
++      16,
++      4,
+       S<8, 32, 1>,
+       S<8, 32, 1>,
+       S<1, 16, 1, 16>,
+       S<8, 8, 1>,
+-      1,
+-      1,
++      2,
++      2,
+       ck::BlockGemmPipelineScheduler::Intrawave,
+       ck::BlockGemmPipelineVersion::v3>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x64x128x256_32x32_1x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x64x128x256_32x32_1x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
+index 2bfc9ea..16351fc 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x64x128x256_32x32_1x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x64x128x256_32x32_1x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_256x64x128x256_32x32_1x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_
+       64,
+       128,
+       256,
+-      32,
+-      32,
+-      1,
++      16,
++      16,
+       2,
++      4,
+       S<16, 16, 1>,
+       S<16, 16, 1>,
+       S<1, 32, 1, 8>,
+       S<8, 8, 1>,
+-      1,
+-      1,
++      2,
++      2,
+       ck::BlockGemmPipelineScheduler::Intrawave,
+       ck::BlockGemmPipelineVersion::v3>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+diff --git a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x64x128x256_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x64x128x256_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip
+index 6e74b41..75ec140 100644
+--- a/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x64x128x256_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip
++++ b/csrc/gemm/ck/fp8_rowwise_grouped/kernels/fp8_rowwise_grouped_256x64x128x256_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3.hip
+@@ -23,16 +23,16 @@ fp8_rowwise_grouped_256x64x128x256_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1
+       64,
+       128,
+       256,
+-      32,
+-      32,
++      16,
++      16,
++      4,
+       2,
+-      1,
+       S<16, 16, 1>,
+       S<16, 16, 1>,
+       S<1, 16, 1, 16>,
+       S<8, 8, 1>,
+-      1,
+-      1,
++      2,
++      2,
+       ck::BlockGemmPipelineScheduler::Intrawave,
+       ck::BlockGemmPipelineVersion::v3>;
+   return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+-- 
+GitLab
+
