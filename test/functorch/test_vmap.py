@@ -4169,14 +4169,15 @@ class TestVmapOperatorsOpInfo(TestCase):
         def test():
             # Error inputs check
             if op.error_inputs_func is not None:
-                error_inputs = op.error_inputs(device)
-                for error_input in error_inputs:
-                    sample_input = error_input.sample_input
-                    args = (sample_input.input,) + tuple(sample_input.args)
-                    kwargs = sample_input.kwargs
-                    for batched_args, in_dims, _ in generate_vmap_inputs(args, {}):
-                        with self.assertRaises(Exception):
-                            vmap(op, in_dims)(*batched_args, **kwargs)
+                error_inputs = op.error_inputs(device, use_subtests=True)
+                for error_input, subtest_ctx in error_inputs:
+                    with subtest_ctx(self):
+                        sample_input = error_input.sample_input
+                        args = (sample_input.input,) + tuple(sample_input.args)
+                        kwargs = sample_input.kwargs
+                        for batched_args, in_dims, _ in generate_vmap_inputs(args, {}):
+                            with self.assertRaises(Exception):
+                                vmap(op, in_dims)(*batched_args, **kwargs)
 
             # Sample inputs check
             sample_inputs_op = {
