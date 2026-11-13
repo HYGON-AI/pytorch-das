@@ -38,7 +38,7 @@ permissions:
 defaults:
   run:
     shell: bash
-    working-directory: source
+    working-directory: source-2.12
 
 env:
   RESOURCE_SERVER_URL: "${{ vars.RESOURCE_SERVER_URL }}"
@@ -47,26 +47,25 @@ env:
   BUILD_PIP_INDEX_URL: "${{ vars.PYPI_URL }}/nightly/dtk2604/+simple/"
   HCU_CI_INDEX_URL: "${{ vars.PYPI_URL }}/open/deps/+simple/"
   SOURCE_REPO_URL: "${{ github.server_url }}/${{ github.repository }}.git"
-  LOCAL_RUN_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}"
+  LOCAL_RUN_ROOT: "/ci_public/pytorch-das/2.12/${{ github.run_id }}/${{ github.run_attempt }}"
 
 jobs:
   preflight:
     name: preflight
-    runs-on: bw1100
+    runs-on: hygon-cpu
     outputs:
       should_run: ${{ steps.context.outputs.should_run }}
     steps:
       - name: Checkout source for preflight
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.12
           fetch-depth: 0
           ref: ${{ inputs.source_ref }}
 
       - name: Prepare shared run directory
         id: context
         run: |
-          set -euo pipefail
           case "${{ inputs.suite }}" in
             pr|full) ;;
             *) echo "ERROR: unsupported suite: ${{ inputs.suite }}" >&2; exit 1 ;;
@@ -84,7 +83,10 @@ jobs:
     name: build (dtk2604, py${{ matrix.python-version }})
     needs: preflight
     if: needs.preflight.outputs.should_run == 'true'
-    runs-on: bw1100
+    runs-on: hygon-build
+    timeout-minutes: 180
+    container:
+      image: ${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py${{ matrix.python-version }}-mkl2024.2.0.664
     strategy:
       fail-fast: false
       matrix:
@@ -92,14 +94,14 @@ jobs:
     env:
       DTK_PKG_URL: "${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/dtk26.04/DTK-26.04-rc4-centos8-x86_64.tar.gz"
       DTK_PKG_NAME: "DTK-26.04-rc4-centos8-x86_64.tar.gz"
-      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}/dtk2604"
+      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/2.12/${{ github.run_id }}/${{ github.run_attempt }}/dtk2604"
       CONTAINER_NAME_PY310: "pytorch-build-dtk2604-py310-${{ github.run_id }}-${{ github.run_attempt }}"
       CONTAINER_NAME_PY312: "pytorch-build-dtk2604-py312-${{ github.run_id }}-${{ github.run_attempt }}"
     steps:
       - name: Checkout PyTorch source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.12
           fetch-depth: 0
           ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
       - name: Merge PR into target branch locally
@@ -108,7 +110,6 @@ jobs:
           PR_BASE_SHA: ${{ inputs.pr_base_sha }}
           PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
         run: |
-          set -euo pipefail
           git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
           git checkout --detach "${PR_BASE_SHA}"
           git -c user.name=github-actions -c user.email=ci@github \
@@ -134,13 +135,13 @@ jobs:
     env:
       DTK_PKG_URL: "${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/dtk26.10/DTK-26.10-CentOS8.5-x86_64.tar.gz"
       DTK_PKG_NAME: "DTK-26.10-CentOS8.5-x86_64.tar.gz"
-      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}/dtk2610"
+      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/2.12/${{ github.run_id }}/${{ github.run_attempt }}/dtk2610"
       CONTAINER_NAME_PY312: "pytorch-build-dtk2610-py312-${{ github.run_id }}-${{ github.run_attempt }}"
     steps:
       - name: Checkout PyTorch source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.12
           fetch-depth: 0
           ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
       - name: Merge PR into target branch locally
@@ -149,7 +150,6 @@ jobs:
           PR_BASE_SHA: ${{ inputs.pr_base_sha }}
           PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
         run: |
-          set -euo pipefail
           git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
           git checkout --detach "${PR_BASE_SHA}"
           git -c user.name=github-actions -c user.email=ci@github \
@@ -189,11 +189,15 @@ jobs:
           - name: bw
             runner: bw1000
         mode: ${{ fromJSON(inputs.suite == 'full' && '["full"]' || '["mr", "nn"]') }}
+        exclude:
+          - target:
+              name: nmz
+              runner: bw1100
     env:
       DTK_PKG_URL: "${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/dtk26.04/DTK-26.04-rc4-centos8-x86_64.tar.gz"
       DTK_PKG_NAME: "DTK-26.04-rc4-centos8-x86_64.tar.gz"
-      BUILD_ARTIFACT_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}/dtk2604"
-      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}/dtk2604/test-${{ matrix.target.name }}-${{ matrix.mode }}"
+      BUILD_ARTIFACT_ROOT: "/ci_public/pytorch-das/2.12/${{ github.run_id }}/${{ github.run_attempt }}/dtk2604"
+      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/2.12/${{ github.run_id }}/${{ github.run_attempt }}/dtk2604/test-${{ matrix.target.name }}-${{ matrix.mode }}"
       CONTAINER_NAME: "pytorch-test-${{ matrix.target.name }}-${{ matrix.mode }}-${{ github.run_id }}-${{ github.run_attempt }}"
       TEST_DEVICES: ${{ matrix.mode == 'nn' && '0' || '0,1,2,3,4,5,6,7' }}
       TEST_POLICY: ${{ matrix.mode == 'full' && 'report-only' || 'strict' }}
@@ -201,7 +205,7 @@ jobs:
       - name: Checkout PyTorch source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.12
           fetch-depth: 0
           ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
       - name: Merge PR into target branch locally
@@ -210,7 +214,6 @@ jobs:
           PR_BASE_SHA: ${{ inputs.pr_base_sha }}
           PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
         run: |
-          set -euo pipefail
           git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
           git checkout --detach "${PR_BASE_SHA}"
           git -c user.name=github-actions -c user.email=ci@github \
@@ -227,6 +230,55 @@ jobs:
       - name: Cleanup test container
         if: always()
         run: bash scripts/ci_hcu_pipeline.sh cleanup
+
+  test_arc:
+    name: ${{ inputs.suite }} test (nmz, ${{ matrix.mode }})
+    needs: [preflight, build_dtk2604]
+    if: >-
+      ${{
+        always() && !inputs.publish &&
+        needs.preflight.outputs.should_run == 'true' &&
+        needs.build_dtk2604.result == 'success'
+      }}
+    runs-on: ${{ matrix.mode == 'nn' && 'hygon-bw1100-1card' || 'hygon-bw1100-8card' }}
+    timeout-minutes: ${{ matrix.mode == 'full' && 7200 || matrix.mode == 'mr' && 1440 || 90 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: ${{ fromJSON(inputs.suite == 'full' && '["full"]' || '["mr", "nn"]') }}
+    container:
+      image: ${{ vars.HARBOR_SITE }}/dev/dev:rockylinux8.6-mpi5.0-gcc13.3-cmake3.29-py3.10-mkl2024.2.0.664
+    env:
+      DTK_PKG_URL: "${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/dtk26.04/DTK-26.04-rc4-centos8-x86_64.tar.gz"
+      BUILD_ARTIFACT_ROOT: "/ci_public/pytorch-das/2.12/${{ github.run_id }}/${{ github.run_attempt }}/dtk2604"
+      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/2.12/${{ github.run_id }}/${{ github.run_attempt }}/dtk2604/test-nmz-${{ matrix.mode }}"
+      CONTAINER_NAME: "unused-arc-${{ github.run_id }}"
+      TEST_DEVICES: ${{ matrix.mode == 'nn' && '0' || '0,1,2,3,4,5,6,7' }}
+      TEST_POLICY: ${{ matrix.mode == 'full' && 'report-only' || 'strict' }}
+    steps:
+      - name: Checkout PyTorch source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: source-2.12
+          fetch-depth: 0
+          ref: ${{ inputs.merge_pr && inputs.pr_base_sha || inputs.source_ref }}
+      - name: Merge PR into target branch locally
+        if: inputs.merge_pr
+        env:
+          PR_BASE_SHA: ${{ inputs.pr_base_sha }}
+          PR_HEAD_SHA: ${{ inputs.pr_head_sha }}
+        run: |
+          git fetch --no-tags origin "${PR_BASE_SHA}" "${PR_HEAD_SHA}"
+          git checkout --detach "${PR_BASE_SHA}"
+          git -c user.name=github-actions -c user.email=ci@github \
+            merge --no-ff --no-edit "${PR_HEAD_SHA}"
+      - name: Set source commit
+        run: echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "${GITHUB_ENV}"
+      - name: Run hcu-torch-ci
+        run: bash scripts/ci_hcu_pipeline.sh test "${{ matrix.mode }}" "${TEST_DEVICES}" "${TEST_POLICY}"
+      - name: Save test reports locally
+        if: always()
+        run: bash scripts/ci_hcu_pipeline.sh collect
 
   publish:
     name: publish (${{ matrix.dtk.id }})
@@ -246,7 +298,7 @@ jobs:
     env:
       DTK_PKG_URL: "${{ vars.RESOURCE_SERVER_URL }}/dtk-pkg/${{ matrix.dtk.directory }}/${{ matrix.dtk.package }}"
       DTK_PKG_NAME: "${{ matrix.dtk.package }}"
-      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/${{ github.run_id }}/${{ github.run_attempt }}/${{ matrix.dtk.id }}"
+      LOCAL_RUN_ROOT: "/ci_public/pytorch-das/2.12/${{ github.run_id }}/${{ github.run_attempt }}/${{ matrix.dtk.id }}"
       CONTAINER_NAME: "pytorch-publish-${{ matrix.dtk.id }}-${{ github.run_id }}-${{ github.run_attempt }}"
       DEVPI_URL: "${{ vars.PYPI_URL }}"
       PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
@@ -254,7 +306,7 @@ jobs:
       - name: Checkout PyTorch source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: source
+          path: source-2.12
           fetch-depth: 0
           ref: ${{ inputs.source_ref }}
       - name: Set source commit

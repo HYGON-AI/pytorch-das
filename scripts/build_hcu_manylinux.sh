@@ -69,129 +69,53 @@ if [ "${#WHEELS[@]}" -ne 1 ]; then
 fi
 mkdir -p "${MANYLINUX_OUTPUT_DIR}"
 
-case "${DTK_BUILD_VERSION}" in
-    2610*)
-        selected_auditwheel_excludes=(
-            'libgalaxyhip.so*'
-            'libMIOpen.so*'
-            'librccl.so*'
-            'libhipblas.so*'
-            'libhipblaslt.so*'
-            'libhipfft.so*'
-            'libhiprand.so*'
-            'libhiprtc.so*'
-            'libhipsolver.so*'
-            'libhipsparse.so*'
-            'libhipnn.so*'
-            'libhipprof*'
-            'librocblas.so*'
-            'librocsolver.so*'
-            'librocfft.so*'
-            'librocrand.so*'
-            'librocsparse.so*'
-            'librocm_smi64.so*'
-            'libroctracer64.so*'
-            'libroctx64.so*'
-            'librocfft-device-*.so*'
-            'libhsa-runtime64.so*'
-            'libamdhip64.so*'
-            'libamd_comgr.so*'
-            'libhsakmt.so*'
-            'libgflags*'
-            'libglog*'
-            'libc10.so*'
-            'libc10_hip.so*'
-            'libtorch_cpu.so*'
-            'libtorch_hip.so*'
-            'libtorch_python.so*'
-            'libtorch.so*'
-            'libtorchaudio*'
-            '_torchaudio*'
-            'libavcodec*'
-            'libavdevice*'
-            'libavfilter*'
-            'libavformat*'
-            'libavutil*'
-            'libsox*'
-            'libomp.so*'
-            'libnuma.so*'
-            'libibverbs*'
-            'libnl*'
-            'libmpi*'
-            'libpmix*'
-        )
-        ;;
-    *)
-        selected_auditwheel_excludes=(
-            libgalaxyhip.so.5
-            libMIOpen.so.1
-            librccl.so.1
-            libhipblas.so.0
-            libhipfft.so
-            libhiprand.so.1
-            libhipsolver.so.0
-            libhipsparse.so.0
-            libhipnn.so
-            librocblas.so.0
-            librocsolver.so.0
-            librocfft.so.0
-            librocrand.so.1
-            librocsparse.so.0
-            librocm_smi64.so.2
-            librocfft-device-0.so.0
-            librocfft-device-1.so.0
-            librocfft-device-2.so.0
-            librocfft-device-3.so.0
-            libhipblaslt.so.0
-            libhipblas.so.2
-            libhipfft.so.0
-            libhipsparse.so.1
-            librocblas.so.4
-            librocsparse.so.1
-            libc10.so
-            libc10_hip.so
-            libtorch_cpu.so
-            libtorch_hip.so
-            libtorch_python.so
-            libtorch.so
-            libtorchaudio_ffmpeg4.so
-            libtorchaudio_ffmpeg5.so
-            libtorchaudio_ffmpeg6.so
-            libtorchaudio.so
-            libtorchaudio_sox.so
-            _torchaudio_ffmpeg4.so
-            _torchaudio_ffmpeg5.so
-            _torchaudio_ffmpeg6.so
-            _torchaudio.so
-            _torchaudio_sox.so
-            libavcodec.so.58
-            libavcodec.so.59
-            libavcodec.so.60
-            libavdevice.so.58
-            libavdevice.so.59
-            libavdevice.so.60
-            libavfilter.so.7
-            libavfilter.so.8
-            libavfilter.so.9
-            libavformat.so.58
-            libavformat.so.59
-            libavformat.so.60
-            libavutil.so.56
-            libavutil.so.57
-            libavutil.so.58
-            libsox.so
-            libomp.so
-            libnuma.so.1
-        )
-        ;;
-esac
+selected_auditwheel_excludes=(
+    'libgalaxyhip.so*'
+    'libMIOpen.so*'
+    'librccl.so*'
+    'libhipblas.so*'
+    'libhipfft.so*'
+    'libhiprand.so*'
+    'libhipsolver.so*'
+    'libhipsparse.so*'
+    'libhipnn.so*'
+    'librocblas.so*'
+    'librocsolver.so*'
+    'librocfft.so*'
+    'librocrand.so*'
+    'librocsparse.so*'
+    'librocm_smi64.so*'
+    'librocfft-device-*.so*'
+    'libc10.so*'
+    'libc10_hip.so*'
+    'libtorch_cpu.so*'
+    'libtorch_hip.so*'
+    'libtorch_python.so*'
+    'libtorch.so*'
+    'libtorchaudio*'
+    '_torchaudio*'
+    'libavcodec*'
+    'libavdevice*'
+    'libavfilter*'
+    'libavformat*'
+    'libavutil*'
+    'libsox*'
+    'libhipblaslt.so*'
+    'libnuma.so*'
+    'libibverbs*'
+    'libnl*'
+    'libmpi*'
+    'libpmix*'
+    'libhipprof*'
+    'libomp.so*'
+)
 
 auditwheel_excludes=()
 for library in "${selected_auditwheel_excludes[@]}"; do
     auditwheel_excludes+=(--exclude "${library}")
 done
 echo "========== auditwheel exclusions selected for DTK ${DTK_BUILD_VERSION:-unknown} =========="
-auditwheel repair --plat "${PLATFORM}" --strip \
+auditwheel repair --plat "${PLATFORM}" \
     "${auditwheel_excludes[@]}" \
     -w "${MANYLINUX_OUTPUT_DIR}" \
     "${WHEELS[@]}"
