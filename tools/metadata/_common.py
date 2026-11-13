@@ -9,6 +9,7 @@ of this module would not resolve.
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 
 
@@ -26,4 +27,6 @@ def get_torch_version() -> str:
         raise ImportError("Could not load generate_torch_version.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.get_torch_version()
+    if os.getenv("PYTORCH_BUILD_VERSION"):
+        return mod.get_torch_version()
+    return mod.get_hcu_version()
