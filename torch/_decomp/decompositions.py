@@ -2,15 +2,17 @@
 # mypy: allow-untyped-defs
 import functools
 import itertools
+import math
 import numbers
 import operator
+import os
 import sys
 from collections.abc import Callable, Iterable
 from contextlib import nullcontext
 from enum import Enum
 from functools import partial, reduce
 from itertools import chain, product
-from typing import Any, cast
+from typing import Any, cast, Optional
 
 import torch
 import torch._meta_registrations
@@ -44,6 +46,11 @@ DispatchKey = torch._C.DispatchKey  # type: ignore[attr-defined]
 __all__: list[str] = []
 
 aten = torch._ops.ops.aten
+
+use_upsample_linear_opt = (
+    os.environ.get("TORCHDECOMP_USE_UPSAMPLE_LINEAR_OPT", "1")
+    == "1"
+)
 
 
 class Reduction(Enum):
@@ -3966,18 +3973,56 @@ def upsample_lanczos2d_aa_vec(input, output_size, align_corners, scale_factors):
     )
 
 
-@register_decomposition(aten.upsample_bilinear2d.vec)
-@register_decomposition(aten.upsample_trilinear3d.vec)
-@aten.upsample_linear1d.vec.py_impl(DispatchKey.CompositeImplicitAutograd)
-@aten.upsample_linear1d.vec.py_impl(DispatchKey.Autograd)
-@aten.upsample_bilinear2d.vec.py_impl(DispatchKey.CompositeImplicitAutograd)
-@aten.upsample_bilinear2d.vec.py_impl(DispatchKey.Autograd)
-@aten.upsample_trilinear3d.vec.py_impl(DispatchKey.CompositeImplicitAutograd)
-@aten.upsample_trilinear3d.vec.py_impl(DispatchKey.Autograd)
-def _upsample_linear_vec(input, output_size, align_corners, scale_factors):
-    osize = upsample_compute_output_size(input.size(), output_size, scale_factors)
-    scales = scale_factors if scale_factors else [None] * len(osize)
-    return _upsample_linear(input, osize, align_corners, scales)
+if use_upsample_linear_opt:
+
+    @register_decomposition(aten.upsample_bilinear2d.vec)
+    @register_decomposition(aten.upsample_trilinear3d.vec)
+    def _upsample_linear_vec(input, output_size, align_corners, scale_factors):
+        osize = upsample_compute_output_size(input.size(), output_size, scale_factors)
+        scales = scale_factors if scale_factors else [None] * len(osize)
+        return _upsample_linear(input, osize, align_corners, scales)
+
+    @aten.upsample_linear1d.vec.py_impl(DispatchKey.CompositeImplicitAutograd)
+    @aten.upsample_linear1d.vec.py_impl(DispatchKey.Autograd)
+    def _upsample_linear1d_vec(input, output_size, align_corners, scale_factors):
+        osize = upsample_compute_output_size(input.size(), output_size, scale_factors)
+        scale_w = get_scale_value(scale_factors, 0)
+        return aten.upsample_linear1d.default(input, osize, align_corners, scale_w)
+
+    @aten.upsample_bilinear2d.vec.py_impl(DispatchKey.CompositeImplicitAutograd)
+    @aten.upsample_bilinear2d.vec.py_impl(DispatchKey.Autograd)
+    def _upsample_bilinear2d_vec(input, output_size, align_corners, scale_factors):
+        osize = upsample_compute_output_size(input.size(), output_size, scale_factors)
+        scale_h = get_scale_value(scale_factors, 0)
+        scale_w = get_scale_value(scale_factors, 1)
+        return aten.upsample_bilinear2d.default(
+            input, osize, align_corners, scale_h, scale_w
+        )
+
+    @aten.upsample_trilinear3d.vec.py_impl(DispatchKey.CompositeImplicitAutograd)
+    @aten.upsample_trilinear3d.vec.py_impl(DispatchKey.Autograd)
+    def _upsample_trilinear3d_vec(input, output_size, align_corners, scale_factors):
+        osize = upsample_compute_output_size(input.size(), output_size, scale_factors)
+        scale_d = get_scale_value(scale_factors, 0)
+        scale_h = get_scale_value(scale_factors, 1)
+        scale_w = get_scale_value(scale_factors, 2)
+        return aten.upsample_trilinear3d.default(
+            input, osize, align_corners, scale_d, scale_h, scale_w
+        )
+else:
+
+    @register_decomposition(aten.upsample_bilinear2d.vec)
+    @register_decomposition(aten.upsample_trilinear3d.vec)
+    @aten.upsample_linear1d.vec.py_impl(DispatchKey.CompositeImplicitAutograd)
+    @aten.upsample_linear1d.vec.py_impl(DispatchKey.Autograd)
+    @aten.upsample_bilinear2d.vec.py_impl(DispatchKey.CompositeImplicitAutograd)
+    @aten.upsample_bilinear2d.vec.py_impl(DispatchKey.Autograd)
+    @aten.upsample_trilinear3d.vec.py_impl(DispatchKey.CompositeImplicitAutograd)
+    @aten.upsample_trilinear3d.vec.py_impl(DispatchKey.Autograd)
+    def _upsample_linear_vec(input, output_size, align_corners, scale_factors):
+        osize = upsample_compute_output_size(input.size(), output_size, scale_factors)
+        scales = scale_factors if scale_factors else [None] * len(osize)
+        return _upsample_linear(input, osize, align_corners, scales)
 
 
 @register_decomposition([aten.upsample_linear1d.default, aten.upsample_linear1d.out])
@@ -3991,10 +4036,16 @@ def upsample_linear1d(
     return _upsample_linear(input, output_size, align_corners, [scales_w])
 
 
+def _register_upsample_bilinear2d_autograd(fn):
+    if not use_upsample_linear_opt:
+        return aten.upsample_bilinear2d.default.py_impl(DispatchKey.Autograd)(fn)
+    return fn
+
+
 @register_decomposition(
     [aten.upsample_bilinear2d.default, aten.upsample_bilinear2d.out]
 )
-@aten.upsample_bilinear2d.default.py_impl(DispatchKey.Autograd)
+@_register_upsample_bilinear2d_autograd
 @out_wrapper()
 def upsample_bilinear2d(
     input: Tensor,
@@ -4132,6 +4183,174 @@ def _upsample_linear(
 
     return result
 
+@pw_cast_for_opmath
+def _upsample_linear_backward(
+    grad_output: Tensor,
+    output_size: list[int],
+    input_size: list[int],
+    align_corners: bool,
+    scales: list[Optional[float]],
+) -> Tensor:
+    n_dims = len(output_size)
+    dtype = grad_output.dtype
+    grad = grad_output
+
+    for k in range(n_dims):
+        dim = 2 + k
+        in_size = input_size[dim]
+        out_size = output_size[k]
+        scale = _compute_scale(in_size, out_size, align_corners, scales[k])
+
+        if isinstance(scale, torch.SymFloat):
+            scale_is_size_ratio = not (scales[k] is not None and scales[k] > 0)
+            grad = _upsample_linear_backward_scan_dim(
+                grad,
+                dim,
+                in_size,
+                out_size,
+                scale,
+                align_corners,
+                dtype,
+                scale_is_size_ratio,
+            )
+            continue
+
+        i = torch.arange(in_size, device=grad.device).unsqueeze(1)
+        if scale > 0:
+            window = int(math.ceil(2.0 / scale)) + 2
+            inv = (i.to(torch.float64) - 1.0) / scale
+            if not align_corners:
+                inv = inv + (0.5 / scale - 0.5)
+
+            base = (torch.floor(inv).to(torch.int64) - 1).clamp(min=0)
+        else:
+            window = out_size
+            base = torch.zeros_like(i)
+        o = base + torch.arange(window, device=grad.device).unsqueeze(0)
+        valid = (o >= 0) & (o < out_size)
+        oc = o.clamp(0, out_size - 1)
+
+        x_f32 = _compute_source_index(scale, oc.to(dtype), align_corners).clamp(min=0.0)
+        x = x_f32.to(torch.int64)
+        xp1 = (x + 1).clamp(max=in_size - 1)
+        frac = (x_f32 - x).clamp(0.0, 1.0)
+        zero = torch.zeros_like(frac)
+        w = torch.where(x == i, 1 - frac, zero) + torch.where(xp1 == i, frac, zero)
+        w = torch.where(valid, w, zero)
+
+        idx: list[Optional[Tensor]] = [None] * dim + [oc]
+        gathered = aten._unsafe_index(grad, idx)
+        wshape = [1] * gathered.dim()
+        wshape[dim], wshape[dim + 1] = in_size, window
+        grad = (gathered * w.view(wshape)).sum(dim + 1)
+
+    return grad.contiguous(memory_format=utils.suggest_memory_format(grad_output))
+
+def _exclusive_prefix_at(prefix: Tensor, dim: int, idx: Tensor) -> Tensor:
+    # prefix is an inclusive cumsum along dim; returns sum_{o < idx} = prefix[idx - 1]
+    shape = [1] * prefix.dim()
+    shape[dim] = idx.shape[0]
+    gathered = aten._unsafe_index(prefix, [None] * dim + [(idx - 1).clamp(min=0)])
+    return torch.where((idx > 0).view(shape), gathered, torch.zeros_like(gathered))
+
+
+def _upsample_linear_backward_scan_dim(
+    grad: Tensor,
+    dim: int,
+    in_size,
+    out_size,
+    scale,
+    align_corners: bool,
+    dtype: torch.dtype,
+    scale_is_size_ratio: bool = True,
+) -> Tensor:
+    o = torch.arange(out_size, device=grad.device)
+    x_f32 = _compute_source_index(scale, o.to(dtype), align_corners).clamp(min=0.0)
+
+    if align_corners:
+        x = torch.div(o * (in_size - 1), out_size - 1, rounding_mode="floor")
+    elif scale_is_size_ratio:
+        x = torch.div(
+            (o * 2 + 1) * in_size - out_size, out_size * 2, rounding_mode="floor"
+        ).clamp(min=0)
+    else:
+        x = x_f32.to(torch.int64)
+    xp1 = (x + 1).clamp(max=in_size - 1)
+    frac = (x_f32 - x).clamp(0.0, 1.0)
+    fshape = [1] * grad.dim()
+    fshape[dim] = out_size
+    prefix_g = torch.cumsum(grad, dim)
+    prefix_fg = torch.cumsum(grad * frac.view(fshape), dim)
+
+    i = torch.arange(in_size, device=grad.device)
+    lo0 = torch.searchsorted(x, i, right=False)
+    hi0 = torch.searchsorted(x, i, right=True)
+    lo1 = torch.searchsorted(xp1, i, right=False)
+    hi1 = torch.searchsorted(xp1, i, right=True)
+
+    # sum_{x == i} (1 - frac) * g + sum_{xp1 == i} frac * g
+    return (
+        _exclusive_prefix_at(prefix_g, dim, hi0)
+        - _exclusive_prefix_at(prefix_g, dim, lo0)
+        - _exclusive_prefix_at(prefix_fg, dim, hi0)
+        + _exclusive_prefix_at(prefix_fg, dim, lo0)
+        + _exclusive_prefix_at(prefix_fg, dim, hi1)
+        - _exclusive_prefix_at(prefix_fg, dim, lo1)
+    )
+
+def upsample_linear1d_backward(
+    grad_output: Tensor,
+    output_size: list[int],
+    input_size: list[int],
+    align_corners: bool,
+    scales: Optional[float] = None,
+) -> Tensor:
+    return _upsample_linear_backward(
+        grad_output, output_size, input_size, align_corners, [scales]
+    )
+
+
+def upsample_bilinear2d_backward(
+    grad_output: Tensor,
+    output_size: list[int],
+    input_size: list[int],
+    align_corners: bool,
+    scales_h: Optional[float] = None,
+    scales_w: Optional[float] = None,
+) -> Tensor:
+    return _upsample_linear_backward(
+        grad_output, output_size, input_size, align_corners, [scales_h, scales_w]
+    )
+
+
+def upsample_trilinear3d_backward(
+    grad_output: Tensor,
+    output_size: list[int],
+    input_size: list[int],
+    align_corners: bool,
+    scales_d: Optional[float] = None,
+    scales_h: Optional[float] = None,
+    scales_w: Optional[float] = None,
+) -> Tensor:
+    return _upsample_linear_backward(
+        grad_output,
+        output_size,
+        input_size,
+        align_corners,
+        [scales_d, scales_h, scales_w],
+    )
+
+
+if use_upsample_linear_opt:
+    register_decomposition(aten.upsample_linear1d_backward.default)(
+        upsample_linear1d_backward
+    )
+    register_decomposition(aten.upsample_bilinear2d_backward.default)(
+        upsample_bilinear2d_backward
+    )
+    register_decomposition(aten.upsample_trilinear3d_backward.default)(
+        upsample_trilinear3d_backward
+    )
 
 # We should be applying decompositions after all transformations
 @register_decomposition(aten.is_same_size.default)

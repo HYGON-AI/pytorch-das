@@ -1385,9 +1385,7 @@ aten::unsqueeze_
 aten::upsample_bicubic2d_backward
 aten::upsample_bicubic2d_backward.grad_input
 aten::upsample_bilinear2d.vec_out
-aten::upsample_bilinear2d_backward
 aten::upsample_bilinear2d_backward.grad_input
-aten::upsample_linear1d_backward
 aten::upsample_linear1d_backward.grad_input
 aten::upsample_nearest1d_backward
 aten::upsample_nearest1d_backward.grad_input
@@ -1396,7 +1394,6 @@ aten::upsample_nearest2d_backward
 aten::upsample_nearest2d_backward.grad_input
 aten::upsample_nearest3d_backward
 aten::upsample_nearest3d_backward.grad_input
-aten::upsample_trilinear3d_backward
 aten::upsample_trilinear3d_backward.grad_input
 aten::values
 aten::values_copy
